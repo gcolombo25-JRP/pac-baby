@@ -1,0 +1,313 @@
+# Pac-Baby 🍼
+
+팩맨 오마주 탑다운 미로 추격 게임. **베이비(플레이어)** 가 미로를 누비며 아이템을 먹고,
+**보모(악당)** 를 피해 도망치는 웹 게임입니다.
+
+- Vite 5 + Vanilla JS (ES Modules) + HTML5 Canvas
+- 테스트 126개 (`node --test`) · 외부 런타임 의존성 없음
+- 기획/규칙 원본: [`.clinerules`](./.clinerules)
+
+**▶ 휴대폰으로 바로 플레이**: <https://gcolombo25-jrp.github.io/pac-baby/>
+[![Deploy to GitHub Pages](https://github.com/gcolombo25-JRP/pac-baby/actions/workflows/deploy.yml/badge.svg)](https://github.com/gcolombo25-JRP/pac-baby/actions/workflows/deploy.yml)
+
+---
+
+## 1. 빠른 시작
+
+### Windows (권장)
+```
+run.bat 더블클릭
+```
+- Node.js 자동 탐색 → 없으면 안내 후 종료
+- 최초 실행 시 의존성 자동 설치
+- 브라우저가 **http://localhost:3000** 으로 자동 오픈
+
+### npm
+```bash
+npm install
+npm run dev        # http://localhost:3000
+```
+
+서버 종료: 실행 창에서 `Ctrl+C` 또는 `stop.bat`
+
+> Node.js 가 PATH 에 없어도 `run.bat` 은 `C:\Program Files\nodejs` 등 표준 경로를 찾아 실행합니다.
+> 터미널에서 직접 npm 을 쓰려면 PATH 에 Node 를 추가하거나 `& 'C:\Program Files\nodejs\npm.cmd' run dev` 를 사용하세요.
+
+---
+
+## 2. 조작
+
+| 키 | 동작 |
+|---|---|
+| `← ↑ ↓ →` | 이동 (미리 눌러도 0.9초까지 기억 → 다음 타일에서 자동 적용) |
+| `Space` | **울기(비상 탈출)**: 모든 악당 3초 얼림, **-100점**, 얼어 있는 악당은 **+3초 연장**, **쿨다운 3초** (얼린 악당은 무해) |
+| 침대(`2`) 타일 진입 | **스텔스 10초** (침대 파란색, 무적, 추격 악당은 5초간 순찰) |
+| `P` / `ESC` | 일시정지 토글 (요약 패널 표시) |
+| `-` / `+`, `1`~`9`, `0` | 속도 단계 1~10 (기본 1 = 가장 느림) |
+| `M` | 음향 + **BGM** on/off |
+| `R` | **GAME OVER 에서 재도전** (Space/Enter 도 가능) · STAGE CLEAR 에서 다음 라운드 |
+
+모바일: 화면 아래 **D-패드**(▲◀▶▼ + 울기/소리/정지)가 자동 표시됩니다.
+
+---
+
+## 3. 게임 규칙
+
+### 점수
+| 이벤트 | 점수 |
+|---|---|
+| 🥛 우유병 섭취 | **+50** |
+| 🍬 캔디 섭취 | **+70** |
+| 🍪 쿠키 섭취 | **+100** |
+| 악당이 트랩을 밟음 | **+100** |
+| 울기 사용 | **-100** |
+| 악당에게 체포 | **-200** |
+
+### 아이템 → 소화 → 트랩
+| 아이템 | 소화 시간 | 트랩 | 악당 감속 | 얼림 |
+|---|---|---|---|---|
+| 우유병 | 5초 | 오줌 | 10% / 10초 | **3초** |
+| 캔디 | 7초 | 토사물 | 20% / 10초 | **6초** |
+| 쿠키 | 10초 | 똥 | 30% / 10초 | **10초** |
+
+- 아이템은 섭취 후 **15초 뒤 임의 위치에 리스폰** (베이비/악당이 있는 타일 제외)
+- 트랩은 바닥에 **20초** 유지, 동시 **최대 6개**, 악당이 밟으면 소모
+- 트랩을 밟은 악당은 **종류별로 3/6/10초 얼고**(얼음 동안 무해), **기존 감속(10/20/30%)도 그대로 유지**
+- HUD 좌측에 **소화 게이지**(노랑)와 **스텔스 게이지**(파랑)가 고정 슬롯으로 표시됩니다
+
+### 악당
+- **추격 2마리(빨강)**: BFS 최단 경로로 추격
+- **경비 2마리(주황)**: 베이비와 5타일 이상 떨어진 곳을 순찰 (베이비 타일로는 이동하지 않음)
+- 체포 시 베이비는 침대로 귀환하고 1.5초 무적 (악당도 스폰으로 복귀)
+- **속도는 어떤 단계에서도 베이비보다 느림** (1.75배)
+
+### 침대 스텔스
+- 침대에 **새로 들어간 순간** 발동 (시작 위치가 침대여도 자동 발동 없음)
+- 사용한 침대는 파란색 → 종료 시 원래 빨간색
+- 스텔스 중에는 악당과 겹쳐도 잡히지 않음
+- 재사용 대기 3초
+
+### 울기 (Space) — 비상 탈출
+- 모든 악당을 **3초 얼림**, **-100점**
+- **쿨다운 3초** — 3초에 1회만 사용 가능하며, 쿨다운 중 입력은 **비용도 효과도 없음**
+- **트랩으로 얼어 있는 악당에게도 사용 가능** — 이때 해당 악당은 **+3초 연장**됩니다 (얼음이 줄어들지 않음)
+- 연장 시 색상 보간 기준도 새 기간으로 갱신되어 다시 파란색부터 시작합니다
+- **얼어붙은 악당은 무해** — 밟거나 지나가도 체포되지 않음
+- **색상**: 막 얼었을 때는 파랑(`#64b5f6`)이고, **남은 시간이 줄수록 원래 색**(추격 빨강 / 경비 주황)으로 서서히 돌아옵니다
+- 얼음이 풀린 뒤 같은 타일에 있으면 다시 위험하므로 그 전에 벗어나야 함
+
+### 시각 효과 (Juice)
+- **아이템 섭취**: 노란 반짝이 파티클
+- **트랩 배출**: 트랩 색(오줌/토사물/똥) 물방울이 퐁 튀는 연출
+- **울기 발동**: 화면 전체 푸른빛 플래시 + 악당 위치에 얼음 파편
+- **체포**: **0.2초 카메라 셰이크** (월드만 흔들리고 HUD 는 고정)
+- 모두 **Canvas 코드**로만 그립니다 (외부 이미지 파일 없음)
+
+### 배경 음악 (BGM)
+- Web Audio 오실레이터로 만든 **8비트 루프** (멜로디 + 4분음표 베이스)
+- 첫 키 입력/클릭에서 시작하며 **`M` 키로 음향과 함께 on/off**
+- 일시정지 중에는 BGM 도 멈춥니다
+
+### 목숨 · 게임 오버
+- 목숨 **3개**(하트)로 시작, 체포될 때마다 **1개 차감** (`-200점`은 그대로 적용)
+- 목숨 **0 → GAME OVER** 오버레이: 최종 점수 · HI-SCORE · `NEW RECORD!` · **`[R] 재도전`**
+- 재도전 시 점수 0 · 목숨 3 · 라운드 1로 초기화 (하이스코어는 유지)
+
+### 라운드 클리어 · 하이스코어
+- **아이템 12개를 모두 섭취하면 STAGE CLEAR** (`constants.ROUND_CLEAR_MODE` 로 `SCORE`/`BOTH` 전환 가능)
+- 클리어 보상: **목숨 +1**(최대 3), 다음 라운드는 **`Space`/`Enter`로 진입**(자동 진행 없음)
+- 다음 라운드: 점수·목숨·하이스코어 유지 / 아이템·트랩·소화·스텔스 초기화 / **속도 단계 +1(최대 10)**
+- **HI-SCORE**는 `localStorage`(`pacbaby.hiscore`)에 저장되어 새로고침 후에도 유지, HUD에 `HI:` 로 표시
+- 하이스코어 초기화: **`?reset-hi=1`** (예: `http://localhost:3000/?reset-hi=1`)
+
+### 자동 일시정지
+- 브라우저 탭을 벗어나거나 창을 최소화하면 **자동으로 PAUSED**
+- 돌아와도 자동 재개되지 않음 → `P` 또는 `ESC`로 재개
+
+---
+
+## 4. 테스터 모드 (개발/QA용)
+
+여는 방법 (둘 중 하나)
+- **`F2`** 키
+- URL 뒤에 **`?test=1`** → `http://localhost:3000/?test=1` (모바일 권장)
+
+### 모드 스위치 (하나만 활성, `F3` 순환)
+| 버튼 | 의미 |
+|---|---|
+| **1 MANUAL** | 직접 플레이 + 치트 |
+| **2 REPLAY** | 기록한 입력 재생 (끝나면 MANUAL 복귀) |
+| **3 BOT** | AI 자동 플레이 (최근접 아이템으로 이동, 악당 접근 시 회피) |
+
+### 기능 스위치 (독립, `localStorage` 에 저장)
+| 스위치 | 효과 |
+|---|---|
+| 무적 | 악당과 겹쳐도 체포되지 않음 |
+| 무벽 | 벽 통과 (베이비만) |
+| 악당 정지 | 모든 악당 고정 |
+| 1틱 모드 | 게임을 멈추고 `F4`/`⏭ 1틱`으로 한 틱씩 진행 |
+| 상태 라벨 | 캔버스 좌상단에 TEST 상태/좌표/점수 표시 |
+| 클릭 텔레포트 | 캔버스 클릭 지점으로 베이비 이동 |
+
+### 단축키 / 액션
+| 키 | 기능 |
+|---|---|
+| `F2` / `Shift+F2` | 패널 열기 / 닫기 |
+| `F3` | 모드 순환 |
+| `F4` | 1틱 진행 |
+| `F5` | 기록 시작 (게임 리셋 + 시드 고정) |
+| `F6` | 재생 |
+| `F7` | 봇 시작/정지 |
+| 패널 버튼 | 기록 · 정지 · 재생 · 봇 · 1틱 · 재시작 |
+
+### 인스펙터 표기
+```
+state PLAYING | mode BOT | speed 1/10 (220ms)
+baby (13,12) dir RIGHT next UP
+score 150 | stealth 0.0s | catch 1
+items 11/12 | traps 2 | digest 1
+enemies C@3,6 C@3,21 Pp@23,6 Pf@23,21
+rec off 0f | replay 0 | bot 128
+```
+`C`=추격 `P`=경비 `p`=정지(pinned) `f`=얼음(frozen) `@r,c`=좌표
+
+### 콘솔 API
+```js
+__TESTER.toggleFlag('invincible');
+__TESTER.teleport(1, 9);
+__TESTER.startRecording();
+__OPEN_TESTER();          // 패널 열기
+__GAME.player.score;      // 현재 점수
+```
+
+---
+
+## 5. 모바일에서 테스트하기
+
+1. PC 와 폰을 **같은 Wi-Fi** 에 연결
+2. PC 에서 네트워크 노출 실행 (둘 중 하나)
+   ```
+   run.bat --host
+   npm run dev:host
+   ```
+3. Vite 콘솔의 `Network:` 주소 확인 (예: `http://172.30.1.51:3000/`)
+   - 또는 PC 에서 `ipconfig` 의 IPv4 주소 사용
+4. 폰 브라우저에서 **`http://<PC-IP>:3000/?test=1`**
+
+> 첫 실행 시 Windows 방화벽 허용 팝업이 뜨면 **개인 네트워크**를 허용하세요.
+> 팝업이 없는데 접속이 안 되면(관리자 PowerShell):
+> ```powershell
+> New-NetFirewallRule -DisplayName "PacBaby Dev 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow -Profile Private
+> ```
+
+---
+
+## 6. 개발
+
+### 스크립트
+| 명령 | 설명 |
+|---|---|
+| `npm run dev` | 개발 서버 (localhost:3000, 브라우저 자동 오픈) |
+| `npm run dev:host` | 개발 서버 + 네트워크 노출 (모바일 테스트) |
+| `npm run build` | 프로덕션 빌드 → `dist/` |
+| `npm run preview` | 빌드 결과 미리보기 |
+| `npm run preview:host` | 빌드 결과 + 네트워크 노출 |
+| `npm test` | 단위 테스트 (126개) |
+| `npm run test:watch` | 테스트 워치 모드 |
+
+### 파일 구조
+```
+PacBaby/
+├── .clinerules              # 기획/규칙 문서
+├── README.md                # 이 문서
+├── DEPLOY.md                # 무료 배포 가이드 (GitHub Pages / Vercel)
+├── index.html               # 캔버스 + 터치 D-패드 마크업
+├── style.css                # 레이아웃/반응형/D-패드
+├── vite.config.js           # 개발·빌드 설정 (base './', strictPort)
+├── .github/workflows/       # CI + GitHub Pages 자동 배포(deploy.yml)
+├── run.bat / test.bat / stop.bat / push.bat / _node-env.bat
+├── src/
+│   ├── main.js              # 진입점 (게임/오디오/터치/테스터 연결)
+│   ├── constants.js         # 맵 데이터, 속도표, 아이템/트랩/스텔스 설정
+│   ├── game.js              # 루프·상태머신·시스템·HUD·오버레이
+│   ├── map.js               # 타일 렌더링 (오프스크린 캐시)
+│   ├── player.js            # 베이비 이동·입력 버퍼·소화·스텔스
+│   ├── enemy.js             # 추격/경비 AI, 얼림·감속, 목표 상실
+│   ├── item.js              # 아이템(섭취/리스폰) + 트랩
+│   ├── effects.js           # 파티클 / 화면 플래시 / 카메라 셰이크
+│   ├── input.js             # 키보드/터치 공용 입력 (press/release)
+│   ├── sound.js             # Web Audio 합성 효과음
+│   ├── touch.js             # 모바일 D-패드 (pointer capture)
+│   └── tester.js            # 테스터 모드 (스위치형, 지연 로딩)
+├── tests/                   # node:test 단위 테스트
+└── dist/                    # 빌드 산출물 (gitignore)
+```
+
+### 주요 설정 (`src/constants.js`)
+| 상수 | 기본값 | 의미 |
+|---|---|---|
+| `TICK_RATE` | 140 | 기본 논리 tick (ms) |
+| `SPEED_LEVELS` | 1~10단계 | 베이비/악당 이동 시간 표 |
+| `ENEMY_SLOWDOWN_FACTOR` | 1.75 | 악당이 항상 느리도록 보장 |
+| `CHASE_ENEMY_COUNT` | 2 | 추격 악당 수 |
+| `ITEM_RESPAWN_MS` | 15000 | 아이템 리스폰 |
+| `TRAP_LIFE_MS` / `TRAP_MAX_ACTIVE` / `TRAP_HIT_SCORE` | 20000 / 6 / 100 | 트랩 규칙 |
+| `TRAP_FREEZE_MS` | PEE 3000 / VOMIT 6000 / POOP 10000 | 트랩별 추가 얼림 |
+| `STEALTH_DURATION_MS` / `ENEMY_CONFUSE_MS` / `STEALTH_COOLDOWN_MS` | 10000 / 5000 / 3000 | 스텔스 규칙 |
+| `SKILL_CRY` | 3초 / -100 | 울기 스킬 |
+| `INPUT_BUFFER_MS` | 900 | 방향 선입력 기억 시간 |
+| `PATROL_SAFE_DISTANCE` | 5 | 경비 악당이 베이비와 유지하는 거리 |
+| `PLAYER_LIVES` | 3 | 목숨(하트) 개수 |
+| `ROUND_CLEAR_MODE` | `'ITEMS'` | 클리어 조건 (`'ITEMS'` / `'SCORE'` / `'BOTH'`) |
+| `ROUND_TARGET_SCORE` | 2000 | SCORE/BOTH 모드의 라운드 목표(증분) |
+| `ROUND_SPEED_STEP` | 1 | 라운드마다 속도 단계 증가량 (최대 10) |
+| `HISCORE_KEY` | `'pacbaby.hiscore'` | 하이스코어 localStorage 키 |
+
+### 테스트 / CI
+```bash
+npm test        # 126개 통과 기준
+npm run build   # exit 0 기준
+```
+`.github/workflows/ci.yml` 은 **PR** 에서 `npm ci → npm test → npm run build` 를 실행하고,
+`.github/workflows/deploy.yml` 은 `main`/`master` **push** 시 같은 검증 후 GitHub Pages 로 자동 배포합니다.
+
+---
+
+## 7. 배포 (무료)
+
+- Pac-Baby 는 **100% 정적 사이트**라서 **GitHub Pages / Vercel / Netlify** 무료 배포가 가능합니다.
+- **저장소**: <https://github.com/gcolombo25-JRP/pac-baby> · **배포 주소**: <https://gcolombo25-jrp.github.io/pac-baby/>
+- `vite.config.js` 의 **`base: './'`** 덕분에 GitHub Pages 의 하위 경로(`/pac-baby/`)에서도 에셋이 정상 로드됩니다.
+- **업로드**: `push.bat` 더블클릭 (최초 1회 GitHub 로그인) → **Settings → Pages → Source: GitHub Actions**
+- **GitHub Pages 자동 배포**: `.github/workflows/deploy.yml`
+  - `main`/`master` push → `npm ci` → `npm test` → `npm run build` → Pages 업로드/배포
+  - 최초 1회 저장소 **Settings → Pages → Source: GitHub Actions** 설정 필요
+- **Vercel**: 저장소 Import → Framework `Vite` → Build `npm run build` → Output `dist`
+- 자세한 절차·공유 방법·체크리스트·문제 해결: **[`DEPLOY.md`](./DEPLOY.md)**
+
+---
+
+## 8. 문제 해결
+
+| 증상 | 해결 |
+|---|---|
+| `node`/`npm` 명령을 찾을 수 없음 | `run.bat` 사용 (자동 탐색) 또는 PATH 에 `C:\Program Files\nodejs` 추가 |
+| `npm.ps1` 실행 정책 오류 | `npm.cmd` 사용 (run.bat 이 이미 그렇게 동작) |
+| 포트 3000 사용 중 오류 | `stop.bat` 실행 (다른 포트는 `stop.bat 3100`) 또는 `run.bat --port 3100` |
+| 소리가 안 남 | 첫 키 입력/클릭 이후 활성화됨 · `M` 으로 음향 확인 · 브라우저 탭 음소거 확인 |
+| 수정한 코드가 반영되지 않음 | **`Ctrl+Shift+R`** 강력 새로고침 (이전 탭/서버 캐시) |
+| 게임이 멈춘 것 같음 | 콘솔(F12) `[Pac-Baby] loop error` 메시지 확인 (루프는 보호되어 계속 실행됨) |
+| 하이스코어를 지우고 싶음 | `?reset-hi=1` 로 접속 (예: `localhost:3000/?reset-hi=1`) |
+| 게임 오버 후 다시 시작 | `R`(또는 Space/Enter) — 점수 0 · 목숨 3으로 재시작 |
+
+---
+
+## 9. 현재 범위 / 다음 후보
+
+- **완료**: 맵/이동, 추격·경비 AI, 아이템·트랩, 울기·스텔스, 점수/상태 UI(READY·PAUSE), **목숨·게임오버·재도전**, **라운드 클리어·하이스코어**, **자동 일시정지**, 모바일 D-패드, 테스터 모드
+- **알려진 제약**
+  - 리플레이는 **방향 입력만** 기록합니다 (울기/일시정지/속도 변경은 재현되지 않음)
+  - 봇은 단순 휴리스틱이라 100% 생존을 보장하지 않음
+  - 클리어 판정은 기본 **아이템 12개**(점수 목표 모드는 상수로 전환)
+- **다음 후보**: `game.js` 분리(UI/시스템), 테스트 스텁 통합, 리플레이 이벤트 확장, 봇 지능 개선
+

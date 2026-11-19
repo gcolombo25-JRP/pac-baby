@@ -1,0 +1,27 @@
+name: CI
+
+# push 시 검증은 deploy.yml(테스트 → 빌드 → Pages 배포)이 담당하므로,
+# 여기서는 PR 검증만 수행해 Actions 실행 중복을 피한다.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build

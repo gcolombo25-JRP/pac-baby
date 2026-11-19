@@ -1,0 +1,22 @@
+{
+  "name": "pac-baby",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pac-Man homage game — Baby runs, Nanny chases!",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:host": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview",
+    "preview:host": "vite preview --host",
+    "test": "node --test tests/",
+    "test:watch": "node --test --watch tests/"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

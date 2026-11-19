@@ -1,0 +1,122 @@
+# 🚀 배포 가이드 (무료)
+
+Pac-Baby 는 **100% 정적 사이트**입니다(서버·DB 없음). 그래서 **GitHub Pages / Vercel / Netlify** 어디에나 무료로 올릴 수 있고,
+지인에게 URL만 보내면 휴대폰 브라우저에서 바로 플레이할 수 있습니다.
+
+- 빌드: `npm run build` → `dist/` (index.html + assets/*.js + assets/*.css)
+- `vite.config.js` 에 **`base: './'`** 설정이 있어 **하위 경로**(예: GitHub Pages `/<repo>/`)에서도 에셋이 정상 로드됩니다.
+- 테스터 모드는 배포본에도 포함되며, URL 뒤에 **`?test=1`** 로 열 수 있습니다(일반 플레이에는 영향 없음).
+
+---
+
+## A. GitHub Pages (자동 배포) — 추천
+
+**대상 저장소**: <https://github.com/gcolombo25-JRP/pac-baby> (Public)
+**배포 주소**: <https://gcolombo25-jrp.github.io/pac-baby/>
+
+**현재 진행 상태**
+
+- [x] 로컬 git 저장소 초기화 + 첫 커밋 완료 (38개 파일, `node_modules`/`dist` 제외)
+- [x] `origin` 원격 연결 완료 (`https://github.com/gcolombo25-JRP/pac-baby.git`, 브랜치 `main`)
+- [ ] **push** — GitHub 로그인(최초 1회)만 하면 업로드 → **`push.bat` 더블클릭**
+- [ ] **Settings → Pages → Source: `GitHub Actions`** (최초 1회)
+
+### 1) 저장소 확인
+- <https://github.com/gcolombo25-JRP/pac-baby> — 이미 생성되어 있고 **비어 있는 상태**(커밋 0개)입니다.
+- 기본 브랜치: **`main`** · Public 저장소라 무료 Pages 사용 가능
+
+### 2) 업로드 (push) — 남은 일
+가장 간단한 방법은 이 폴더의 **`push.bat` 더블클릭**입니다.
+
+```
+[1/3] 저장소 준비 (init · 사용자 · origin 자동) → [2/3] 변경사항 커밋 → [3/3] push
+```
+
+터미널에서 직접 하려면 (이 PC 의 git 은 PATH 에 없으므로 전체 경로 사용):
+```powershell
+cd d:/DVSProject/PacBaby
+& 'C:\Program Files\Git\bin\git.exe' push -u origin main
+```
+
+> 최초 push 때 **Git Credential Manager 로그인 창**이 뜹니다. GitHub 계정으로 승인하면 이후 push 부터는 자동입니다.
+> (2단계 인증 사용 시 비밀번호 대신 **Personal Access Token**(`repo` 권한)을 입력)
+> 💡 이 PC 의 git 은 **PATH 에 없고** `C:\Program Files\Git\bin\git.exe` 에만 있습니다.  
+> `push.bat` 이 표준 경로에서 자동 탐색하며, VS Code 소스 제어는 `.vscode/settings.json` 의 `git.path` 를 사용합니다.  
+> git 을 PATH 에 추가하려면: `[Environment]::SetEnvironmentVariable('Path', $env:Path + ';C:\Program Files\Git\bin', 'User')` 실행 후 터미널 재시작.
+
+### 3) Pages 소스 설정 (최초 1회, 중요)
+저장소 → **Settings → Pages → Build and deployment → Source: GitHub Actions**
+
+> 현재 저장소는 Pages 가 **비활성(has_pages: false)** 상태입니다.
+> 워크플로우의 `configure-pages` 에 **`enablement: true`** 를 넣어 첫 실행에서 자동 활성화를 시도하지만,
+> 권한 문제로 실패하면 아래 설정을 **수동으로 한 번** 켜고 다시 실행하세요.
+
+### 4) 자동 배포
+`.github/workflows/deploy.yml` 이 `main`/`master` push 시 자동으로:
+```
+npm ci → npm test → npm run build → Pages 업로드 → 배포
+```
+진행 상황은 저장소 **Actions 탭 → Deploy to GitHub Pages** 에서 확인할 수 있습니다.
+수동 재배포는 **Actions → Deploy to GitHub Pages → Run workflow** 로 실행하세요.
+
+### 5) 주소 확인
+- **<https://gcolombo25-jrp.github.io/pac-baby/>**
+- 또는 Actions 실행 화면의 `deploy` 잡에 표시되는 **page_url**
+
+> ⚠️ 무료 계정에서 Pages 는 **Public 저장소**에서 사용할 수 있습니다(Private 은 유료 플랜 필요).
+> 커스텀 도메인은 **Settings → Pages → Custom domain** 에서 설정합니다.
+
+---
+
+## B. Vercel (Git 연동 또는 CLI)
+
+1. <https://vercel.com> → **Add New… → Project** → `gcolombo25-JRP/pac-baby` Import
+2. 설정은 자동 감지됩니다(Vite)
+   - Framework Preset: **Vite**
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+3. **Deploy** → `https://<project>.vercel.app`
+
+CLI 로 하려면:
+```bash
+npm i -g vercel
+vercel --prod
+```
+서버·환경변수가 필요 없고, `base: './'` 설정 그대로 루트 도메인에서 동작합니다.
+
+---
+
+## C. 지인에게 공유하기 (휴대폰)
+
+- 배포된 **URL만 전달**하면 됩니다.
+  - GitHub Pages: **<https://gcolombo25-jrp.github.io/pac-baby/>**
+  - Vercel: `https://<project>.vercel.app/`
+- 휴대폰에서는 **D-패드(▲◀▶▼ + 울기/소리/정지)** 가 자동 표시됩니다.
+- **소리/BGM**은 브라우저 정책상 **첫 터치(또는 키 입력) 이후** 재생됩니다. `M` 으로 on/off.
+- 하이스코어(HI-SCORE)는 **localStorage** 에 저장되며 도메인별로 분리됩니다.
+- 테스터 패널이 필요하면 URL 뒤에 **`?test=1`** 을 붙이세요.
+- 업데이트 직후 예전 화면이 보이면 **새로고침**(데스크톱 `Ctrl+Shift+R`) 하세요.
+
+---
+
+## D. 배포 전 체크리스트
+
+- [ ] `npm test` — 126개 통과
+- [ ] `npm run build` — `dist/index.html` 의 스크립트/스타일 경로가 **`./assets/...`** 인지 확인
+- [ ] `npm run preview` 로 빌드본 동작 확인 (개발 서버와 별개)
+- [ ] 침대 스텔스 · 울기(쿨다운/무해/연장) · 트랩 얼림 · 목숨/게임오버 · 라운드 클리어 확인
+- [ ] BGM/효과음(첫 터치 후) · 모바일 D-패드 확인
+- [ ] `?test=1` 로 테스터 모드 확인
+
+---
+
+## E. 문제 해결
+
+| 증상 | 확인 |
+|---|---|
+| 사이트가 **404** | Pages Source 가 **GitHub Actions** 인지, 첫 배포가 완료됐는지 |
+| 흰 화면 + 콘솔에 `assets/... 404` | `vite.config.js` 의 `base: './'` 유지, `dist` 루트에 `index.html` 존재 여부 |
+| Actions 실패 | `npm ci` 로그 확인, `package-lock.json` 커밋 여부, Node 20 사용 |
+| 소리가 안 남 | 첫 터치/키 입력 이후인지, 기기 무음 모드/볼륨, `M` 토글 상태 |
+| 하이스코어가 초기화됨 | 도메인이 바뀌면 저장소가 분리됨(정상). `?reset-hi=1` 로 수동 초기화도 가능 |
+| 모바일에서 패드가 안 보임 | 터치 기기이거나 화면 폭 700px 이하일 때만 표시 |
