@@ -108,6 +108,30 @@ export const RESPAWN_GRACE_MS = 1500;  // 체포 후 잠깐의 무적 시간
 export const INPUT_BUFFER_MS = 1200;   // 방향을 미리 눌러도 기억하는 시간 (모바일 코너링 여유)
 export const PATROL_SAFE_DISTANCE = 5; // 경비(순찰) 악당이 베이비에게서 유지하는 최소 거리(타일)
 
+// ===== 고라운드 난이도: 추가 악당 스폰 =====
+// 기존 4개 스폰 타일은 그대로 두고, 5번째/6번째 악당은 대기실 바로 옆 복도에서 시작한다.
+export const EXTRA_ENEMY_SPAWNS = {
+  CHASE: { row: 4, col: 6 },   // 4라운드: 추격 보모 +1
+  PATROL: { row: 22, col: 21 }, // 5라운드: 순찰 보모 +1
+};
+
+// ===== 고라운드 난이도: 철창문 =====
+export const GATE_OPEN_MS = 3000;   // 열려 있는 시간
+export const GATE_CLOSED_MS = 3000; // 닫혀 있는 시간
+export const GATE_MAX = 4;          // 최대 철창문 수
+// 6라운드에 1개, 이후 2라운드마다 1개씩 추가된다.
+export const GATE_POSITIONS = [
+  { row: 9, col: 12 },
+  { row: 9, col: 15 },
+  { row: 18, col: 9 },
+  { row: 18, col: 18 },
+];
+
+// ===== 고라운드 난이도: 시야 제한 =====
+export const VISION_START_ROUND = 8;  // 8라운드부터 어둠 시작
+export const VISION_START_TILES = 8;  // 8라운드 시야 반경(타일)
+export const VISION_MIN_TILES = 3;    // 최소 시야 반경(타일)
+
 // ===== 터치 조작 보정 =====
 export const TOUCH_TAP_MEMORY_MS = 260;   // 짧은 탭도 다음 tick 이 인식하도록 방향을 잠깐 기억
 export const TOUCH_SWIPE_THRESHOLD = 24;  // 스와이프로 방향을 인식하는 최소 이동 거리(px)

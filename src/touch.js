@@ -26,6 +26,12 @@ export default class TouchControls {
     this.handlers = [];
     this.held = new Set(); // 현재 눌린 키 (중복 press/release 방지)
 
+    // 게임 화면 최대화용 레이아웃 상태
+    this._controlsEl = null;
+    this._layoutObserver = null;
+    this._layoutPending = false;
+    this._onLayout = () => this._scheduleLayout();
+
     if (!this.root || typeof this.root.querySelectorAll !== 'function') return;
 
     const buttons = Array.from(this.root.querySelectorAll('[data-key]'));
@@ -62,11 +68,92 @@ export default class TouchControls {
 
       this.handlers.push({ button, onDown, onUp });
     }
+
+    this._setupLayout();
   }
 
   /** 연결된 버튼 수 */
   get buttonCount() {
     return this.handlers.length;
+  }
+
+  // ===== 게임 화면 최대화용 레이아웃 측정 =====
+
+  /**
+   * D-패드가 실제로 차지하는 크기를 CSS 변수로 노출한다.
+   * style.css 가 이 값을 사용해 캔버스를 남은 공간에 최대한 크게 배치한다.
+   */
+  _setupLayout() {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+
+    this._controlsEl = typeof this.root?.querySelector === 'function'
+      ? this.root.querySelector('.touch-controls')
+      : null;
+
+    window.addEventListener('resize', this._onLayout);
+    window.addEventListener('orientationchange', this._onLayout);
+
+    if (this._controlsEl && typeof ResizeObserver === 'function') {
+      this._layoutObserver = new ResizeObserver(() => this._scheduleLayout());
+      this._layoutObserver.observe(this._controlsEl);
+    }
+
+    // 첫 프레임부터 올바른 크기로 그리도록 즉시 한 번 반영하고,
+    // 실제 레이아웃이 확정된 다음 프레임에 다시 측정한다.
+    this._applyLayout();
+    this._scheduleLayout();
+  }
+
+  /** 다음 프레임에 레이아웃을 한 번만 측정한다 (연속 이벤트 중복 방지) */
+  _scheduleLayout() {
+    if (this._layoutPending || typeof window === 'undefined') return;
+    this._layoutPending = true;
+
+    const run = () => {
+      this._layoutPending = false;
+      this._applyLayout();
+    };
+
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 16);
+  }
+
+  /** 컨트롤 크기와 가로/세로 모드를 CSS 에 반영 */
+  _applyLayout() {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const body = document.body;
+    let modeChanged = false;
+
+    // 1) 먼저 가로/세로 모드 클래스를 적용한다
+    if (body && body.classList) {
+      const narrow = typeof window.matchMedia === 'function'
+        ? window.matchMedia('(max-width: 700px)').matches
+        : window.innerWidth <= 700;
+      const touchMode = body.classList.contains('touch-active') || narrow;
+      const landscape = touchMode && window.innerWidth > window.innerHeight;
+
+      if (body.classList.contains('touch-landscape') !== landscape) {
+        body.classList.toggle('touch-landscape', landscape);
+        modeChanged = true;
+      }
+    }
+
+    // 2) 모드가 바뀐 뒤의 실제 레이아웃을 측정한다
+    const controls = this._controlsEl;
+    const rootStyle = document.documentElement?.style;
+    if (controls && typeof controls.getBoundingClientRect === 'function' && rootStyle) {
+      const rect = controls.getBoundingClientRect();
+      if (rect.height > 0) {
+        rootStyle.setProperty('--touch-controls-h', `${Math.ceil(rect.height)}px`);
+      }
+      if (rect.width > 0) {
+        rootStyle.setProperty('--touch-controls-w', `${Math.ceil(rect.width)}px`);
+      }
+    }
+
+    // 모드 전환 직후에는 레이아웃이 한 번 더 확정될 수 있으므로 재측정한다
+    if (modeChanged) this._scheduleLayout();
   }
 
   /** 이벤트 정리 */
@@ -79,6 +166,21 @@ export default class TouchControls {
     }
     this.handlers = [];
     this.held.clear();
+
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', this._onLayout);
+      window.removeEventListener('orientationchange', this._onLayout);
+    }
+    this._layoutObserver?.disconnect?.();
+    this._layoutObserver = null;
+    this._controlsEl = null;
+
+    if (typeof document !== 'undefined') {
+      document.body?.classList?.remove?.('touch-landscape');
+      const rootStyle = document.documentElement?.style;
+      rootStyle?.removeProperty?.('--touch-controls-h');
+      rootStyle?.removeProperty?.('--touch-controls-w');
+    }
   }
 }
 

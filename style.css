@@ -46,27 +46,50 @@ html, body {
   touch-action: none;
 }
 
-/* 터치 기기: 커진 D-패드가 화면 아래에서 잘리지 않도록 캔버스 높이를 줄인다 */
+/* ===== 터치/모바일: 게임 화면 최대화 =====
+   D-패드가 실제로 차지하는 높이(--touch-controls-h)만 남기고
+   캔버스를 화면 폭/높이에 맞춰 최대한 크게 그린다.
+   변수는 src/touch.js 가 실제 렌더링 크기를 측정해 설정한다. */
+body.touch-active #game-container {
+  padding: 4px;
+  gap: 6px;
+}
+
 body.touch-active #game-canvas {
-  --controls-space: 280px;
+  width: min(
+    calc(100vw - 8px),
+    calc(100vh - var(--touch-controls-h, 244px) - 24px)
+  );
+  width: min(
+    calc(100vw - 8px),
+    calc(100dvh - var(--touch-controls-h, 244px) - 24px)
+  );
+  height: auto;
+  max-width: none;
+  max-height: none;
+  border-width: 2px;
 }
 
-/* ===== Responsive (모바일 대비) ===== */
+/* ===== 모바일 레이아웃 (D-패드 공간만 남기고 캔버스 최대화) ===== */
 @media (max-width: 700px) {
-  #game-canvas {
-    width: 100vw;
-    height: 100vw;
-    max-width: 640px;
-    max-height: 640px;
-    border-width: 2px;
+  #game-container {
+    padding: 4px;
+    gap: 6px;
   }
-}
 
-/* ===== 모바일 레이아웃 보정 (D-패드 공간 확보) ===== */
-@media (max-width: 700px) {
   #game-canvas {
-    width: min(96vw, calc(100vh - 280px));
-    height: min(96vw, calc(100vh - 280px));
+    width: min(
+      calc(100vw - 8px),
+      calc(100vh - var(--touch-controls-h, 244px) - 24px)
+    );
+    width: min(
+      calc(100vw - 8px),
+      calc(100dvh - var(--touch-controls-h, 244px) - 24px)
+    );
+    height: auto;
+    max-width: none;
+    max-height: none;
+    border-width: 2px;
   }
 
   /* 좁은 화면에서는 키보드가 없을 수 있으므로 D-패드를 노출 */
@@ -246,49 +269,61 @@ body.touch-active .touch-controls {
   }
 }
 
+/* ===== 가로 모드: D-패드를 옆으로 옮겨 게임 화면을 화면 높이까지 키운다 ===== */
+body.touch-landscape #game-container {
+  flex-direction: row;
+  padding: 4px;
+  gap: 6px;
+}
+
+body.touch-landscape #game-canvas {
+  width: min(
+    calc(100vw - var(--touch-controls-w, 366px) - 18px),
+    calc(100vh - 8px)
+  );
+  width: min(
+    calc(100vw - var(--touch-controls-w, 366px) - 18px),
+    calc(100dvh - 8px)
+  );
+  height: auto;
+  max-width: none;
+  max-height: none;
+  border-width: 1px;
+  border-radius: 6px;
+}
+
+body.touch-landscape .touch-controls {
+  order: -1;             /* 캔버스 왼쪽에 D-패드 */
+  flex-direction: row;   /* D-패드 + 액션을 가로로 압축 */
+  width: auto;
+  gap: 6px;
+  --pad-cell: 58px;
+  --pad-gap: 6px;
+  --hit-pad: 3px;
+  --action-w: 84px;
+  --action-h: 40px;
+}
+
+body.touch-landscape .pad-actions {
+  grid-template-columns: repeat(2, var(--action-w));
+  gap: var(--pad-gap);
+}
+
+body.touch-landscape .pad-btn {
+  font-size: 18px;
+}
+
+body.touch-landscape .pad-skill,
+body.touch-landscape .pad-mute,
+body.touch-landscape .pad-pause,
+body.touch-landscape .pad-help,
+body.touch-landscape .pad-restart {
+  font-size: 12px;
+}
+
 /* ============================================================
    사용 설명서 (도움말) — 처음 방문/초보자용
    ============================================================ */
-
-/* 항상 보이는 도움말 버튼 (FAB) */
-.help-fab {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 40;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: 2px solid rgba(41, 182, 246, 0.55);
-  border-radius: 999px;
-  background: rgba(15, 52, 96, 0.92);
-  color: #ffe082;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-  -webkit-tap-highlight-color: transparent;
-}
-
-.help-fab:hover,
-.help-fab:focus-visible {
-  border-color: #29b6f6;
-  background: rgba(22, 33, 62, 0.98);
-  box-shadow: 0 0 0 3px rgba(41, 182, 246, 0.25), 0 4px 14px rgba(0, 0, 0, 0.45);
-  outline: none;
-}
-
-.help-fab:active {
-  transform: translateY(2px);
-}
-
-.help-fab-icon {
-  font-size: 16px;
-  line-height: 1;
-}
 
 /* 오버레이 + 배경 */
 .help-overlay {
@@ -599,17 +634,6 @@ body.touch-active .touch-controls {
 
   .help-foot {
     padding: 10px 14px 14px;
-  }
-
-  .help-fab {
-    top: 10px;
-    right: 10px;
-    padding: 7px 11px;
-    font-size: 12px;
-  }
-
-  .help-fab-text {
-    display: none;
   }
 
   .help-hint {

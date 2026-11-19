@@ -98,8 +98,9 @@ export class Item {
    * 캔버스에 아이템 렌더링 (살짝 떠다니는 연출)
    * @param {CanvasRenderingContext2D} ctx
    * @param {number} timeMs 애니메이션 시간(ms)
+   * @param {{dark?: boolean}} [options] dark: 어둠 속 발광 연출
    */
-  render(ctx, timeMs = 0) {
+  render(ctx, timeMs = 0, options = {}) {
     if (this.collected) return;
 
     const supportsEllipse = typeof ctx.ellipse === 'function';
@@ -115,6 +116,25 @@ export class Item {
       ctx.beginPath();
       ctx.ellipse(cx, this.y + TILE_SIZE * 0.78, TILE_SIZE * 0.28, TILE_SIZE * 0.12, 0, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // 어둠 속에서도 반짝이며 보이도록 발광 후광
+    if (options.dark) {
+      const pulse = 0.18 + Math.abs(Math.sin(timeMs / 360 + this.row * 0.8)) * 0.16;
+      ctx.fillStyle = isGolden
+        ? `rgba(255, 215, 0, ${pulse + 0.12})`
+        : `rgba(255, 236, 150, ${pulse})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, TILE_SIZE * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = isGolden
+        ? 'rgba(255, 230, 120, 0.9)'
+        : 'rgba(255, 248, 190, 0.75)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, TILE_SIZE * 0.62, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     // 황금 젖병: 커다란 황금 후광 + 회전하는 링
@@ -223,8 +243,9 @@ export class Trap {
    * 캔버스에 트랩 렌더링 (종류별 색 + 흔들리는 웅덩이)
    * @param {CanvasRenderingContext2D} ctx
    * @param {number} timeMs 애니메이션 시간(ms)
+   * @param {{dark?: boolean}} [options] dark: 어둠 속 발광 연출
    */
-  render(ctx, timeMs = 0) {
+  render(ctx, timeMs = 0, options = {}) {
     if (!this.active) return;
 
     const supportsEllipse = typeof ctx.ellipse === 'function';
@@ -247,6 +268,31 @@ export class Trap {
       ctx.beginPath();
       ctx.ellipse(cx, cy + 1.5, rx, ry, 0, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // 어둠 속에서도 트랩이 빛나 보이도록 색색의 발광 링
+    if (options.dark) {
+      ctx.globalAlpha = fade * 0.5;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      if (supportsEllipse) {
+        ctx.ellipse(cx, cy, rx + 5, ry + 5, 0, 0, Math.PI * 2);
+      } else {
+        ctx.arc(cx, cy, Math.min(rx, ry) + 4, 0, Math.PI * 2);
+      }
+      ctx.fill();
+
+      ctx.globalAlpha = fade * 0.9;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      if (supportsEllipse) {
+        ctx.ellipse(cx, cy, rx + 6, ry + 6, 0, 0, Math.PI * 2);
+      } else {
+        ctx.arc(cx, cy, Math.min(rx, ry) + 5, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = fade;
     }
 
     // 바깥 후광 (shadowBlur 대신 저비용 반투명 타원)

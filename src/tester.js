@@ -258,7 +258,8 @@ export default class Tester {
   /** 봇: 아이템을 향해 이동, 악당이 가까우면 도망 */
   _botDirection(game) {
     const player = game.player;
-    const map = game.map.map;
+    // 철창문이 닫힌 상태를 반영한 이동용 맵을 사용한다
+    const map = game.navMap || game.map.map;
     const cols = map[0].length;
 
     const step = (dr, dc) => {

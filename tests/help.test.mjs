@@ -223,7 +223,7 @@ test('도움말 버튼과 닫기 버튼 클릭이 동작한다', () => {
   assert.equal(help.isOpen, false, '상단 ✕ 버튼');
 
   root.openButtons[0].click();
-  assert.equal(help.isOpen, true, '오른쪽 위 ❔ 버튼');
+  assert.equal(help.isOpen, true, '도움말 열기 버튼');
 
   root.closeButtons[2].click();
   assert.equal(help.isOpen, false, '배경 클릭으로 닫기');

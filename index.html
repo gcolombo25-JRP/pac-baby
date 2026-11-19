@@ -61,13 +61,6 @@
       </div>
     </div>
 
-    <!-- 사용 설명서 열기 버튼 (항상 표시) -->
-    <button id="help-open" class="help-fab" type="button" data-help-open
-            aria-label="사용 설명서 열기" title="사용 설명서 (H)">
-      <span class="help-fab-icon" aria-hidden="true">❔</span>
-      <span class="help-fab-text">도움말</span>
-    </button>
-
     <!-- 사용 설명서 오버레이 (처음 방문 시 자동 표시) -->
     <div id="help-overlay" class="help-overlay" hidden aria-hidden="true">
       <div class="help-backdrop" data-help-close></div>
@@ -126,6 +119,15 @@
           </section>
 
           <section class="help-section">
+            <h3>🔥 고라운드 난이도</h3>
+            <ul class="help-list">
+              <li><b>4라운드</b>: 추격 보모 <b>+1</b> (총 5마리) · <b>5라운드</b>: 순찰 보모 <b>+1</b> (총 6마리)</li>
+              <li><b>6라운드</b>부터 <b>철창문</b> 등장 — 2라운드마다 +1 (최대 4개). 닫히면 베이비·보모 모두 통과할 수 없어요. (열림 3초 ↔ 닫힘 3초)</li>
+              <li><b>8라운드</b>부터 <b>시야 제한</b> — 8타일에서 시작해 라운드마다 1타일씩 줄어 최소 3타일. 어둠 속에서도 <b>아이템과 트랩</b>은 반짝이며 보여요.</li>
+            </ul>
+          </section>
+
+          <section class="help-section">
             <h3>😭 울기 &amp; 🛏️ 침대 숨기</h3>
             <ul class="help-list">
               <li><b>울기</b>: 모든 보모 <b>3초 정지</b> · 쿨다운 <b>3초</b> · 얼어 있는 보모에게 또 울면 <b>+3초 연장</b> (얼린 보모는 무해)</li>
@@ -154,7 +156,7 @@
 
         <footer class="help-foot">
           <button class="help-start" type="button" data-help-close>알겠어요, 시작할게요!</button>
-          <p class="help-hint">이 설명서는 <kbd>H</kbd> 키 또는 오른쪽 위 <b>❔ 도움말</b> 버튼으로 언제든 다시 볼 수 있어요.</p>
+          <p class="help-hint">이 설명서는 <kbd>H</kbd> 키(폰은 D-패드의 <b>도움말</b> 버튼)로 언제든 다시 볼 수 있어요.</p>
         </footer>
       </section>
     </div>

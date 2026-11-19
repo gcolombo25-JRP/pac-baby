@@ -18,6 +18,8 @@ import {
   SKILL_CRY, PENALTY,
   MAX_DEVICE_PIXEL_RATIO, BABY_LIGHT_RADIUS_TILES, BABY_LIGHT_FEATHER_TILES,
   SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN,
+  EXTRA_ENEMY_SPAWNS, GATE_OPEN_MS, GATE_CLOSED_MS, GATE_MAX, GATE_POSITIONS,
+  VISION_START_ROUND, VISION_START_TILES, VISION_MIN_TILES,
 } from './constants.js';
 import MapRenderer from './map.js';
 import Player from './player.js';
@@ -45,14 +47,16 @@ export default class Game {
 
     // 게임 오브젝트
     this.map = new MapRenderer();
+    // 이동 판정용 맵 사본 (닫힌 철창문을 벽(1)으로 반영)
+    this.navMap = this.map.map.map(row => row.slice());
+    this.gates = [];
+    this.gateClock = 0;
+
     this.player = new Player(this.map.babySpawn);
     this.rng = Math.random; // 아이템/순찰 위치 선택용 난수 (테스트에서 주입 가능)
 
     // 앞의 CHASE_ENEMY_COUNT 명은 추격, 나머지는 경비(순찰)
-    this.enemies = this.map.enemySpawns.map((pos, index) => {
-      const mode = index < CHASE_ENEMY_COUNT ? ENEMY_MODE.CHASE : ENEMY_MODE.PATROL;
-      return new Enemy(pos, index, ENEMY_START_DELAY_MS + index * 300, mode, this.rng);
-    });
+    this._buildEnemies(1);
     this.items = [];
     this.traps = [];
 
@@ -111,6 +115,9 @@ export default class Game {
     this.hiScore = this._loadHiScore();
     this.newRecord = false;
     this.baseSpeedLevel = this.speedLevel;
+
+    // 1라운드는 철창문/시야 제한 없음
+    this._initGates(this.round);
   }
 
   /** 아이템 초기 배치 */
@@ -126,6 +133,129 @@ export default class Game {
   _initGoldenBottle() {
     this.goldenBottle = new Item(
       GOLDEN_SPAWN.row, GOLDEN_SPAWN.col, 'GOLDEN', { fixed: true },
+    );
+  }
+
+  // ===== 고라운드 난이도: 악당 수 / 철창문 / 시야 =====
+
+  /**
+   * 라운드별 악당 편성.
+   * - 기본 4마리 (추격 2 + 순찰 2)
+   * - 4라운드: 추격 +1 (총 5)
+   * - 5라운드: 순찰 +1 (총 6)
+   * @param {number} round
+   * @returns {Enemy[]}
+   */
+  _buildEnemies(round) {
+    const configs = this.map.enemySpawns.map((pos, index) => ({
+      spawn: pos,
+      mode: index < CHASE_ENEMY_COUNT ? ENEMY_MODE.CHASE : ENEMY_MODE.PATROL,
+    }));
+
+    if (round >= 4) {
+      configs.push({ spawn: EXTRA_ENEMY_SPAWNS.CHASE, mode: ENEMY_MODE.CHASE });
+    }
+    if (round >= 5) {
+      configs.push({ spawn: EXTRA_ENEMY_SPAWNS.PATROL, mode: ENEMY_MODE.PATROL });
+    }
+
+    this.enemies = configs.map((config, index) => new Enemy(
+      config.spawn,
+      index,
+      ENEMY_START_DELAY_MS + index * 300,
+      config.mode,
+      this.rng,
+    ));
+    return this.enemies;
+  }
+
+  /**
+   * 라운드별 철창문 배치.
+   * - 6라운드: 1개
+   * - 이후 2라운드마다 +1 (8→2, 10→3, 12→4), 최대 4개
+   * @param {number} round
+   */
+  _initGates(round) {
+    const count = Math.min(
+      GATE_MAX,
+      Math.max(0, Math.floor((round - 4) / 2)),
+    );
+
+    this.gates = GATE_POSITIONS.slice(0, count).map((pos) => ({
+      row: pos.row,
+      col: pos.col,
+      closed: false,
+      anim: 1, // 1 = 완전히 열림, 0 = 완전히 닫힘 (시각용)
+    }));
+    this.gateClock = 0;
+    this._refreshNavMap();
+  }
+
+  /** 닫힌 철창문을 이동 불가(1)로 반영한 길찾기용 맵을 갱신한다 */
+  _refreshNavMap() {
+    if (!this.navMap) return;
+
+    // 이전 라운드의 철창문 흔적까지 지우기 위해 원본 맵에서 다시 복사한다
+    for (let row = 0; row < this.map.map.length; row++) {
+      const source = this.map.map[row];
+      const target = this.navMap[row];
+      for (let col = 0; col < source.length; col++) {
+        target[col] = source[col];
+      }
+    }
+
+    for (const gate of this.gates) {
+      if (gate.closed) this.navMap[gate.row][gate.col] = 1;
+    }
+  }
+
+  /** 철창문 위에 베이비/악당이 있으면 닫히지 않게 한다 */
+  _isGateOccupied(gate) {
+    if (this.player.row === gate.row && this.player.col === gate.col) return true;
+    return this.enemies.some(e => e.row === gate.row && e.col === gate.col);
+  }
+
+  /** 철창문 주기 갱신 (열림 3초 → 닫힘 3초 반복) */
+  _updateGates(dt) {
+    if (this.gates.length === 0) return;
+
+    this.gateClock += dt;
+    const cycle = GATE_OPEN_MS + GATE_CLOSED_MS;
+    const wantClosed = (this.gateClock % cycle) >= GATE_OPEN_MS;
+    let navChanged = false;
+
+    for (const gate of this.gates) {
+      let closed = wantClosed;
+
+      // 문 위에 사람이 있으면 닫히지 않고 기다린다
+      if (closed && this._isGateOccupied(gate)) closed = false;
+
+      if (closed !== gate.closed) {
+        gate.closed = closed;
+        navChanged = true;
+      }
+
+      // 철창이 미끄러지듯 열리고 닫히는 시각 효과
+      const target = gate.closed ? 0 : 1;
+      const step = dt > 0 ? Math.min(1, dt / 500) : 1;
+      gate.anim += (target - gate.anim) * step;
+      if (Math.abs(gate.anim - target) < 0.01) gate.anim = target;
+    }
+
+    if (navChanged) this._refreshNavMap();
+  }
+
+  /** 8라운드부터 시야 제한(어둠) 활성화 */
+  get darkMode() {
+    return this.round >= VISION_START_ROUND;
+  }
+
+  /** 현재 라운드의 시야 반경(타일): 8라운드 8 → 라운드마다 -1 → 최소 3 */
+  get visionTiles() {
+    if (!this.darkMode) return VISION_START_TILES;
+    return Math.max(
+      VISION_MIN_TILES,
+      VISION_START_TILES - (this.round - VISION_START_ROUND),
     );
   }
 
@@ -444,12 +574,16 @@ export default class Game {
     // 파워업 타이머 (슈가 러시 / 황금 젖병 보행기 모드)
     this._updatePowerUps(dt);
 
+    // 철창문 열림/닫힘 → navMap(이동 판정) 갱신
+    this._updateGates(dt);
+
     // 입력 → 베이비 방향 전환 (테스터 모드에서는 입력 소스가 바뀔 수 있다)
     const dir = this._resolveDirection();
     if (dir) this.player.setDirection(dir);
     this.tester?.record?.(dir);
 
-    this.player.update(this.map.map, dt);
+    // 닫힌 철창문이 반영된 navMap 으로 이동한다
+    this.player.update(this.navMap, dt);
     if (this.player.isMoving) this.sound.playStep();
 
     // 침대 진입 → 스텔스, 종료 시 침대 표시 해제
@@ -464,8 +598,8 @@ export default class Game {
     // 황금 젖병 습득 / 리스폰
     this._updateGoldenBottle(dt);
 
-    // 보모(악당): 일부는 추격, 일부는 경비 순찰
-    this.enemies.forEach(e => e.update(dt, this.map.map, this.player.row, this.player.col));
+    // 보모(악당): 일부는 추격, 일부는 경비 순찰 (닫힌 철창문은 통과 불가)
+    this.enemies.forEach(e => e.update(dt, this.navMap, this.player.row, this.player.col));
 
     // 트랩 수명 & 악당 감속 판정
     this._updateTraps(dt);
@@ -532,11 +666,13 @@ export default class Game {
     const avoid = [
       { row: this.player.row, col: this.player.col },
       ...this.enemies.map(e => ({ row: e.row, col: e.col })),
+      // 철창문 타일에는 아이템이 겹쳐 리스폰하지 않게 한다
+      ...this.gates.map(g => ({ row: g.row, col: g.col })),
     ];
 
     for (const item of this.items) {
       if (item.collected) {
-        item.update(dt, this.map.map, this.rng, avoid);
+        item.update(dt, this.navMap, this.rng, avoid);
         continue;
       }
 
@@ -896,6 +1032,10 @@ export default class Game {
   _resetBoard() {
     this._clearPowerUps();
 
+    // 라운드에 맞는 악당 편성 + 철창문 배치
+    this._buildEnemies(this.round);
+    this._initGates(this.round);
+
     this.player.reset(this.map.babySpawn);
     this.enemies.forEach(enemy => enemy.resetToSpawn());
 
@@ -922,6 +1062,9 @@ export default class Game {
     this.tickAccumulator = 0;
     this.state = 'READY';
     this.readyTimer = READY_COUNTDOWN_MS;
+
+    // 새로 구성한 악당들에게 현재 속도 단계를 적용
+    this._applySpeedLevel();
   }
 
   /** 다음 라운드 시작 (라운드마다 속도 단계 +1, 최대 10) */
@@ -932,7 +1075,6 @@ export default class Game {
 
     this.round = round;
     this.speedLevel = nextLevel;
-    this._applySpeedLevel();
     this._resetBoard();
 
     this.tester?.log?.('round', `ROUND ${round} 시작 (속도 ${this.speedLevel}/10)`);
@@ -947,7 +1089,6 @@ export default class Game {
     this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
     this.newRecord = false;
     this.baseSpeedLevel = this.speedLevel; // 재도전 시 현재 속도 단계를 기준으로 유지
-    this._applySpeedLevel();
     this._resetBoard();
 
     this.tester?.log?.('restart', '새 게임 시작');
@@ -976,23 +1117,46 @@ export default class Game {
     // 맵 렌더링
     this.map.render(ctx);
 
-    // 아이템 렌더링
-    this.items.forEach(item => item.render(ctx, this.animTime));
+    // 철창문 (닫힌 문은 벽처럼 통행을 막는다)
+    this._renderGates(ctx);
 
-    // 황금 젖병 (맵 중앙 슈퍼 아이템)
-    this.goldenBottle?.render(ctx, this.animTime);
+    if (!this.darkMode) {
+      // 아이템 렌더링
+      this.items.forEach(item => item.render(ctx, this.animTime));
 
-    // 트랩 렌더링
-    this.traps.forEach(trap => trap.render(ctx, this.animTime));
+      // 황금 젖병 (맵 중앙 슈퍼 아이템)
+      this.goldenBottle?.render(ctx, this.animTime);
 
-    // 적 렌더링
-    this.enemies.forEach(e => e.render(ctx, this.animTime));
+      // 트랩 렌더링
+      this.traps.forEach(trap => trap.render(ctx, this.animTime));
 
-    // 플레이어 렌더링 (tick 사이 보간 + 파워업 연출)
-    this.player.render(ctx, alpha, this.animTime, {
-      sugarRush: this.sugarRushTimer > 0,
-      goldenWalker: this.goldenTimer > 0,
-    });
+      // 적 렌더링
+      this.enemies.forEach(e => e.render(ctx, this.animTime));
+
+      // 플레이어 렌더링 (tick 사이 보간 + 파워업 연출)
+      this.player.render(ctx, alpha, this.animTime, {
+        sugarRush: this.sugarRushTimer > 0,
+        goldenWalker: this.goldenTimer > 0,
+      });
+    } else {
+      // 8라운드 이후: 적/미로는 어둠에 가리고,
+      // 아이템과 트랩은 어둠 위에 다시 그려 반짝이게 한다.
+      this.enemies.forEach(e => e.render(ctx, this.animTime));
+
+      this._renderDarkness(ctx, alpha);
+
+      this.items.forEach(item => item.render(ctx, this.animTime, { dark: true }));
+      this.goldenBottle?.render(ctx, this.animTime, { dark: true });
+      this.traps.forEach(trap => trap.render(ctx, this.animTime, { dark: true }));
+
+      // 어둠 속에서도 철창문 상태를 알 수 있게 작은 표시등
+      this._renderGateLamps(ctx);
+
+      this.player.render(ctx, alpha, this.animTime, {
+        sugarRush: this.sugarRushTimer > 0,
+        goldenWalker: this.goldenTimer > 0,
+      });
+    }
 
     // 점수 팝업 (+50 / -200 …)
     this._renderPopups(ctx);
@@ -1022,6 +1186,106 @@ export default class Game {
     this.effects.renderFlash(ctx);
   }
 
+  /** 철창문 렌더링 (anim: 1 열림 ~ 0 닫힘) */
+  _renderGates(ctx) {
+    if (this.gates.length === 0) return;
+
+    for (const gate of this.gates) {
+      const x = gate.col * TILE_SIZE;
+      const y = gate.row * TILE_SIZE;
+      const cx = x + TILE_SIZE / 2;
+      const closedAmount = 1 - gate.anim;
+
+      ctx.save?.();
+
+      // 문틀
+      ctx.strokeStyle = 'rgba(144, 164, 174, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 2.5, y + 2.5, TILE_SIZE - 5, TILE_SIZE - 5);
+
+      if (closedAmount > 0.02) {
+        const top = y + 2;
+        const height = (TILE_SIZE - 4) * closedAmount;
+
+        ctx.shadowColor = 'rgba(144, 202, 249, 0.75)';
+        ctx.shadowBlur = 7;
+        ctx.strokeStyle = 'rgba(207, 216, 220, 0.95)';
+        ctx.lineWidth = 2;
+
+        for (let i = 1; i <= 3; i++) {
+          const bx = x + (TILE_SIZE / 4) * i;
+          ctx.beginPath();
+          ctx.moveTo(bx, top);
+          ctx.lineTo(bx, top + height);
+          ctx.stroke();
+        }
+
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+
+        // 가로 지지대
+        ctx.strokeStyle = 'rgba(176, 190, 197, 0.85)';
+        ctx.lineWidth = 1.4;
+        const crossY = top + Math.max(2, height - 2);
+        ctx.beginPath();
+        ctx.moveTo(x + 3, crossY);
+        ctx.lineTo(x + TILE_SIZE - 3, crossY);
+        ctx.stroke();
+      } else {
+        // 열린 상태: 바닥에 접힌 문틀
+        ctx.fillStyle = 'rgba(144, 164, 174, 0.28)';
+        ctx.fillRect(x + 3, y + TILE_SIZE - 4, TILE_SIZE - 6, 2);
+      }
+
+      // 상태등 (열림 초록 / 닫힘 빨강)
+      ctx.fillStyle = gate.closed ? '#ef5350' : '#8bc34a';
+      ctx.beginPath();
+      ctx.arc(cx, y + 3, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore?.();
+    }
+  }
+
+  /** 어둠 속 철창문 위치 표시등 (멀리서도 열림/닫힘을 알 수 있게) */
+  _renderGateLamps(ctx) {
+    for (const gate of this.gates) {
+      const cx = (gate.col + 0.5) * TILE_SIZE;
+      const cy = (gate.row + 0.5) * TILE_SIZE;
+
+      ctx.fillStyle = gate.closed
+        ? 'rgba(239, 83, 80, 0.95)'
+        : 'rgba(139, 195, 74, 0.9)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /** 8라운드 이후: 베이비 주변만 밝게 남기는 시야 제한 */
+  _renderDarkness(ctx, alpha) {
+    if (typeof ctx.createRadialGradient !== 'function') return;
+
+    const center = this.player.getRenderCenter(alpha);
+    const radius = this.visionTiles * TILE_SIZE;
+    const inner = radius;
+    const outer = radius + TILE_SIZE * 1.2;
+
+    const darkness = ctx.createRadialGradient(
+      center.x, center.y, inner,
+      center.x, center.y, outer,
+    );
+    if (!darkness || typeof darkness.addColorStop !== 'function') return;
+
+    darkness.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    darkness.addColorStop(0.6, 'rgba(0, 0, 0, 0.72)');
+    darkness.addColorStop(1, 'rgba(0, 0, 0, 0.97)');
+
+    ctx.fillStyle = darkness;
+    // 카메라 셰이크로 화면 가장자리가 비지 않게 넉넉히 채운다
+    ctx.fillRect(-32, -32, CANVAS_WIDTH + 64, CANVAS_HEIGHT + 64);
+  }
+
   /**
    * 베이비 주변 반경 3~4타일의 은은한 원형 조명 + 주변부 비네트.
    * - 캔버스 API 가 없는 테스트 스텁에서는 아무 일도 하지 않는다.
@@ -1036,19 +1300,24 @@ export default class Game {
     const cx = center.x + shake.x;
     const cy = center.y + shake.y;
 
-    const radius = TILE_SIZE * BABY_LIGHT_RADIUS_TILES;
+    const lightTiles = this.darkMode
+      ? Math.min(BABY_LIGHT_RADIUS_TILES, this.visionTiles)
+      : BABY_LIGHT_RADIUS_TILES;
+    const radius = TILE_SIZE * lightTiles;
     const outerRadius = radius + TILE_SIZE * BABY_LIGHT_FEATHER_TILES;
 
-    // 1) 조명 바깥쪽을 어둡게 → 원형 스포트라이트 느낌
-    const vignette = ctx.createRadialGradient(cx, cy, radius, cx, cy, outerRadius);
-    if (!vignette || typeof vignette.addColorStop !== 'function') return;
+    // 1) 8라운드 이전에만 은은한 비네트 (이후엔 강한 어둠이 담당)
+    if (!this.darkMode) {
+      const vignette = ctx.createRadialGradient(cx, cy, radius, cx, cy, outerRadius);
+      if (!vignette || typeof vignette.addColorStop !== 'function') return;
 
-    vignette.addColorStop(0, 'rgba(3, 7, 18, 0)');
-    vignette.addColorStop(0.55, 'rgba(3, 7, 18, 0.10)');
-    vignette.addColorStop(1, 'rgba(2, 5, 14, 0.48)');
+      vignette.addColorStop(0, 'rgba(3, 7, 18, 0)');
+      vignette.addColorStop(0.55, 'rgba(3, 7, 18, 0.10)');
+      vignette.addColorStop(1, 'rgba(2, 5, 14, 0.48)');
 
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    }
 
     // 2) 베이비 주변의 따뜻한 빛 (가산 합성)
     const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, outerRadius);
@@ -1139,8 +1408,17 @@ export default class Game {
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.font = '12px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
+
+    // PC(키보드)에서만 H:도움말 안내 (폰은 D-패드 도움말 버튼 사용)
+    const coarsePointer = typeof window !== 'undefined'
+      && typeof window.matchMedia === 'function'
+      && window.matchMedia('(pointer: coarse)').matches;
+    const touchActive = typeof document !== 'undefined'
+      && document.body?.classList?.contains?.('touch-active');
+    const helpHint = (coarsePointer || touchActive) ? '' : ' · H:도움말';
+
     ctx.fillText(
-      `체포 ${this.catchCount} · 속도 ${this.speedLevel}/10 · 아이템 ${this.itemCount}/${this.items.length} · 트랩 ${this.traps.length}  |  ←↑↓→ SPACE P R M`,
+      `체포 ${this.catchCount} · 속도 ${this.speedLevel}/10 · 아이템 ${this.itemCount}/${this.items.length} · 트랩 ${this.traps.length}  |  ←↑↓→ SPACE P R M${helpHint}`,
       CANVAS_WIDTH / 2,
       CANVAS_HEIGHT - 11,
     );
