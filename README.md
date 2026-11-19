@@ -7,7 +7,7 @@
 - 테스트 126개 (`node --test`) · 외부 런타임 의존성 없음
 - 기획/규칙 원본: [`.clinerules`](./.clinerules)
 
-**▶ 휴대폰으로 바로 플레이**: <https://gcolombo25-jrp.github.io/pac-baby/>
+**▶ 휴대폰으로 바로 플레이 (배포 완료)**: <https://gcolombo25-jrp.github.io/pac-baby/>
 [![Deploy to GitHub Pages](https://github.com/gcolombo25-JRP/pac-baby/actions/workflows/deploy.yml/badge.svg)](https://github.com/gcolombo25-JRP/pac-baby/actions/workflows/deploy.yml)
 
 ---

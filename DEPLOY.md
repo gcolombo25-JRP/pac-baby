@@ -16,17 +16,29 @@ Pac-Baby 는 **100% 정적 사이트**입니다(서버·DB 없음). 그래서 **
 
 **현재 진행 상태**
 
-- [x] 로컬 git 저장소 초기화 + 첫 커밋 완료 (38개 파일, `node_modules`/`dist` 제외)
+- [x] 로컬 git 저장소 초기화 + 커밋 완료 (39개 파일, `node_modules`/`dist` 제외)
 - [x] `origin` 원격 연결 완료 (`https://github.com/gcolombo25-JRP/pac-baby.git`, 브랜치 `main`)
-- [ ] **push** — GitHub 로그인(최초 1회)만 하면 업로드 → **`push.bat` 더블클릭**
-- [ ] **Settings → Pages → Source: `GitHub Actions`** (최초 1회)
+- [x] **push 완료** — `main` = `48a26a6` (워크플로우 실행 #2 성공)
+- [x] **Pages 활성화 완료** (`build_type: workflow`) → **배포 성공**
+- ✅ **라이브 사이트**: <https://gcolombo25-jrp.github.io/pac-baby/>
+
+**배포 검증(2026-11-19 기준)**
+
+| 항목 | 결과 |
+|---|---|
+| `GET /pac-baby/` | **200** (1,387 B, `Server: GitHub.com`) |
+| `./assets/index-*.js` | **200** (44,082 B) |
+| `./assets/index-*.css` | **200** (1,652 B) |
+| 없는 에셋 | **404** |
+| `?test=1` | **200** |
+| Actions `Deploy to GitHub Pages` | **success** |
 
 ### 1) 저장소 확인
 - <https://github.com/gcolombo25-JRP/pac-baby> — 이미 생성되어 있고 **비어 있는 상태**(커밋 0개)입니다.
 - 기본 브랜치: **`main`** · Public 저장소라 무료 Pages 사용 가능
 
-### 2) 업로드 (push) — 남은 일
-가장 간단한 방법은 이 폴더의 **`push.bat` 더블클릭**입니다.
+### 2) 업로드 (push)
+이미 push 되어 있으므로, **코드를 수정한 뒤**에는 아래 방법으로 다시 올리면 됩니다(올릴 때마다 자동 재배포).
 
 ```
 [1/3] 저장소 준비 (init · 사용자 · origin 자동) → [2/3] 변경사항 커밋 → [3/3] push
@@ -47,9 +59,8 @@ cd d:/DVSProject/PacBaby
 ### 3) Pages 소스 설정 (최초 1회, 중요)
 저장소 → **Settings → Pages → Build and deployment → Source: GitHub Actions**
 
-> 현재 저장소는 Pages 가 **비활성(has_pages: false)** 상태입니다.
-> 워크플로우의 `configure-pages` 에 **`enablement: true`** 를 넣어 첫 실행에서 자동 활성화를 시도하지만,
-> 권한 문제로 실패하면 아래 설정을 **수동으로 한 번** 켜고 다시 실행하세요.
+> Pages 는 이미 **활성화**되어 있습니다(`build_type: workflow`). 새 저장소나 포크에서 처음 배포할 때만
+> 이 설정을 먼저 켜면 됩니다. (`configure-pages` 의 `enablement: true` 는 `GITHUB_TOKEN` 권한이 충분할 때만 자동 활성화됩니다.)
 
 ### 4) 자동 배포
 `.github/workflows/deploy.yml` 이 `main`/`master` push 시 자동으로:
@@ -115,6 +126,8 @@ vercel --prod
 | 증상 | 확인 |
 |---|---|
 | 사이트가 **404** | Pages Source 가 **GitHub Actions** 인지, 첫 배포가 완료됐는지 |
+| Actions 실행이 **job 0개로 실패** | 워크플로우 **YAML 문법 오류**. 예: `- name: Build (base: ./ …)` 처럼 따옴표 없는 스칼라에 `콜론+공백`이 들어가면 파싱 실패 → 이름에서 콜론 제거 또는 따옴표로 감싸기 |
+| `Configure Pages` 단계만 실패 | Pages 가 비활성(`has_pages: false`) 상태 → **Settings → Pages → Source: GitHub Actions** 로 한 번 켠 뒤 **Re-run** |
 | 흰 화면 + 콘솔에 `assets/... 404` | `vite.config.js` 의 `base: './'` 유지, `dist` 루트에 `index.html` 존재 여부 |
 | Actions 실패 | `npm ci` 로그 확인, `package-lock.json` 커밋 여부, Node 20 사용 |
 | 소리가 안 남 | 첫 터치/키 입력 이후인지, 기기 무음 모드/볼륨, `M` 토글 상태 |
