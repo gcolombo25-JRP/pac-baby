@@ -16,6 +16,8 @@ import {
   READY_COUNTDOWN_MS, SCORE_POPUP_MS,
   PLAYER_LIVES, ROUND_CLEAR_MODE, ROUND_TARGET_SCORE, ROUND_SPEED_STEP, HISCORE_KEY,
   SKILL_CRY, PENALTY,
+  MAX_DEVICE_PIXEL_RATIO, BABY_LIGHT_RADIUS_TILES, BABY_LIGHT_FEATHER_TILES,
+  SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN,
 } from './constants.js';
 import MapRenderer from './map.js';
 import Player from './player.js';
@@ -56,14 +58,28 @@ export default class Game {
 
     // 아이템 스폰 (테스트용 — 모든 4 타일에 아이템 배치)
     this._initItems();
+    // 맵 정중앙의 슈퍼 아이템 '황금 젖병'
+    this.goldenBottle = null;
+    this._initGoldenBottle();
 
     // 효과음 & 속도 단계
     // 재시작 시 같은 SoundFX 를 재사용해 AudioContext 가 누적되지 않게 한다
     this.sound = options.sound || new SoundFX();
     this.effects = new Effects(); // 파티클/플래시/셰이크
     this.speedLevel = DEFAULT_SPEED_LEVEL;
-    this.tickMs = SPEED_LEVELS[this.speedLevel - 1].babyTileMs;
+
+    // 파워업 타이머 (슈가 러시 / 황금 젖병 보행기 모드)
+    this.sugarRushTimer = 0;
+    this.goldenTimer = 0;
+
+    this._baseTickMs = SPEED_LEVELS[this.speedLevel - 1].babyTileMs;
+    this.tickMs = this._baseTickMs;
     this._applySpeedLevel();
+
+    // 레티나(고해상도) 대응: 캔버스 내부 해상도를 실제 픽셀 밀도에 맞춘다
+    this.dpr = 1;
+    this.animTime = 0; // 캐릭터/아이템 애니메이션용 시간(ms)
+    this.applyPixelRatio();
 
     // 게임 상태
     this.running = false;
@@ -83,7 +99,7 @@ export default class Game {
     this.helpOpen = false;         // 사용 설명서(도움말) 열림 여부 — 열려 있으면 로직/입력 정지
     this.readyTimer = READY_COUNTDOWN_MS;
     this.scorePopups = [];         // { row, col, text, color, life, maxLife }
-    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0 };
+    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
     this.tester = null;            // 테스터 모드 연결 지점 (src/tester.js)
 
     // 진행 상태 (9단계: 목숨/라운드/하이스코어)
@@ -106,13 +122,23 @@ export default class Game {
     });
   }
 
+  /** 맵 정중앙에 황금 젖병 배치 (먹은 뒤 20초 후 제자리에 다시 나타난다) */
+  _initGoldenBottle() {
+    this.goldenBottle = new Item(
+      GOLDEN_SPAWN.row, GOLDEN_SPAWN.col, 'GOLDEN', { fixed: true },
+    );
+  }
+
   /**
    * 속도 단계 적용 (1 = 가장 느림 ~ 10 = 가장 빠름)
    * 베이비 tick 간격과 보모 이동 시간을 함께 조정한다.
    */
   _applySpeedLevel() {
     const config = SPEED_LEVELS[this.speedLevel - 1];
-    this.tickMs = config.babyTileMs;
+    this._baseTickMs = config.babyTileMs;
+
+    // 파워업(슈가 러시 / 보행기 모드) 중이면 tick 간격을 줄여 실제 속도를 높인다
+    this.tickMs = this._boostedTickMs(this._baseTickMs);
 
     // 악당은 어떤 단계에서도 베이비보다 느려야 한다
     const enemyTileMs = Math.max(
@@ -120,6 +146,41 @@ export default class Game {
       Math.round(config.babyTileMs * ENEMY_SLOWDOWN_FACTOR),
     );
     this.enemies.forEach(e => { e.baseTileMs = enemyTileMs; });
+  }
+
+  /** 현재 적용 중인 파워업 속도 배율 (없으면 1) */
+  _currentSpeedMultiplier() {
+    let multiplier = 1;
+    if ((this.sugarRushTimer || 0) > 0) {
+      multiplier = Math.max(multiplier, SUGAR_RUSH.speedMultiplier);
+    }
+    if ((this.goldenTimer || 0) > 0) {
+      multiplier = Math.max(multiplier, GOLDEN_BOTTLE.speedMultiplier);
+    }
+    return multiplier;
+  }
+
+  /** 배율이 적용된 tick 간격 (ms) */
+  _boostedTickMs(baseTickMs) {
+    const multiplier = this._currentSpeedMultiplier();
+    if (!(multiplier > 1)) return baseTickMs;
+    return Math.max(60, Math.round(baseTickMs / multiplier));
+  }
+
+  /**
+   * 파워업 시작/종료 시 tick 간격 재계산.
+   * 진행 중이던 타일 이동 비율을 유지해 화면이 튀지 않게 한다.
+   * @returns {number} 적용된 tick 간격
+   */
+  _refreshTickRate() {
+    const nextTickMs = this._boostedTickMs(this._baseTickMs);
+    if (nextTickMs === this.tickMs) return this.tickMs;
+
+    const oldTickMs = this.tickMs > 0 ? this.tickMs : nextTickMs;
+    const progress = Math.min(1, Math.max(0, (this.tickAccumulator || 0) / oldTickMs));
+    this.tickMs = nextTickMs;
+    this.tickAccumulator = Math.min(nextTickMs - 1, progress * nextTickMs);
+    return this.tickMs;
   }
 
   /**
@@ -163,6 +224,47 @@ export default class Game {
     }
   }
 
+  /**
+   * 현재 화면의 devicePixelRatio (Node/테스트 환경은 1)
+   * - 3배를 넘는 초고해상도 기기는 성능 보호를 위해 상한을 둔다
+   * @returns {number}
+   */
+  _resolvePixelRatio() {
+    if (typeof window === 'undefined') return 1;
+    const raw = Number(window.devicePixelRatio) || 1;
+    return Math.min(MAX_DEVICE_PIXEL_RATIO, Math.max(1, raw));
+  }
+
+  /**
+   * 캔버스 내부 해상도를 devicePixelRatio 에 맞춰 조정한다.
+   * 논리 좌표계는 항상 640x640 이며, 렌더 시 setTransform 으로 스케일한다.
+   * @param {number} [ratio]
+   * @returns {number} 적용된 배율
+   */
+  applyPixelRatio(ratio = this._resolvePixelRatio()) {
+    const next = Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+    this.dpr = next;
+
+    if (this.canvas) {
+      const pixelWidth = Math.round(CANVAS_WIDTH * next);
+      const pixelHeight = Math.round(CANVAS_HEIGHT * next);
+
+      if (this.canvas.width !== pixelWidth) this.canvas.width = pixelWidth;
+      if (this.canvas.height !== pixelHeight) this.canvas.height = pixelHeight;
+    }
+
+    // 정적 맵 캐시도 같은 배율로 다시 만든다
+    this.map?.setPixelRatio?.(next);
+    return this.dpr;
+  }
+
+  /** 모니터/창 크기 변경 시 DPR 재적용 (main.js 에서 호출) */
+  refreshPixelRatio() {
+    const next = this._resolvePixelRatio();
+    if (Math.abs(next - this.dpr) < 0.01) return this.dpr;
+    return this.applyPixelRatio(next);
+  }
+
   /** 게임 시작 */
   start() {
     this.running = true;
@@ -189,6 +291,9 @@ export default class Game {
   _tick(now) {
     const dt = now - this.lastTime;
     this.lastTime = now;
+
+    // 애니메이션 시간 (캐릭터 바운스/아이템 부유/트랩 흔들림)
+    if (dt > 0) this.animTime = (this.animTime + dt) % 600000;
 
     // 시각 효과(프레임 단위) + 8비트 BGM 스케줄 (일시정지·도움말 중에는 BGM 정지)
     this.effects.update(dt / 1000);
@@ -336,6 +441,9 @@ export default class Game {
       this.cryCooldown = Math.max(0, this.cryCooldown - dt);
     }
 
+    // 파워업 타이머 (슈가 러시 / 황금 젖병 보행기 모드)
+    this._updatePowerUps(dt);
+
     // 입력 → 베이비 방향 전환 (테스터 모드에서는 입력 소스가 바뀔 수 있다)
     const dir = this._resolveDirection();
     if (dir) this.player.setDirection(dir);
@@ -353,16 +461,24 @@ export default class Game {
     // 아이템 섭취 / 리스폰
     this._updateItems(dt);
 
+    // 황금 젖병 습득 / 리스폰
+    this._updateGoldenBottle(dt);
+
     // 보모(악당): 일부는 추격, 일부는 경비 순찰
     this.enemies.forEach(e => e.update(dt, this.map.map, this.player.row, this.player.col));
 
     // 트랩 수명 & 악당 감속 판정
     this._updateTraps(dt);
 
-    // 체포 판정 (무적 시간/스텔스/테스터 무적 중에는 무시)
-    if (this.graceTimer > 0) {
-      this.graceTimer = Math.max(0, this.graceTimer - dt);
-    } else if (!this.player.isStealthed
+    // 체포/무적 판정
+    const wasInvincible = this.graceTimer > 0;
+    if (this.graceTimer > 0) this.graceTimer = Math.max(0, this.graceTimer - dt);
+
+    if (this.goldenTimer > 0) {
+      // 보행기 모드: 무적 + 부딪힌 악당을 날려버린다 (+300)
+      this._resolveGoldenCollisions();
+    } else if (!wasInvincible
+      && !this.player.isStealthed
       && !this.tester?.flags?.invincible
       && this._isCaught()) {
       this._catchPlayer();
@@ -435,8 +551,142 @@ export default class Game {
         this.sound.playItem();
         this.effects.burstSparkle(item.row, item.col); // 노란 반짝이
         this._updateHiScore();
+
+        // 캔디(🍬)는 슈가 러시 발동
+        if (item.type === 'CANDY') this._activateSugarRush();
       }
     }
+  }
+
+  /**
+   * 황금 젖병 습득 판정 + 리스폰 타이머 (일반 아이템과 분리해 클리어 카운트에 영향 없음)
+   * @param {number} dt
+   */
+  _updateGoldenBottle(dt) {
+    const bottle = this.goldenBottle;
+    if (!bottle) return;
+
+    if (bottle.collected) {
+      bottle.update(dt, this.map.map, this.rng, [
+        { row: this.player.row, col: this.player.col },
+      ]);
+      return;
+    }
+
+    if (bottle.row === this.player.row && bottle.col === this.player.col) {
+      this._activateGoldenWalker();
+      bottle.collect();
+    }
+  }
+
+  /** 캔디(🍬) 섭취: 3초간 이동 속도 +50% 슈가 러시 */
+  _activateSugarRush() {
+    this.sugarRushTimer = SUGAR_RUSH.duration;
+    this.stats.sugar += 1;
+    this._refreshTickRate();
+
+    this._addPopup(this.player.row, this.player.col, 'SUGAR RUSH!', COLORS.SUGAR);
+    this.tester?.log?.(
+      'sugar',
+      `슈가 러시 ${SUGAR_RUSH.duration / 1000}초 (+${Math.round((SUGAR_RUSH.speedMultiplier - 1) * 100)}% 속도)`,
+    );
+    this.sound.playSugarRush?.();
+    this.effects.flashScreen('#f8bbd0', 0.16, 0.2);
+    this.effects.burstSparkle(this.player.row, this.player.col, 8);
+  }
+
+  /** 황금 젖병 섭취: 8초 보행기 모드 (무적 + 속도 증가) + 모든 악당이 겁에 질려 도망 */
+  _activateGoldenWalker() {
+    this.goldenTimer = GOLDEN_BOTTLE.duration;
+    this.stats.golden += 1;
+    this._refreshTickRate();
+
+    this.enemies.forEach(enemy => enemy.startFlee(this.goldenTimer));
+
+    this._addPopup(this.player.row, this.player.col, '보행기 모드!', COLORS.GOLDEN);
+    this.tester?.log?.(
+      'golden',
+      `황금 젖병! ${GOLDEN_BOTTLE.duration / 1000}초 무적 보행기 (악당 도망)`,
+    );
+    this.sound.playGolden?.();
+    this.effects.flashScreen('#ffd54f', 0.32, 0.4);
+    this.effects.shockwave(
+      this.player.row, this.player.col,
+      COLORS.GOLDEN, TILE_SIZE * 4, 0.6,
+    );
+    this.effects.burstSparkle(this.player.row, this.player.col, 18);
+  }
+
+  /** 파워업 타이머 진행 (만료 시 속도/도망 상태 복구) */
+  _updatePowerUps(dt) {
+    let changed = false;
+
+    if (this.sugarRushTimer > 0) {
+      this.sugarRushTimer = Math.max(0, this.sugarRushTimer - dt);
+      if (this.sugarRushTimer === 0) changed = true;
+    }
+
+    if (this.goldenTimer > 0) {
+      this.goldenTimer = Math.max(0, this.goldenTimer - dt);
+      if (this.goldenTimer === 0) {
+        this.enemies.forEach(enemy => enemy.endFlee());
+        changed = true;
+        this.tester?.log?.('golden', '보행기 모드 종료');
+      }
+    }
+
+    if (changed) this._refreshTickRate();
+  }
+
+  /** 보행기 모드: 부딪힌 악당을 모두 날려버린다 */
+  _resolveGoldenCollisions() {
+    const hits = this.enemies.filter(enemy => this._enemyTouchesPlayer(enemy));
+    hits.forEach(enemy => this._knockEnemy(enemy));
+    return hits.length;
+  }
+
+  /** 베이비와 악당이 같은 타일이거나 서로를 스쳐 지나갔는지 (얼어 있는 악당 포함) */
+  _enemyTouchesPlayer(enemy) {
+    const player = this.player;
+    if (enemy.row === player.row && enemy.col === player.col) return true;
+
+    return !!enemy.movedThisTick
+      && player.isMoving
+      && enemy.row === player.prevRow && enemy.col === player.prevCol
+      && enemy.prevRow === player.row && enemy.prevCol === player.col;
+  }
+
+  /** 악당 날려버리기: +300점, 스폰 지점 복귀, 남은 보행기 시간 동안 다시 도망 */
+  _knockEnemy(enemy) {
+    const hitRow = enemy.row;
+    const hitCol = enemy.col;
+    const fleeRemaining = Math.max(0, this.goldenTimer);
+
+    this.player.score += GOLDEN_BOTTLE.knockScore;
+    this.stats.knocks += 1;
+    this._updateHiScore();
+
+    enemy.resetToSpawn();
+    if (fleeRemaining > 0) enemy.startFlee(fleeRemaining);
+
+    this._addPopup(hitRow, hitCol, `+${GOLDEN_BOTTLE.knockScore}`, COLORS.GOLDEN);
+    this.tester?.log?.(
+      'knock',
+      `악당 날려버림 @ (${hitRow},${hitCol}) +${GOLDEN_BOTTLE.knockScore}`,
+    );
+    this.sound.playTrapHit();
+    this.effects.burstSparkle(hitRow, hitCol, 16);
+    this.effects.shockwave(hitRow, hitCol, COLORS.GOLDEN, TILE_SIZE * 2.8, 0.45);
+    this.effects.flashScreen(COLORS.GOLDEN, 0.16, 0.2);
+    this.effects.shake(0.12, 4);
+  }
+
+  /** 라운드/재시작 시 파워업 상태를 모두 해제 */
+  _clearPowerUps() {
+    this.sugarRushTimer = 0;
+    this.goldenTimer = 0;
+    this.enemies.forEach(enemy => enemy.endFlee());
+    this._refreshTickRate();
   }
 
   /** 소화가 끝난 아이템을 현재 타일에 트랩으로 배출 */
@@ -505,7 +755,8 @@ export default class Game {
     this._addPopup(caughtAt.row, caughtAt.col, `${PENALTY.CAUGHT}`, '#ef5350');
     this.tester?.log?.('catch', `체포 @ (${caughtAt.row},${caughtAt.col}) 남은 목숨 ${this.lives}`);
     this.sound.playCaught();
-    this.effects.shake(0.2, 6); // 0.2초 카메라 셰이크
+    this.effects.shake(0.2, 9); // 0.2초 카메라 셰이크
+    this.effects.flashScreen('#ef5350', 0.22, 0.26); // 붉은 피격 섬광
 
     // 귀환한 침대 위이므로 재발동 방지 상태로 맞춘다
     this._wasOnBed = true;
@@ -572,8 +823,13 @@ export default class Game {
     this.tester?.log?.('cry', `울기 사용 (-100, 얼림 +${SKILL_CRY.freezeDuration / 1000}s)`);
     this.sound.playFreeze();
 
-    // 푸른빛 전체 플래시 + 악당 위치에 얼음 파티클
-    this.effects.flashScreen(COLORS.ENEMY_FROZEN, 0.35, 0.3);
+    // 푸른 섬광 + 눈물 파티클 + 악당 위치에 얼음 파편
+    this.effects.flashScreen(COLORS.ENEMY_FROZEN, 0.45, 0.38);
+    this.effects.shockwave(
+      this.player.row, this.player.col,
+      '#9be7ff', TILE_SIZE * 3.4, 0.55,
+    );
+    this.effects.burstTears(this.player.row, this.player.col);
     this.enemies.forEach(enemy => this.effects.burstIce(enemy.row, enemy.col));
   }
 
@@ -638,11 +894,18 @@ export default class Game {
 
   /** 보드/플레이어 초기화 (점수·목숨·하이스코어는 유지) */
   _resetBoard() {
+    this._clearPowerUps();
+
     this.player.reset(this.map.babySpawn);
     this.enemies.forEach(enemy => enemy.resetToSpawn());
 
     this.items = [];
     this._initItems();
+
+    // 황금 젖병도 중앙에 다시 배치
+    this.goldenBottle = null;
+    this._initGoldenBottle();
+
     this.traps = [];
     this.scorePopups = [];
     this.effects.reset();
@@ -681,7 +944,7 @@ export default class Game {
     this.lives = PLAYER_LIVES;
     this.round = 1;
     this.catchCount = 0;
-    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0 };
+    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
     this.newRecord = false;
     this.baseSpeedLevel = this.speedLevel; // 재도전 시 현재 속도 단계를 기준으로 유지
     this._applySpeedLevel();
@@ -695,8 +958,14 @@ export default class Game {
   _render(alpha) {
     const ctx = this.ctx;
 
+    // 레티나 캔버스: 이후 모든 그리기를 640x640 논리 좌표로 수행한다
+    if (typeof ctx.setTransform === 'function') {
+      ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    }
+    ctx.imageSmoothingEnabled = true;
+
     // 배경 클리어
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = '#04060f';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // 카메라 셰이크 (월드만 흔들고 HUD 는 고정)
@@ -708,24 +977,34 @@ export default class Game {
     this.map.render(ctx);
 
     // 아이템 렌더링
-    this.items.forEach(item => item.render(ctx));
+    this.items.forEach(item => item.render(ctx, this.animTime));
+
+    // 황금 젖병 (맵 중앙 슈퍼 아이템)
+    this.goldenBottle?.render(ctx, this.animTime);
 
     // 트랩 렌더링
-    this.traps.forEach(trap => trap.render(ctx));
+    this.traps.forEach(trap => trap.render(ctx, this.animTime));
 
     // 적 렌더링
-    this.enemies.forEach(e => e.render(ctx));
+    this.enemies.forEach(e => e.render(ctx, this.animTime));
 
-    // 플레이어 렌더링 (tick 사이 보간)
-    this.player.render(ctx, alpha);
+    // 플레이어 렌더링 (tick 사이 보간 + 파워업 연출)
+    this.player.render(ctx, alpha, this.animTime, {
+      sugarRush: this.sugarRushTimer > 0,
+      goldenWalker: this.goldenTimer > 0,
+    });
 
     // 점수 팝업 (+50 / -200 …)
     this._renderPopups(ctx);
 
-    // 파티클 (월드 좌표)
+    // 충격파(울기) + 파티클 (월드 좌표)
+    this.effects.renderShockwaves(ctx);
     this.effects.renderParticles(ctx);
 
     ctx.restore();
+
+    // 베이비 주변 원형 조명 + 주변부 비네트
+    this._renderLighting(ctx, alpha);
 
     // 점수 UI (임시)
     this._renderUI(ctx);
@@ -741,6 +1020,72 @@ export default class Game {
 
     // 화면 전체 플래시 (가장 위)
     this.effects.renderFlash(ctx);
+  }
+
+  /**
+   * 베이비 주변 반경 3~4타일의 은은한 원형 조명 + 주변부 비네트.
+   * - 캔버스 API 가 없는 테스트 스텁에서는 아무 일도 하지 않는다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} alpha
+   */
+  _renderLighting(ctx, alpha) {
+    if (typeof ctx.createRadialGradient !== 'function') return;
+
+    const center = this.player.getRenderCenter(alpha);
+    const shake = this.effects.getShakeOffset();
+    const cx = center.x + shake.x;
+    const cy = center.y + shake.y;
+
+    const radius = TILE_SIZE * BABY_LIGHT_RADIUS_TILES;
+    const outerRadius = radius + TILE_SIZE * BABY_LIGHT_FEATHER_TILES;
+
+    // 1) 조명 바깥쪽을 어둡게 → 원형 스포트라이트 느낌
+    const vignette = ctx.createRadialGradient(cx, cy, radius, cx, cy, outerRadius);
+    if (!vignette || typeof vignette.addColorStop !== 'function') return;
+
+    vignette.addColorStop(0, 'rgba(3, 7, 18, 0)');
+    vignette.addColorStop(0.55, 'rgba(3, 7, 18, 0.10)');
+    vignette.addColorStop(1, 'rgba(2, 5, 14, 0.48)');
+
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // 2) 베이비 주변의 따뜻한 빛 (가산 합성)
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, outerRadius);
+    if (!glow || typeof glow.addColorStop !== 'function') return;
+
+    const strength = this.player.isStealthed ? 0.45 : 1; // 숨는 중엔 빛을 줄인다
+
+    // 파워업 중에는 조명 색도 바뀐다 (황금 / 핑크)
+    let glowStops;
+    if (this.goldenTimer > 0) {
+      glowStops = [
+        `rgba(255, 235, 130, ${0.3 * strength})`,
+        `rgba(255, 215, 0, ${0.14 * strength})`,
+        'rgba(255, 200, 0, 0)',
+      ];
+    } else if (this.sugarRushTimer > 0) {
+      glowStops = [
+        `rgba(255, 180, 220, ${0.24 * strength})`,
+        `rgba(240, 98, 146, ${0.1 * strength})`,
+        'rgba(240, 98, 146, 0)',
+      ];
+    } else {
+      glowStops = [
+        `rgba(255, 234, 170, ${0.2 * strength})`,
+        `rgba(255, 214, 120, ${0.08 * strength})`,
+        'rgba(255, 200, 90, 0)',
+      ];
+    }
+    glow.addColorStop(0, glowStops[0]);
+    glow.addColorStop(0.45, glowStops[1]);
+    glow.addColorStop(1, glowStops[2]);
+
+    const previous = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.globalCompositeOperation = previous || 'source-over';
   }
 
   /** 간단한 HUD 렌더링 */
@@ -783,9 +1128,10 @@ export default class Game {
     // 소화 게이지 (트랩 배출까지)
     this._renderDigestionGauge(ctx);
 
-    // 스텔스 / 얼림 상태
+    // 스텔스 / 얼림 / 파워업 상태
     this._renderStealthGauge(ctx);
     this._renderFreezeBadge(ctx);
+    this._renderBoostBadges(ctx);
 
     // 하단 조작 안내
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -851,6 +1197,45 @@ export default class Game {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`얼림 ${(remain / 1000).toFixed(1)}초`, CANVAS_WIDTH / 2, 40);
+  }
+
+  /** 슈가 러시 / 황금 보행기 남은 시간 배지 (우측 상단) */
+  _renderBoostBadges(ctx) {
+    const badges = [];
+    if (this.goldenTimer > 0) {
+      badges.push({
+        text: `🍼 보행기 ${(this.goldenTimer / 1000).toFixed(1)}초`,
+        color: COLORS.GOLDEN,
+      });
+    }
+    if (this.sugarRushTimer > 0) {
+      badges.push({
+        text: `🍬 슈가 러시 ${(this.sugarRushTimer / 1000).toFixed(1)}초`,
+        color: COLORS.SUGAR,
+      });
+    }
+    if (badges.length === 0) return;
+
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 12px "Segoe UI", sans-serif';
+
+    let y = 40;
+    for (const badge of badges) {
+      const metrics = typeof ctx.measureText === 'function' ? ctx.measureText(badge.text) : null;
+      const textWidth = metrics && typeof metrics.width === 'number'
+        ? metrics.width
+        : badge.text.length * 7;
+      const width = textWidth + 18;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+      ctx.fillRect(CANVAS_WIDTH - 10 - width, y - 9, width, 18);
+
+      ctx.fillStyle = badge.color;
+      ctx.fillText(badge.text, CANVAS_WIDTH - 18, y);
+      y += 24;
+    }
+    ctx.textAlign = 'left';
   }
 
   /** 점수 팝업 렌더링 (위로 떠오르며 사라짐) */
@@ -921,7 +1306,7 @@ export default class Game {
     );
     ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
     ctx.fillText(
-      `스텔스 ${this.stats.stealth}회   ·   울기 ${this.stats.cries}회`,
+      `스텔스 ${this.stats.stealth}회 · 울기 ${this.stats.cries}회 · 슈가 ${this.stats.sugar}회 · 보행기 ${this.stats.golden}회`,
       CANVAS_WIDTH / 2,
       CANVAS_HEIGHT / 2 + 62,
     );

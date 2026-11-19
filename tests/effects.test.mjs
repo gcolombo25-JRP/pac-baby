@@ -51,6 +51,32 @@ test('얼음 파티클은 푸른색 계열이다', () => {
   assert.ok(fx.particles.every(p => ['#64b5f6', '#bbdefb', '#e3f2fd'].includes(p.color)));
 });
 
+test('눈물 파티클은 하늘색 계열의 tear 종류다', () => {
+  const fx = new Effects();
+  const count = fx.burstTears(2, 3);
+
+  assert.ok(count > 0);
+  assert.equal(fx.particles.length, count);
+  assert.ok(fx.particles.every(p => p.kind === 'tear'));
+  assert.ok(
+    fx.particles.every(p => ['#81d4fa', '#4fc3f7', '#b3e5fc', '#e1f5fe'].includes(p.color)),
+  );
+});
+
+test('충격파 링은 시간이 지나면 퍼지고 사라진다', () => {
+  const fx = new Effects();
+  const ring = fx.shockwave(1, 2, '#9be7ff', 90, 0.5);
+
+  assert.equal(fx.rings.length, 1);
+  assert.equal(ring.maxRadius, 90);
+
+  fx.update(0.2);
+  assert.equal(fx.rings.length, 1);
+
+  fx.update(0.4);
+  assert.equal(fx.rings.length, 0);
+});
+
 test('파티클은 수명이 끝나면 사라진다', () => {
   const fx = new Effects();
   fx.burstSparkle(1, 1);
@@ -111,9 +137,12 @@ test('파티클/플래시 렌더링이 예외 없이 동작한다', () => {
   fx.burstSparkle(1, 1);
   fx.burstDrops(2, 2, '#fff176');
   fx.burstIce(3, 3);
+  fx.burstTears(4, 4);
+  fx.shockwave(4, 4);
   fx.flashScreen('#64b5f6', 0.35, 0.3);
 
   const ctx = createStubCtx();
+  assert.doesNotThrow(() => fx.renderShockwaves(ctx));
   assert.doesNotThrow(() => fx.renderParticles(ctx));
   assert.doesNotThrow(() => fx.renderFlash(ctx));
 

@@ -193,15 +193,12 @@ export default class Player {
   }
 
   /**
-   * 캔버스에 베이비 렌더링
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {number} alpha 보간 계수 (0~1)
+   * 보간된 화면 중심 좌표 (조명/이펙트에서도 사용)
+   * @param {number} alpha
+   * @returns {{x: number, y: number}}
    */
-  render(ctx, alpha = 1) {
+  getRenderCenter(alpha = 1) {
     const t = Math.min(Math.max(alpha, 0), 1);
-
-    // 스텔스 중에는 반투명하게 그린다
-    if (this.stealthTimer > 0) ctx.globalAlpha = 0.3;
 
     // 터널 통과(타일 좌표가 1칸 이상 점프) 시에는 보간하지 않는다
     const drawCol = Math.abs(this.prevCol - this.col) <= 1
@@ -211,40 +208,228 @@ export default class Player {
       ? this.prevRow + (this.row - this.prevRow) * t
       : this.row;
 
-    const cx = (drawCol + 0.5) * TILE_SIZE;
-    const cy = (drawRow + 0.5) * TILE_SIZE;
+    return {
+      x: (drawCol + 0.5) * TILE_SIZE,
+      y: (drawRow + 0.5) * TILE_SIZE,
+    };
+  }
+
+  /** 바라보는 방향 벡터 (눈동자 시선용) */
+  _lookVector() {
+    const dir = this.direction || this.nextDirection;
+    if (dir === 'LEFT') return { x: -1, y: 0 };
+    if (dir === 'RIGHT') return { x: 1, y: 0 };
+    if (dir === 'UP') return { x: 0, y: -1 };
+    if (dir === 'DOWN') return { x: 0, y: 1 };
+    return { x: 0, y: 0.55 }; // 정지: 살짝 아래(발끝)를 본다
+  }
+
+  /**
+   * 캔버스에 베이비 렌더링
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} alpha 보간 계수 (0~1)
+   * @param {number} timeMs 애니메이션 시간(ms) — 게임 루프가 넘겨준다
+   * @param {{sugarRush?: boolean, goldenWalker?: boolean}} options 파워업 연출
+   */
+  render(ctx, alpha = 1, timeMs = 0, options = {}) {
+    const t = Math.min(Math.max(alpha, 0), 1);
+    const stealth = this.stealthTimer > 0;
+    const sugarRush = options.sugarRush === true;
+    const goldenWalker = options.goldenWalker === true;
+
+    // 파워업 색상: 황금 보행기 > 슈가 러시(무지개) > 기본
+    let bodyColor = COLORS.BABY;
+    let glowColor = 'rgba(255, 224, 130, 0.85)';
+    if (goldenWalker && sugarRush) {
+      bodyColor = `hsl(${(timeMs / 8) % 360}, 100%, 70%)`;
+      glowColor = 'rgba(255, 215, 0, 0.95)';
+    } else if (goldenWalker) {
+      bodyColor = '#ffd54f';
+      glowColor = 'rgba(255, 215, 0, 0.95)';
+    } else if (sugarRush) {
+      bodyColor = `hsl(${(timeMs / 8) % 360}, 95%, 68%)`;
+      glowColor = 'rgba(244, 143, 177, 0.9)';
+    }
+
+    // 스텔스 중에는 반투명하게 그린다
+    if (stealth) ctx.globalAlpha = 0.32;
+
+    const center = this.getRenderCenter(t);
     const radius = TILE_SIZE / 2 - 2;
 
-    // 몸통
-    ctx.fillStyle = COLORS.BABY;
+    // 이동 중: 통통 튀는 바운스 + 찌그러짐(Squash)
+    const phase = Math.sin(timeMs / 72);
+    const bounce = this.isMoving ? Math.abs(phase) * TILE_SIZE * 0.14 : 0;
+    const squash = this.isMoving ? (1 - Math.abs(phase)) * 0.12 : 0;
+    const breathe = 1 + Math.sin(timeMs / 520) * 0.02; // 숨쉬기
+
+    const cx = center.x;
+    const cy = center.y - bounce;
+    const rx = radius * (1 + squash * 0.7);
+    const ry = radius * (1 - squash * 0.4) * breathe;
+    const supportsEllipse = typeof ctx.ellipse === 'function';
+
+    // 바닥 그림자 (바운스 높이에 따라 옅어짐)
+    if (supportsEllipse) {
+      ctx.fillStyle = bounce > 0.1 ? 'rgba(0, 0, 0, 0.22)' : 'rgba(0, 0, 0, 0.32)';
+      ctx.beginPath();
+      ctx.ellipse(center.x, center.y + radius * 0.8, radius * 0.78, radius * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 몸통 (파워업 시 무지개/황금, 평소엔 따뜻한 네온 글로우)
+    ctx.save?.();
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = bodyColor;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    if (supportsEllipse) {
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    // 위쪽 광택
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.38)';
+    ctx.beginPath();
+    ctx.arc(cx - rx * 0.32, cy - ry * 0.42, radius * 0.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // 눈
-    ctx.fillStyle = '#333';
+    // 슈가 러시: 알록달록 깜빡이는 링 + 색색의 반짝이
+    if (sugarRush) {
+      const hue = (timeMs / 6) % 360;
+      ctx.strokeStyle = `hsla(${hue}, 100%, 70%, 0.9)`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 3.5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      for (let i = 0; i < 5; i++) {
+        const angle = timeMs / 240 + (Math.PI * 2 / 5) * i;
+        ctx.fillStyle = `hsl(${(hue + i * 72) % 360}, 100%, 65%)`;
+        ctx.beginPath();
+        ctx.arc(
+          cx + Math.cos(angle) * (radius + 6),
+          cy + Math.sin(angle) * (radius + 6),
+          1.6, 0, Math.PI * 2,
+        );
+        ctx.fill();
+      }
+    }
+
+    // 황금 보행기: 무적의 황금 링 + 왕관 별
+    if (goldenWalker) {
+      const ringPulse = Math.sin(timeMs / 180) * 1.2;
+
+      ctx.strokeStyle = 'rgba(255, 215, 0, 0.95)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 4.5 + ringPulse, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255, 248, 220, 0.9)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 7.5 + ringPulse, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#fff59d';
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 3; i++) {
+        const angle = -Math.PI / 2 + (Math.PI * 2 / 3) * i + timeMs / 500;
+        const sx = cx + Math.cos(angle) * (radius + 9);
+        const sy = cy + Math.sin(angle) * (radius + 9);
+        ctx.beginPath();
+        ctx.moveTo(sx - 2, sy);
+        ctx.lineTo(sx + 2, sy);
+        ctx.moveTo(sx, sy - 2);
+        ctx.lineTo(sx, sy + 2);
+        ctx.stroke();
+      }
+    }
+
+    // 볼터치
+    ctx.fillStyle = 'rgba(255, 171, 145, 0.55)';
     ctx.beginPath();
-    ctx.arc(cx - 4, cy - 3, 2, 0, Math.PI * 2);
-    ctx.arc(cx + 4, cy - 3, 2, 0, Math.PI * 2);
+    ctx.arc(cx - 5.6, cy + 1.8, 1.7, 0, Math.PI * 2);
+    ctx.arc(cx + 5.6, cy + 1.8, 1.7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 눈 (진행 방향을 바라보는 눈동자 + 주기적 깜빡임)
+    const look = this._lookVector();
+    const eyeY = cy - 3.2;
+    const blink = (timeMs % 3400) > 3260 ? 0.2 : 1;
+    const eyeRx = 3.0;
+    const eyeRy = 3.5 * blink;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    if (supportsEllipse) {
+      ctx.ellipse(cx - 3.9, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + 3.9, eyeY, eyeRx, eyeRy, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(cx - 3.9, eyeY, eyeRx, 0, Math.PI * 2);
+      ctx.arc(cx + 3.9, eyeY, eyeRx, 0, Math.PI * 2);
+    }
+    ctx.fill();
+
+    // 눈동자 (방향에 따라 이동)
+    const pupilX = look.x * 1.25;
+    const pupilY = look.y * 1.25;
+    ctx.fillStyle = '#2b2b33';
+    ctx.beginPath();
+    ctx.arc(cx - 3.9 + pupilX, eyeY + pupilY, 1.6, 0, Math.PI * 2);
+    ctx.arc(cx + 3.9 + pupilX, eyeY + pupilY, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 눈동자 반짝임
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.beginPath();
+    ctx.arc(cx - 4.4 + pupilX, eyeY - 0.6 + pupilY, 0.62, 0, Math.PI * 2);
+    ctx.arc(cx + 3.4 + pupilX, eyeY - 0.6 + pupilY, 0.62, 0, Math.PI * 2);
     ctx.fill();
 
     // 미소
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(cx, cy + 2, 4, 0.1 * Math.PI, 0.9 * Math.PI);
+    ctx.arc(cx, cy + 2.4, 3.8, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+
+    // 머리카락 한 가닥 (아호게)
+    ctx.strokeStyle = '#d4a017';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx + 1.6, cy - ry + 1.2, 2.3, 0.15 * Math.PI, 1.35 * Math.PI);
     ctx.stroke();
 
     // 스텔스 중이면 반짝이는 테두리 표시
-    if (this.stealthTimer > 0) {
-      ctx.globalAlpha = 0.8;
+    if (stealth) {
+      ctx.globalAlpha = 0.85;
       ctx.strokeStyle = '#4fc3f7';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(cx, cy, radius + 3, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.globalAlpha = 1; // 알파 복원
+
+      // 숨겨진 느낌의 반짝이 점
+      ctx.fillStyle = '#b3e5fc';
+      for (let i = 0; i < 4; i++) {
+        const angle = (Math.PI / 2) * i + timeMs / 900;
+        ctx.beginPath();
+        ctx.arc(cx + Math.cos(angle) * (radius + 6), cy + Math.sin(angle) * (radius + 6), 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
+
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+    ctx.restore?.();
+    ctx.globalAlpha = 1; // 알파 복원 (restore 뒤에 해야 확실히 되돌아간다)
   }
 
   /**

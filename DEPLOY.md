@@ -108,12 +108,21 @@ vercel --prod
 - 테스터 패널이 필요하면 URL 뒤에 **`?test=1`** 을 붙이세요.
 - 업데이트 직후 예전 화면이 보이면 **새로고침**(데스크톱 `Ctrl+Shift+R`) 하세요.
 
+### 카카오톡 인앱 브라우저 캐시 대응
+- `vite.config.js` 가 모든 JS/CSS/청크에 **콘텐츠 해시 파일명**(`assets/index-<hash>.js`)을 붙이고
+  `assetsInlineLimit: 0` 으로 항상 별도 파일로 방출합니다.
+- 빌드 시 생성되는 **`dist/version.json`** 을 `index.html` 이 `cache: 'no-store'` 로 확인하고,
+  이전에 본 빌드와 다르면 `?v=<빌드ID>` 쿼리로 **자동 새로고침**합니다.
+- `dist/index.html` 에는 `Cache-Control: no-store` 메타 태그가 포함됩니다.
+- 이 기능이 배포되기 **이전 버전을 캐시한 사용자**는 최초 1회만 강력 새로고침이 필요할 수 있습니다.
+
 ---
 
 ## D. 배포 전 체크리스트
 
-- [ ] `npm test` — 135개 통과
-- [ ] `npm run build` — `dist/index.html` 의 스크립트/스타일 경로가 **`./assets/...`** 인지 확인
+- [ ] `npm test` — 150개 통과
+- [ ] `npm run build` — `dist/index.html` 의 스크립트/스타일 경로가 **`./assets/index-<hash>...`** 인지 확인
+- [ ] `dist/version.json` 생성 확인 (카카오톡 캐시 우회용)
 - [ ] `npm run preview` 로 빌드본 동작 확인 (개발 서버와 별개)
 - [ ] 침대 스텔스 · 울기(쿨다운/무해/연장) · 트랩 얼림 · 목숨/게임오버 · 라운드 클리어 확인
 - [ ] BGM/효과음(첫 터치 후) · 모바일 D-패드 확인

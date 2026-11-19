@@ -3,8 +3,41 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 카카오톡 인앱 브라우저의 강한 캐시 완화 (해시 파일 + version.json 자동 갱신) -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Pac-Baby 🍼</title>
   <link rel="stylesheet" href="style.css" />
+  <script>
+    // 새 빌드가 배포되면(version.json 변경) 캐시를 우회해 자동으로 새로고침한다.
+    // 카카오톡 인앱 브라우저는 HTML/에셋을 오래 캐시하므로 이 장치가 필요하다.
+    (function () {
+      try {
+        if (typeof fetch !== 'function') return;
+
+        var KEY = 'pacbaby.buildVersion';
+
+        fetch('./version.json?_=' + Date.now(), { cache: 'no-store' })
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (data) {
+            if (!data || !data.version) return;
+
+            var previous = null;
+            try { previous = window.localStorage.getItem(KEY); } catch (e) {}
+            try { window.localStorage.setItem(KEY, data.version); } catch (e) {}
+
+            // 이전에 본 빌드와 다르면 쿼리스트링을 붙여 캐시를 건너뛰고 다시 연다
+            if (previous && previous !== data.version) {
+              var url = new URL(window.location.href);
+              url.searchParams.set('v', data.version);
+              window.location.replace(url.toString());
+            }
+          })
+          .catch(function () { /* 개발 서버/오프라인: 무시 */ });
+      } catch (e) { /* 아주 오래된 웹뷰: 무시 */ }
+    })();
+  </script>
 </head>
 <body>
   <div id="game-container">
@@ -78,6 +111,15 @@
               </tbody>
             </table>
             <p class="help-note">감속은 <b>10초</b> 지속 · 보모가 트랩을 밟으면 <b class="pos">+100점</b> · 아이템은 <b>15초</b> 뒤 새 위치에 다시 나타나요.</p>
+          </section>
+
+          <section class="help-section">
+            <h3>🍬 파워업: 슈가 러시 &amp; 🍼 황금 젖병</h3>
+            <ul class="help-list">
+              <li><b>캔디(🍬)</b>를 먹으면 <b>3초 슈가 러시</b> — 이동 속도 <b class="pos">+50%</b>, 몸이 알록달록 깜빡여요.</li>
+              <li><b>황금 젖병(🍼)</b>은 <b>맵 한가운데</b>! 먹으면 <b>8초 보행기 모드</b> — <b>무적 + 속도 증가</b>, 모든 보모가 파랗게 질려 도망쳐요.</li>
+              <li>보행기 모드에서 보모와 부딪히면 <b class="pos">+300점</b>과 함께 보모가 대기실로 날아가요. (먹은 뒤 20초면 중앙에 다시 등장)</li>
+            </ul>
           </section>
 
           <section class="help-section">

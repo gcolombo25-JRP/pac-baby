@@ -346,7 +346,7 @@ test('트랩 배출 시 트랩 색 물방울이 튄다', () => {
   );
 });
 
-test('울기 발동 시 푸른 플래시와 얼음 파티클이 생긴다', () => {
+test('울기 발동 시 푸른 플래시와 눈물/얼음 파티클이 생긴다', () => {
   const { game, input } = setup();
   game.state = 'PLAYING';
   input.pressed.add(SKILL_CRY.key);
@@ -355,8 +355,16 @@ test('울기 발동 시 푸른 플래시와 얼음 파티클이 생긴다', () =
 
   assert.ok(game.effects.flash, '화면 플래시');
   assert.equal(game.effects.flash.color, COLORS.ENEMY_FROZEN);
-  assert.ok(game.effects.particles.length > 0, '얼음 파티클');
-  assert.ok(game.effects.particles.every(p => p.kind === 'ice'));
+  assert.ok(game.effects.particles.length > 0, '파티클');
+  assert.ok(
+    game.effects.particles.some(p => p.kind === 'ice'),
+    '악당 위치에 얼음 파편',
+  );
+  assert.ok(
+    game.effects.particles.some(p => p.kind === 'tear'),
+    '베이비 위치에 눈물 파티클',
+  );
+  assert.ok(game.effects.rings.length > 0, '푸른 충격파 링');
 });
 
 test('체포되면 0.2초 카메라 셰이크가 발생한다', () => {

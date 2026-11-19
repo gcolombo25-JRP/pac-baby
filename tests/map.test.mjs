@@ -14,7 +14,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  COLS, ROWS, TILE_MAP,
+  COLS, ROWS, TILE_MAP, CANVAS_WIDTH, CANVAS_HEIGHT,
   getBabySpawn, getEnemySpawns, getItemSpawns,
 } from '../src/constants.js';
 import MapRenderer from '../src/map.js';
@@ -162,6 +162,27 @@ test('브라우저 환경에서는 맵을 1회만 그려 캐시하고 매 프레
     const blits = screenCtx.calls.filter(c => c.name === 'drawImage');
     assert.equal(blits.length, 2, '매 프레임 drawImage 로 blit 한다');
     assert.equal(blits[0].args[0], cacheCanvas);
+  } finally {
+    delete globalThis.document;
+  }
+});
+
+test('레티나 배율에서는 맵 캐시도 고해상도로 만든다', () => {
+  const cacheCtx = createStubCtx();
+  const cacheCanvas = { width: 0, height: 0, getContext: () => cacheCtx };
+  globalThis.document = { createElement: () => cacheCanvas };
+
+  try {
+    const map = new MapRenderer();
+    map.setPixelRatio(2);
+    map.render(createStubCtx());
+
+    assert.equal(cacheCanvas.width, CANVAS_WIDTH * 2);
+    assert.equal(cacheCanvas.height, CANVAS_HEIGHT * 2);
+    assert.ok(
+      cacheCtx.calls.some(c => c.name === 'setTransform' && c.args[0] === 2),
+      '캐시 ctx 도 2배 변환으로 논리 좌표를 그린다',
+    );
   } finally {
     delete globalThis.document;
   }

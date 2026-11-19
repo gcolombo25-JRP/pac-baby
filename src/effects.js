@@ -11,14 +11,19 @@ import { TILE_SIZE, CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.js';
 
 /** 파티클 종류별 기본 설정 */
 const PARTICLE_PRESETS = {
-  sparkle: { count: 10, speed: 90, spread: 40, gravity: 150, size: 2.6, life: 0.55 },
-  drop: { count: 12, speed: 120, spread: -90, gravity: 420, size: 2.4, life: 0.6 },
-  ice: { count: 9, speed: 70, spread: -20, gravity: 90, size: 2.2, life: 0.7 },
+  sparkle: { count: 10, speed: 90, spread: 40, gravity: 150, size: 2.8, life: 0.55 },
+  drop: { count: 14, speed: 135, spread: -110, gravity: 460, size: 3.0, life: 0.7 },
+  ice: { count: 12, speed: 85, spread: -30, gravity: 110, size: 2.4, life: 0.8 },
+  tear: { count: 9, speed: 120, spread: -90, gravity: 520, size: 2.3, life: 0.95 },
 };
+
+/** 눈물 파티클 색 */
+const TEAR_COLORS = ['#81d4fa', '#4fc3f7', '#b3e5fc', '#e1f5fe'];
 
 export default class Effects {
   constructor() {
     this.particles = [];
+    this.rings = [];                // { x, y, radius, maxRadius, color, life, maxLife, width }
     this.flash = null;              // { color, alpha, life, maxLife }
     this.shakeTimer = 0;            // 남은 셰이크 시간(초)
     this.shakeDuration = 0;
@@ -30,6 +35,7 @@ export default class Effects {
   /** 모든 효과 초기화 (라운드/재시작) */
   reset() {
     this.particles = [];
+    this.rings = [];
     this.flash = null;
     this.shakeTimer = 0;
     this.shakeDuration = 0;
@@ -40,7 +46,7 @@ export default class Effects {
 
   /**
    * 파티클 생성 (공용)
-   * @param {'sparkle'|'drop'|'ice'} kind
+   * @param {'sparkle'|'drop'|'ice'|'tear'} kind
    * @param {number} row
    * @param {number} col
    * @param {string[]} colors
@@ -66,6 +72,8 @@ export default class Effects {
         gravity: preset.gravity,
         size: preset.size * (0.7 + this.rng() * 0.8),
         color: colors[Math.floor(this.rng() * colors.length) % colors.length],
+        rotation: this.rng() * Math.PI * 2,
+        spin: (this.rng() * 2 - 1) * 8,
         life,
         maxLife: life,
       });
@@ -86,6 +94,34 @@ export default class Effects {
   /** 울기 발동: 얼음 파편 */
   burstIce(row, col, count) {
     return this._emit('ice', row, col, ['#64b5f6', '#bbdefb', '#e3f2fd'], count);
+  }
+
+  /** 울기 발동: 눈물 파티클 (푸른 물방울) */
+  burstTears(row, col, count) {
+    return this._emit('tear', row, col, TEAR_COLORS, count);
+  }
+
+  /**
+   * 충격파 링 (울기 사용 시 퍼져 나가는 푸른 파동)
+   * @param {number} row
+   * @param {number} col
+   * @param {string} color
+   * @param {number} maxRadius px
+   * @param {number} duration 초
+   * @returns {object} 생성된 링
+   */
+  shockwave(row, col, color = '#8fd8ff', maxRadius = TILE_SIZE * 3, duration = 0.5) {
+    const ring = {
+      x: (col + 0.5) * TILE_SIZE,
+      y: (row + 0.5) * TILE_SIZE,
+      maxRadius,
+      color,
+      life: duration,
+      maxLife: duration,
+      width: 3,
+    };
+    this.rings.push(ring);
+    return ring;
   }
 
   /**
@@ -128,8 +164,13 @@ export default class Effects {
       particle.x += particle.vx * dt;
       particle.y += particle.vy * dt;
       particle.vy += particle.gravity * dt;
+      particle.rotation += particle.spin * dt;
     }
     this.particles = this.particles.filter(particle => particle.life > 0);
+
+    // 충격파 링
+    for (const ring of this.rings) ring.life -= dt;
+    this.rings = this.rings.filter(ring => ring.life > 0);
 
     // 플래시
     if (this.flash) {
@@ -156,16 +197,42 @@ export default class Effects {
     }
   }
 
+  /** 충격파 링 렌더링 (월드 좌표) */
+  renderShockwaves(ctx) {
+    if (this.rings.length === 0) return;
+
+    for (const ring of this.rings) {
+      const progress = ring.maxLife > 0 ? 1 - Math.max(0, ring.life) / ring.maxLife : 1;
+      const eased = 1 - Math.pow(1 - progress, 2); // ease-out
+      const radius = Math.max(1, ring.maxRadius * eased);
+
+      ctx.save?.();
+      ctx.globalAlpha = Math.max(0, 1 - progress) * 0.9;
+      ctx.strokeStyle = ring.color;
+      ctx.lineWidth = Math.max(0.6, ring.width * (1 - progress * 0.7));
+      ctx.shadowColor = ring.color;
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'transparent';
+      ctx.restore?.();
+      ctx.globalAlpha = 1;
+    }
+  }
+
   /** 월드 좌표 파티클 렌더링 */
   renderParticles(ctx) {
     for (const particle of this.particles) {
       const alpha = Math.max(0, Math.min(1, particle.life / particle.maxLife));
+      const size = particle.size * (0.6 + alpha * 0.6); // 끝으로 갈수록 작아진다
       ctx.globalAlpha = alpha;
       ctx.fillStyle = particle.color;
 
       if (particle.kind === 'sparkle') {
-        // 다이아몬드 모양 반짝이
-        const s = particle.size * 1.6;
+        // 다이아몬드 모양 반짝이 + 십자 광택
+        const s = size * 1.7;
         ctx.beginPath();
         ctx.moveTo(particle.x, particle.y - s);
         ctx.lineTo(particle.x + s * 0.6, particle.y);
@@ -173,18 +240,64 @@ export default class Effects {
         ctx.lineTo(particle.x - s * 0.6, particle.y);
         ctx.closePath();
         ctx.fill();
-      } else if (particle.kind === 'ice') {
-        // 작은 얼음 조각
-        ctx.fillRect(
-          particle.x - particle.size / 2,
-          particle.y - particle.size,
-          particle.size,
-          particle.size * 2,
-        );
-      } else {
-        // 물방울
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 0.8;
         ctx.beginPath();
-        ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+        ctx.moveTo(particle.x - s * 0.9, particle.y);
+        ctx.lineTo(particle.x + s * 0.9, particle.y);
+        ctx.moveTo(particle.x, particle.y - s * 0.9);
+        ctx.lineTo(particle.x, particle.y + s * 0.9);
+        ctx.stroke();
+      } else if (particle.kind === 'ice') {
+        // 회전하는 얼음 결정 (마름모)
+        ctx.save?.();
+        ctx.translate(particle.x, particle.y);
+        ctx.rotate(particle.rotation);
+        ctx.beginPath();
+        ctx.moveTo(0, -size * 1.6);
+        ctx.lineTo(size * 0.85, 0);
+        ctx.lineTo(0, size * 1.6);
+        ctx.lineTo(-size * 0.85, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+        ctx.restore?.();
+      } else if (particle.kind === 'tear') {
+        // 눈물 물방울 (세로로 긴 타원 + 하이라이트)
+        if (typeof ctx.ellipse === 'function') {
+          ctx.beginPath();
+          ctx.ellipse(particle.x, particle.y, size * 0.72, size * 1.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+          ctx.beginPath();
+          ctx.ellipse(
+            particle.x - size * 0.25, particle.y - size * 0.45,
+            size * 0.22, size * 0.4, 0, 0, Math.PI * 2,
+          );
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        // 트랩 물방울 (둥근 물방울 + 반짝임)
+        if (typeof ctx.ellipse === 'function') {
+          ctx.beginPath();
+          ctx.ellipse(particle.x, particle.y, size, size * 1.18, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.arc(particle.x, particle.y, size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.beginPath();
+        ctx.arc(particle.x - size * 0.3, particle.y - size * 0.35, size * 0.28, 0, Math.PI * 2);
         ctx.fill();
       }
     }

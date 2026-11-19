@@ -11,6 +11,7 @@ import {
 export const ENEMY_MODE = {
   CHASE: 'CHASE',   // 베이비를 쫓는다
   PATROL: 'PATROL', // 경비: 미로를 돌아다닌다
+  FLEE: 'FLEE',     // 황금 젖병 보행기 모드: 겁에 질려 도망친다
 };
 
 /** '#rrggbb' 두 색을 t(0~1) 비율로 섞는다 */
@@ -29,10 +30,10 @@ function mixHexColor(from, to, t) {
 
 /** 탐색 시 사용할 4방향 오프셋 */
 const NEIGHBOR_OFFSETS = [
-  { row: -1, col: 0 },
-  { row: 1, col: 0 },
-  { row: 0, col: -1 },
-  { row: 0, col: 1 },
+  { row: -1, col: 0, dir: 'UP' },
+  { row: 1, col: 0, dir: 'DOWN' },
+  { row: 0, col: -1, dir: 'LEFT' },
+  { row: 0, col: 1, dir: 'RIGHT' },
 ];
 
 /**
@@ -111,6 +112,8 @@ export default class Enemy {
     this.guardTarget = null;         // 경비 모드의 순찰 목표 타일
     this.confuseTimer = 0;           // 목표를 잃은 남은 시간
     this.modeBeforeConfusion = null; // 목표를 잃기 전 모드 (복귀용)
+    this.modeBeforeFlee = null;      // 도망 전 모드 (복귀용)
+    this.fleeTimer = 0;              // 남은 도망 시간 (ms)
 
     this.isFrozen = false;   // 울기 스킬/트랩에 의해 정지
     this.frozenTimer = 0;
@@ -133,8 +136,14 @@ export default class Enemy {
     return 1000 / this.getTileMs();
   }
 
+  /** 황금 젖병 때문에 도망치는 중인지 */
+  get isFleeing() {
+    return this.mode === ENEMY_MODE.FLEE;
+  }
+
   /** 모드별 원래 몸통 색 */
   getBaseColor() {
+    if (this.mode === ENEMY_MODE.FLEE) return COLORS.ENEMY_SCARED;
     return this.mode === ENEMY_MODE.PATROL ? COLORS.ENEMY_PATROL : COLORS.ENEMY;
   }
 
@@ -202,6 +211,37 @@ export default class Enemy {
   }
 
   /**
+   * 황금 젖병 보행기 모드: 베이비가 무서워 도망친다.
+   * @param {number} duration 도망 시간(ms)
+   * @returns {boolean} 적용 여부
+   */
+  startFlee(duration) {
+    if (this.mode !== ENEMY_MODE.FLEE) {
+      this.modeBeforeFlee = this.mode;
+    }
+    this.mode = ENEMY_MODE.FLEE;
+    this.fleeTimer = Math.max(this.fleeTimer, duration);
+    this.confuseTimer = 0;
+    this.modeBeforeConfusion = null;
+    this.guardTarget = null;
+    return true;
+  }
+
+  /** 도망 종료 → 원래 모드(추격/경비)로 복귀 */
+  endFlee() {
+    if (this.mode !== ENEMY_MODE.FLEE) {
+      this.fleeTimer = 0;
+      return false;
+    }
+
+    this.mode = this.modeBeforeFlee || ENEMY_MODE.CHASE;
+    this.modeBeforeFlee = null;
+    this.fleeTimer = 0;
+    this.guardTarget = null;
+    return true;
+  }
+
+  /**
    * 베이비를 놓치고 잠시 경비(순찰) 모드로 변신한다.
    * duration 후에는 원래 모드(추격)로 복귀한다.
    * @param {number} duration 목표를 잃는 시간(ms)
@@ -233,6 +273,10 @@ export default class Enemy {
     this.guardTarget = null;
     this.confuseTimer = 0;
     this.modeBeforeConfusion = null;
+    // 도망 중이었다면 원래 모드로 되돌린다 (게임이 필요하면 다시 startFlee)
+    if (this.mode === ENEMY_MODE.FLEE) this.mode = this.modeBeforeFlee || ENEMY_MODE.CHASE;
+    this.modeBeforeFlee = null;
+    this.fleeTimer = 0;
     // 체포 후에는 잠깐 멈칫하게 해서 연속 체포를 막는다
     this.wakeTimer = this.startDelay * 0.45;
   }
@@ -240,6 +284,12 @@ export default class Enemy {
   /** tick 마다 호출 — 베이비를 향해 타일 단위로 추격 */
   update(dt, map, babyRow, babyCol) {
     this.movedThisTick = false;
+
+    // 황금 젖병: 도망 타이머 진행 (얼음/기상 지연과 무관하게 흐른다)
+    if (this.fleeTimer > 0) {
+      this.fleeTimer = Math.max(0, this.fleeTimer - dt);
+      if (this.fleeTimer === 0 && this.mode === ENEMY_MODE.FLEE) this.endFlee();
+    }
 
     // 테스터: 강제 정지
     if (this.pinned) return;
@@ -300,6 +350,11 @@ export default class Enemy {
 
   /** 목표를 향해 한 칸 이동. 이동 성공 여부 반환 */
   _stepToward(map, babyRow, babyCol) {
+    // 보행기 모드: 베이비에게서 도망친다
+    if (this.mode === ENEMY_MODE.FLEE) {
+      return this._stepFlee(map, babyRow, babyCol);
+    }
+
     const goal = this.mode === ENEMY_MODE.CHASE
       ? { row: babyRow, col: babyCol }
       : this._currentGuardTarget(map, babyRow, babyCol);
@@ -325,6 +380,53 @@ export default class Enemy {
 
     this.row = next.row;
     this.col = next.col;
+    this.x = this.col * TILE_SIZE;
+    this.y = this.row * TILE_SIZE;
+    this.movedThisTick = true;
+    return true;
+  }
+
+  /**
+   * 도망 이동: 4방향 중 베이비와 가장 멀어지는 칸을 고른다.
+   * - 되돌아가는 방향은 동률일 때만 선택 → 막다른 길에서 화들짝 되돌아온다.
+   * @param {number[][]} map
+   * @param {number} babyRow
+   * @param {number} babyCol
+   * @returns {boolean} 이동 성공 여부
+   */
+  _stepFlee(map, babyRow, babyCol) {
+    const reverse = { UP: 'DOWN', DOWN: 'UP', LEFT: 'RIGHT', RIGHT: 'LEFT' }[this.direction] || null;
+    const options = [];
+
+    for (const delta of NEIGHBOR_OFFSETS) {
+      const row = this.row + delta.row;
+      let col = this.col + delta.col;
+
+      // 좌우 터널 통과
+      if (col < 0) col = COLS - 1;
+      if (col >= COLS) col = 0;
+
+      if (!isWalkableTile(map, row, col)) continue;
+
+      const distance = Math.abs(row - babyRow) + Math.abs(col - babyCol);
+      options.push({
+        row,
+        col,
+        dir: delta.dir,
+        score: distance - (delta.dir === reverse ? 0.5 : 0),
+      });
+    }
+
+    if (options.length === 0) return false;
+
+    options.sort((a, b) => b.score - a.score);
+    const pick = options[0];
+
+    this.prevRow = this.row;
+    this.prevCol = this.col;
+    this.direction = pick.dir;
+    this.row = pick.row;
+    this.col = pick.col;
     this.x = this.col * TILE_SIZE;
     this.y = this.row * TILE_SIZE;
     this.movedThisTick = true;
@@ -389,7 +491,12 @@ export default class Enemy {
     return null;
   }
 
-  render(ctx) {
+  /**
+   * 악당(보모) 렌더링
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} timeMs 애니메이션 시간(ms)
+   */
+  render(ctx, timeMs = 0) {
     const progress = this.getMoveProgress();
 
     // 터널 통과(1칸 이상 점프) 시에는 보간하지 않는다
@@ -400,34 +507,155 @@ export default class Enemy {
       ? this.prevRow + (this.row - this.prevRow) * progress
       : this.row;
 
-    const cx = (drawCol + 0.5) * TILE_SIZE;
+    const baseCx = (drawCol + 0.5) * TILE_SIZE;
     const cy = (drawRow + 0.5) * TILE_SIZE;
     const radius = TILE_SIZE / 2 - 2;
+    const supportsEllipse = typeof ctx.ellipse === 'function';
 
-    // 몸통 (얼음은 남은 시간에 따라 원래 색으로 복귀)
+    const frozen = this.isFrozen;
+    const fleeing = !frozen && this.isFleeing;
+    const slowed = !frozen && this.slowEffect > 0 && this.slowTimer > 0;
+    const bob = frozen ? 0 : Math.sin(timeMs / 260 + this.index * 1.7) * 0.6;
+    // 겁에 질린 악당은 부들부들 떤다
+    const jitter = fleeing ? Math.sin(timeMs / 45 + this.index * 1.3) * 1.1 : 0;
+    const cx = baseCx + jitter;
+
+    // 감속 표시: 발밑에 보랏빛 링 조각
+    if (slowed) {
+      ctx.strokeStyle = 'rgba(186, 104, 200, 0.75)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const start = (Math.PI * 2 / 6) * i + timeMs / 900;
+        ctx.arc(cx, cy + radius * 0.8, radius + 2.2, start, start + 0.42);
+      }
+      ctx.stroke();
+    }
+
+    // 그림자
+    if (supportsEllipse) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + radius * 0.82, radius * 0.8, radius * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 몸통 (얼음은 남은 시간에 따라 원래 색으로 복귀 + 냉기 글로우)
+    ctx.save?.();
+    ctx.shadowColor = frozen
+      ? 'rgba(100, 181, 246, 0.95)'
+      : fleeing
+        ? 'rgba(129, 212, 250, 0.95)'
+        : 'rgba(239, 83, 80, 0.7)';
+    ctx.shadowBlur = frozen || fleeing ? 16 : 10;
     ctx.fillStyle = this.getBodyColor();
     ctx.beginPath();
-    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.arc(cx, cy + bob, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    // 위쪽 광택
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.26)';
+    ctx.beginPath();
+    ctx.arc(cx - radius * 0.32, cy - radius * 0.38 + bob, radius * 0.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // 눈 (화난 표정)
+    // 앞치마 (보모 느낌)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.24)';
+    ctx.beginPath();
+    ctx.arc(cx, cy + radius * 0.28 + bob, radius * 0.7, 0.18 * Math.PI, 0.82 * Math.PI);
+    ctx.fill();
+
+    // 눈 (진행 방향을 노려본다)
+    let lookX = 0;
+    let lookY = 0.4;
+    if (this.direction === 'LEFT') { lookX = -1; lookY = 0; }
+    else if (this.direction === 'RIGHT') { lookX = 1; lookY = 0; }
+    else if (this.direction === 'UP') { lookX = 0; lookY = -1; }
+    else if (this.direction === 'DOWN') { lookX = 0; lookY = 1; }
+
+    const eyeY = cy - 3 + bob;
+    const eyeRadius = fleeing ? 3.15 : 2.6;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(cx - 4, cy - 3, 2.5, 0, Math.PI * 2);
-    ctx.arc(cx + 4, cy - 3, 2.5, 0, Math.PI * 2);
+    ctx.arc(cx - 4, eyeY, eyeRadius, 0, Math.PI * 2);
+    ctx.arc(cx + 4, eyeY, eyeRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = '#333';
+    const pupilRadius = fleeing ? 1.1 : 1.35;
+    ctx.fillStyle = '#2b2b33';
     ctx.beginPath();
-    ctx.arc(cx - 4, cy - 3, 1.2, 0, Math.PI * 2);
-    ctx.arc(cx + 4, cy - 3, 1.2, 0, Math.PI * 2);
+    ctx.arc(cx - 4 + lookX * 1.1, eyeY + lookY * 1.1, pupilRadius, 0, Math.PI * 2);
+    ctx.arc(cx + 4 + lookX * 1.1, eyeY + lookY * 1.1, pupilRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    // 찡그린 입
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy + 4, 3, 1.1 * Math.PI, 1.9 * Math.PI);
-    ctx.stroke();
+    if (fleeing) {
+      // 겁에 질린 눈썹 (바깥쪽이 올라간 모양)
+      ctx.strokeStyle = '#0d47a1';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(cx - 6.6, eyeY - 2.0);
+      ctx.lineTo(cx - 2.2, eyeY - 3.9);
+      ctx.moveTo(cx + 6.6, eyeY - 2.0);
+      ctx.lineTo(cx + 2.2, eyeY - 3.9);
+      ctx.stroke();
+
+      // 겁먹은 동그란 입
+      ctx.fillStyle = '#3e2723';
+      ctx.beginPath();
+      ctx.arc(cx, cy + 5.2 + bob, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 식은땀 방울
+      ctx.fillStyle = 'rgba(214, 244, 255, 0.95)';
+      const sweatY = cy - 1 + bob + Math.sin(timeMs / 120 + this.index) * 2;
+      ctx.beginPath();
+      ctx.arc(cx - radius - 1.2, sweatY, 1.4, 0, Math.PI * 2);
+      ctx.arc(cx + radius + 1.4, sweatY - 3, 1.1, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // 화난 눈썹
+      ctx.strokeStyle = '#4a1010';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(cx - 6.4, eyeY - 3.6);
+      ctx.lineTo(cx - 2.2, eyeY - 2.2);
+      ctx.moveTo(cx + 6.4, eyeY - 3.6);
+      ctx.lineTo(cx + 2.2, eyeY - 2.2);
+      ctx.stroke();
+
+      // 찡그린 입
+      ctx.strokeStyle = '#4a1010';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy + 4.6 + bob, 3, 1.1 * Math.PI, 1.9 * Math.PI);
+      ctx.stroke();
+    }
+
+    // 얼어붙은 상태: 서리 링 + 얼음 결정
+    if (frozen) {
+      ctx.strokeStyle = 'rgba(200, 235, 255, 0.65)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(cx, cy + bob, radius + 2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(225, 245, 254, 0.95)';
+      for (let i = 0; i < 5; i++) {
+        const angle = (Math.PI * 2 / 5) * i + timeMs / 1500;
+        const ox = cx + Math.cos(angle) * (radius + 3.6);
+        const oy = cy + bob + Math.sin(angle) * (radius + 3.6);
+
+        ctx.beginPath();
+        ctx.moveTo(ox, oy - 2.4);
+        ctx.lineTo(ox + 1.6, oy + 1.3);
+        ctx.lineTo(ox - 1.6, oy + 1.3);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    ctx.restore?.();
   }
 }

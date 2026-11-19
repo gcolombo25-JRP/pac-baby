@@ -39,6 +39,29 @@ function init() {
 
   game.start();
 
+  // ===== 레티나(고해상도) 대응 =====
+  // 창 크기/모니터(DPR)가 바뀌면 캔버스 내부 해상도를 다시 맞춘다.
+  const syncPixelRatio = () => game.refreshPixelRatio();
+  window.addEventListener('resize', syncPixelRatio);
+  window.addEventListener('orientationchange', syncPixelRatio);
+
+  // 창을 다른 DPR 모니터로 옮겼을 때도 감지 (matchMedia resolution)
+  if (typeof window.matchMedia === 'function') {
+    const watchPixelRatio = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const query = window.matchMedia(`(resolution: ${dpr}dppx)`);
+      const onChange = () => {
+        syncPixelRatio();
+        watchPixelRatio();
+      };
+
+      if (typeof query.addEventListener === 'function') {
+        query.addEventListener('change', onChange, { once: true });
+      }
+    };
+    watchPixelRatio();
+  }
+
   // 모바일 터치 D-패드 (터치 기기에서 표시)
   const isTouchDevice = typeof window.matchMedia === 'function'
     && window.matchMedia('(pointer: coarse)').matches;

@@ -124,6 +124,22 @@ test('렌더링 파이프라인이 예외 없이 실행되고 HUD 에 점수를 
   );
 });
 
+test('devicePixelRatio 만큼 캔버스 내부 해상도를 키운다 (레티나)', () => {
+  const canvas = createStubCanvas();
+  const game = new Game(canvas, createStubInput());
+
+  game.applyPixelRatio(2);
+  assert.equal(game.dpr, 2);
+  assert.equal(canvas.width, CANVAS_WIDTH * 2);
+  assert.equal(canvas.height, CANVAS_WIDTH * 2);
+  assert.equal(game.map.pixelRatio, 2, '맵 캐시도 같은 배율을 쓴다');
+
+  game.applyPixelRatio(1); // 다른 테스트에 영향을 주지 않도록 복원
+  assert.equal(game.dpr, 1);
+  assert.equal(canvas.width, CANVAS_WIDTH);
+  assert.equal(game.map.pixelRatio, 1);
+});
+
 test('보간 계수를 바꿔도 렌더링이 안전하다', () => {
   const canvas = createStubCanvas();
   const game = new Game(canvas, createStubInput('RIGHT'));

@@ -9,7 +9,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #1a1a2e;
+  background: radial-gradient(circle at 50% 18%, #12233f 0%, #0a1120 52%, #04060f 100%);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
@@ -28,10 +28,18 @@ html, body {
 
 #game-canvas {
   display: block;
-  image-rendering: pixelated;
-  border: 3px solid #16213e;
-  border-radius: 8px;
-  box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
+  /* 내부 해상도는 devicePixelRatio 배율로 커지지만, 화면 크기는 CSS 로 고정한다 */
+  width: min(640px, calc(100vw - 24px), calc(100vh - 24px));
+  height: auto;
+  aspect-ratio: 1 / 1;
+  /* 고해상도 캔버스는 부드럽게 축소해야 텍스트/라인이 선명하다 */
+  image-rendering: auto;
+  border: 3px solid rgba(41, 182, 246, 0.38);
+  border-radius: 10px;
+  box-shadow:
+    0 0 24px rgba(41, 182, 246, 0.26),
+    0 0 64px rgba(41, 182, 246, 0.12),
+    0 18px 42px rgba(0, 0, 0, 0.62);
   touch-action: none;
 }
 

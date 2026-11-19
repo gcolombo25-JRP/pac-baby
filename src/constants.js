@@ -12,17 +12,32 @@ export const TILE_SIZE = CANVAS_WIDTH / COLS; // ≈ 22.86px
 // ===== 색상 팔레트 =====
 export const COLORS = {
   WALL:        '#1a1a2e',   // 벽 (어두운 네이비)
+  WALL_TOP:    '#2c4270',   // 벽 상단 하이라이트 (입체감)
+  WALL_EDGE:   '#3d5aa0',   // 벽 모서리 베벨
   FLOOR:       '#0f3460',   // 바닥 (진한 블루)
+  FLOOR_ALT:   '#0d3057',   // 바닥 체크 패턴 (한 단계 어두운 블루)
+  NEON:        '#4fc3f7',   // 네온 시안 (벽 글로우)
+  NEON_CORE:   '#c9efff',   // 네온 코어 (밝은 심)
   SPAWN_BED:   '#e94560',   // 침대 스폰 (레드)
   STEALTH_BED: '#29b6f6',   // 스텔스 사용 중인 침대 (파랑)
   ENEMY_SPAWN: '#533483',   // 악당 스폰 (퍼플)
   ITEM_SPOT:   '#16213e',   // 아이템 위치 (약간 밝은 네이비)
   GRID_LINE:   '#1a1a3e',   // 그리드 선 (아주 미세)
   BABY:        '#ffe082',   // 베이비 (노랑)
+  BABY_CHEEK:  '#ffab91',   // 베이비 볼터치 (코랄)
   ENEMY:       '#ef5350',   // 악당 (빨강)
   ENEMY_PATROL: '#ffa726',  // 경비 악당 (주황)
   ENEMY_FROZEN: '#64b5f6',  // 얼어붙은 악당 (파랑)
+  ENEMY_SCARED: '#90caf9',  // 겁에 질린 악당 (연한 파랑)
+  TEAR:        '#81d4fa',   // 눈물 (맑은 하늘색)
+  GOLDEN:      '#ffd700',   // 황금 젖병 / 보행기 모드
+  SUGAR:       '#f06292',   // 슈가 러시 (핑크)
 };
+
+// ===== 화질 / 조명 설정 =====
+export const MAX_DEVICE_PIXEL_RATIO = 3;      // 레티나 스케일 상한 (성능 보호)
+export const BABY_LIGHT_RADIUS_TILES = 3.6;   // 베이비 주변 조명 반경 (타일 단위)
+export const BABY_LIGHT_FEATHER_TILES = 1.8;  // 조명 가장자리 번짐 (부드러운 감쇠)
 
 // ===== 맵 데이터 (28x28) =====
 /**
@@ -108,11 +123,11 @@ export const TRAP_FREEZE_MS = {
   POOP: 10000,  // 대변: 10초
 };
 
-// 트랩 색상 (렌더링/파티클 공용)
+// 트랩 색상 (렌더링/파티클 공용) — 노랑 / 연두 / 갈색
 export const TRAP_COLORS = {
-  PEE: '#fff176',   // 연노랑
-  VOMIT: '#a1887f', // 갈색
-  POOP: '#5d4037',  // 진갈색
+  PEE: '#fff176',   // 연노랑 (오줌)
+  VOMIT: '#aed581', // 연두 (토사물)
+  POOP: '#6d4c41',  // 갈색 (똥)
 };
 
 // ===== 스텔스 (6단계: 침대 은신) =====
@@ -175,6 +190,28 @@ export function randomWalkableTile(map, rng = Math.random, avoid = []) {
   return null;
 }
 
+// ===== 특수 메커니즘: 슈가 러시 & 황금 젖병 =====
+/** 캔디(🍬) 섭취 시 3초간 이동 속도 +50% + 몸이 알록달록 깜빡이는 부스터 */
+export const SUGAR_RUSH = {
+  duration: 3000,        // 3초
+  speedMultiplier: 1.5,  // 이동 속도 50% 증가
+  colors: ['#ff8a80', '#ffd54f', '#81c784', '#4fc3f7', '#ba68c8', '#fff176'],
+};
+
+/** 맵 중앙의 슈퍼 아이템 '황금 젖병' — 8초 보행기 모드 (무적 + 속도 증가) */
+export const GOLDEN_BOTTLE = {
+  name: '황금 젖병',
+  symbol: '🍼',
+  duration: 8000,          // 8초 보행기 모드
+  speedMultiplier: 1.4,    // 이동 속도 증가
+  knockScore: 300,         // 악당과 부딪히면 날려버리고 +300점
+  color: '#ffd700',
+  respawnMs: 20000,        // 다시 중앙에 나타나기까지 20초
+};
+
+/** 황금 젖병 스폰 — 28x28 맵의 정중앙 (터널 행의 한가운데) */
+export const GOLDEN_SPAWN = { row: 14, col: 14 };
+
 // ===== 아이템 속성 =====
 export const ITEMS = {
   MILK: {
@@ -203,6 +240,18 @@ export const ITEMS = {
     trapType: 'POOP',
     slowEffect: 0.30,     // 30% 감속
     slowDuration: 10000,  // 10초
+  },
+  // 슈퍼 아이템: 소화/트랩 없음. 맵 중앙에서 20초마다 다시 나타난다.
+  GOLDEN: {
+    name: GOLDEN_BOTTLE.name,
+    symbol: GOLDEN_BOTTLE.symbol,
+    score: 0,
+    digestTime: 0,
+    trapType: null,
+    slowEffect: 0,
+    slowDuration: 0,
+    super: true,
+    respawnMs: GOLDEN_BOTTLE.respawnMs,
   },
 };
 

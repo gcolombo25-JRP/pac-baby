@@ -256,6 +256,19 @@ export default class SoundFX {
     this._beep({ freq: 1320, toFreq: 660, duration: 0.18, type: 'sine', volume: 0.4, delay: 0.08 });
   }
 
+  /** 슈가 러시: 통통 튀는 상승 아르페지오 */
+  playSugarRush() {
+    this._beep({ freq: 880, toFreq: 1320, duration: 0.08, type: 'square', volume: 0.55 });
+    this._beep({ freq: 1100, toFreq: 1760, duration: 0.1, type: 'square', volume: 0.5, delay: 0.07 });
+  }
+
+  /** 황금 젖병: 반짝이는 팡파르 */
+  playGolden() {
+    this._beep({ freq: 660, toFreq: 990, duration: 0.12, type: 'triangle', volume: 0.8 });
+    this._beep({ freq: 990, toFreq: 1480, duration: 0.16, type: 'triangle', volume: 0.7, delay: 0.1 });
+    this._beep({ freq: 1480, toFreq: 1980, duration: 0.2, type: 'sine', volume: 0.5, delay: 0.2 });
+  }
+
   /** 스테이지 클리어 (상승 팡파르) */
   playClear() {
     this._beep({ freq: 523, toFreq: 1046, duration: 0.18, type: 'triangle', volume: 0.9 });
