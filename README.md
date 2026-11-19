@@ -4,7 +4,7 @@
 **보모(악당)** 를 피해 도망치는 웹 게임입니다.
 
 - Vite 5 + Vanilla JS (ES Modules) + HTML5 Canvas
-- 테스트 126개 (`node --test`) · 외부 런타임 의존성 없음
+- 테스트 135개 (`node --test`) · 외부 런타임 의존성 없음
 - 기획/규칙 원본: [`.clinerules`](./.clinerules)
 
 **▶ 휴대폰으로 바로 플레이 (배포 완료)**: <https://gcolombo25-jrp.github.io/pac-baby/>
@@ -45,9 +45,18 @@ npm run dev        # http://localhost:3000
 | `P` / `ESC` | 일시정지 토글 (요약 패널 표시) |
 | `-` / `+`, `1`~`9`, `0` | 속도 단계 1~10 (기본 1 = 가장 느림) |
 | `M` | 음향 + **BGM** on/off |
+| `H` / `F1` | **사용 설명서(도움말)** 열기·닫기 (화면의 **❔ 도움말** 버튼과 동일) |
 | `R` | **GAME OVER 에서 재도전** (Space/Enter 도 가능) · STAGE CLEAR 에서 다음 라운드 |
 
-모바일: 화면 아래 **D-패드**(▲◀▶▼ + 울기/소리/정지)가 자동 표시됩니다.
+모바일: 화면 아래 **D-패드**(▲◀▶▼ + 울기/소리/정지/**도움말**)가 자동 표시됩니다.
+
+### 사용 설명서 (도움말)
+
+- **처음 접속하면 자동으로 한 번** 열립니다(봤는지 여부는 `localStorage` 에 저장).
+- 화면 오른쪽 위 **❔ 도움말** 버튼 · D-패드의 **도움말** · **`H`/`F1`** 키로 언제든 다시 볼 수 있습니다.
+- 목표 · 조작 · **아이템/트랩 표** · 울기 · 침대 숨기 · 이기는 팁 · 모바일 안내를 스크롤 한 화면에 정리했습니다.
+- 설명서가 열려 있는 동안 게임은 **자동으로 멈추고**(악당·타이머 정지), 닫으면 즉시 이어집니다.
+- 자동 표시를 끄려면 URL 뒤에 **`?no-help=1`** 을 붙이세요 (스크린샷/테스트용).
 
 ---
 
@@ -212,7 +221,7 @@ __GAME.player.score;      // 현재 점수
 | `npm run build` | 프로덕션 빌드 → `dist/` |
 | `npm run preview` | 빌드 결과 미리보기 |
 | `npm run preview:host` | 빌드 결과 + 네트워크 노출 |
-| `npm test` | 단위 테스트 (126개) |
+| `npm test` | 단위 테스트 (135개) |
 | `npm run test:watch` | 테스트 워치 모드 |
 
 ### 파일 구조
@@ -221,8 +230,8 @@ PacBaby/
 ├── .clinerules              # 기획/규칙 문서
 ├── README.md                # 이 문서
 ├── DEPLOY.md                # 무료 배포 가이드 (GitHub Pages / Vercel)
-├── index.html               # 캔버스 + 터치 D-패드 마크업
-├── style.css                # 레이아웃/반응형/D-패드
+├── index.html               # 캔버스 + 터치 D-패드 + 사용 설명서 마크업
+├── style.css                # 레이아웃/반응형/D-패드/설명서 디자인
 ├── vite.config.js           # 개발·빌드 설정 (base './', strictPort)
 ├── .github/workflows/       # CI + GitHub Pages 자동 배포(deploy.yml)
 ├── run.bat / test.bat / stop.bat / push.bat / _node-env.bat
@@ -235,11 +244,12 @@ PacBaby/
 │   ├── enemy.js             # 추격/경비 AI, 얼림·감속, 목표 상실
 │   ├── item.js              # 아이템(섭취/리스폰) + 트랩
 │   ├── effects.js           # 파티클 / 화면 플래시 / 카메라 셰이크
+│   ├── help.js              # 사용 설명서 오버레이 (첫 방문 자동 표시, 게임 정지 연동)
 │   ├── input.js             # 키보드/터치 공용 입력 (press/release)
 │   ├── sound.js             # Web Audio 합성 효과음
 │   ├── touch.js             # 모바일 D-패드 (pointer capture)
 │   └── tester.js            # 테스터 모드 (스위치형, 지연 로딩)
-├── tests/                   # node:test 단위 테스트
+├── tests/                   # node:test 단위 테스트 (135개)
 └── dist/                    # 빌드 산출물 (gitignore)
 ```
 
@@ -265,7 +275,7 @@ PacBaby/
 
 ### 테스트 / CI
 ```bash
-npm test        # 126개 통과 기준
+npm test        # 135개 통과 기준
 npm run build   # exit 0 기준
 ```
 `.github/workflows/ci.yml` 은 **PR** 에서 `npm ci → npm test → npm run build` 를 실행하고,

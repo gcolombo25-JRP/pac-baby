@@ -22,7 +22,93 @@
         <button type="button" class="pad-btn pad-skill" data-key="Space">울기</button>
         <button type="button" class="pad-btn pad-mute" data-key="KeyM">소리</button>
         <button type="button" class="pad-btn pad-pause" data-key="KeyP">정지</button>
+        <button type="button" class="pad-btn pad-help" data-help-open aria-label="사용 설명서 열기">도움말</button>
       </div>
+    </div>
+
+    <!-- 사용 설명서 열기 버튼 (항상 표시) -->
+    <button id="help-open" class="help-fab" type="button" data-help-open
+            aria-label="사용 설명서 열기" title="사용 설명서 (H)">
+      <span class="help-fab-icon" aria-hidden="true">❔</span>
+      <span class="help-fab-text">도움말</span>
+    </button>
+
+    <!-- 사용 설명서 오버레이 (처음 방문 시 자동 표시) -->
+    <div id="help-overlay" class="help-overlay" hidden aria-hidden="true">
+      <div class="help-backdrop" data-help-close></div>
+      <section id="help-card" class="help-card" role="dialog" aria-modal="true"
+               aria-labelledby="help-title" tabindex="-1">
+        <header class="help-head">
+          <div class="help-title-wrap">
+            <h2 id="help-title">🍼 Pac-Baby 사용 설명서</h2>
+            <p class="help-sub">처음 플레이해도 3분이면 충분해요</p>
+          </div>
+          <button class="help-close" type="button" data-help-close aria-label="설명서 닫기">✕</button>
+        </header>
+
+        <div class="help-body">
+          <section class="help-section">
+            <h3>🎯 목표</h3>
+            <p>미로에 있는 <b>아이템 12개</b>를 모두 먹으면 <b class="pos">STAGE CLEAR</b>!<br />
+              <b>보모(악당)</b>에게 잡히면 <b class="neg">-200점</b>과 <b>목숨 1개</b>를 잃어요.
+              목숨 <b>3개</b>가 모두 사라지면 게임 오버입니다.</p>
+          </section>
+
+          <section class="help-section">
+            <h3>🎮 조작</h3>
+            <ul class="help-list">
+              <li><span class="help-kbd-row"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span> 이동 — 미리 눌러도 <b>0.9초</b> 기억해요</li>
+              <li><kbd>Space</kbd> <b>울기</b> — 보모를 3초 얼려요 (<b class="neg">-100점</b>)</li>
+              <li><kbd>P</kbd> <kbd>Esc</kbd> 일시정지 · <kbd>M</kbd> 소리·BGM · <kbd>H</kbd> 이 설명서</li>
+              <li><kbd>R</kbd> 게임 오버 후 재도전 · <kbd>-</kbd><kbd>+</kbd> 또는 <kbd>1</kbd>~<kbd>0</kbd> 속도 조절</li>
+            </ul>
+          </section>
+
+          <section class="help-section">
+            <h3>🍼 아이템 → 💩 트랩</h3>
+            <p class="help-note">먹고 나서 일정 시간이 지나면 <b>트랩</b>을 배출해요. 보모가 밟으면 느려지고 얼어붙어요!</p>
+            <table class="help-table">
+              <thead>
+                <tr><th>아이템</th><th>점수</th><th>소화</th><th>트랩</th><th>감속 · 얼림</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>🍼 우유병</td><td class="pos">+50</td><td>5초</td><td>오줌</td><td>10% · 3초</td></tr>
+                <tr><td>🍬 캔디</td><td class="pos">+70</td><td>7초</td><td>토사물</td><td>20% · 6초</td></tr>
+                <tr><td>🍪 쿠키</td><td class="pos">+100</td><td>10초</td><td>똥</td><td>30% · 10초</td></tr>
+              </tbody>
+            </table>
+            <p class="help-note">감속은 <b>10초</b> 지속 · 보모가 트랩을 밟으면 <b class="pos">+100점</b> · 아이템은 <b>15초</b> 뒤 새 위치에 다시 나타나요.</p>
+          </section>
+
+          <section class="help-section">
+            <h3>😭 울기 &amp; 🛏️ 침대 숨기</h3>
+            <ul class="help-list">
+              <li><b>울기</b>: 모든 보모 <b>3초 정지</b> · 쿨다운 <b>3초</b> · 얼어 있는 보모에게 또 울면 <b>+3초 연장</b> (얼린 보모는 무해)</li>
+              <li><b>침대</b>에 들어가면 <b>10초 숨기</b> · 보모는 <b>5초</b> 동안 목표를 잃어요 · 숨기 종료 후 3초 쿨다운</li>
+            </ul>
+          </section>
+
+          <section class="help-section">
+            <h3>💡 이기기 위한 팁</h3>
+            <ul class="help-list">
+              <li>먼저 <b>미로 가장자리</b>를 돌며 아이템을 모으면 보모와 마주칠 일이 줄어요.</li>
+              <li>모서리에서 방향을 꺾으면 추격을 끊기 쉬워요. <b>막다른 길</b>은 위험!</li>
+              <li>위기일 땐 <b>울기</b>로 얼린 뒤 <b>침대</b>로 숨으면 안전해요.</li>
+            </ul>
+          </section>
+
+          <section class="help-section">
+            <h3>📱 휴대폰에서</h3>
+            <p>화면 아래 <b>D-패드</b>(▲◀▶▼ · 울기 · 소리 · 정지 · 도움말)가 자동으로 나타나요.
+              <b>소리·BGM</b>은 첫 터치 이후 재생되고, <b>최고 점수</b>는 이 브라우저에 저장됩니다.</p>
+          </section>
+        </div>
+
+        <footer class="help-foot">
+          <button class="help-start" type="button" data-help-close>알겠어요, 시작할게요!</button>
+          <p class="help-hint">이 설명서는 <kbd>H</kbd> 키 또는 오른쪽 위 <b>❔ 도움말</b> 버튼으로 언제든 다시 볼 수 있어요.</p>
+        </footer>
+      </section>
     </div>
   </div>
   <script type="module" src="src/main.js"></script>

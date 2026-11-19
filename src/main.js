@@ -8,6 +8,7 @@ import Game from './game.js';
 import InputManager from './input.js';
 import SoundFX from './sound.js';
 import TouchControls from './touch.js';
+import HelpOverlay from './help.js';
 import { HISCORE_KEY } from './constants.js';
 
 function init() {
@@ -45,6 +46,12 @@ function init() {
 
   const touchControls = new TouchControls(input);
   window.__TOUCH = touchControls;
+
+  // 사용 설명서(도움말): 첫 방문 시 자동 표시, H / F1 / ❔ 버튼으로 열고 닫기
+  // (?no-help=1 로 자동 표시를 끌 수 있다 — 스크린샷/테스트용)
+  const params = new URLSearchParams(window.location.search);
+  const help = new HelpOverlay({ game, autoShow: !params.has('no-help') });
+  window.__HELP = help;
 
   // ===== 테스터 모드 (F2 또는 ?test=1 로 지연 로딩) =====
   const restart = () => {

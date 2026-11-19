@@ -80,6 +80,7 @@ export default class Game {
 
     // 게임 상태 (7단계 UI)
     this.state = 'READY';          // READY | PLAYING | PAUSED
+    this.helpOpen = false;         // 사용 설명서(도움말) 열림 여부 — 열려 있으면 로직/입력 정지
     this.readyTimer = READY_COUNTDOWN_MS;
     this.scorePopups = [];         // { row, col, text, color, life, maxLife }
     this.stats = { items: 0, traps: 0, stealth: 0, cries: 0 };
@@ -189,9 +190,16 @@ export default class Game {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
-    // 시각 효과(프레임 단위) + 8비트 BGM 스케줄 (일시정지 중에는 BGM 정지)
+    // 시각 효과(프레임 단위) + 8비트 BGM 스케줄 (일시정지·도움말 중에는 BGM 정지)
     this.effects.update(dt / 1000);
-    if (this.state !== 'PAUSED') this.sound.updateBgm?.();
+    if (this.state !== 'PAUSED' && !this.helpOpen) this.sound.updateBgm?.();
+
+    // 사용 설명서(도움말)가 열려 있으면 게임은 완전히 정지한다 (입력도 처리하지 않음)
+    if (this.helpOpen) {
+      this._render(this.tickMs > 0 ? this.tickAccumulator / this.tickMs : 0);
+      this.input.clearJustPressed();
+      return;
+    }
 
     // 매 프레임 조작 확인 (속도/음향/스킬/일시정지/재시작·다음 라운드)
     this._handleSystemInput();
@@ -283,6 +291,19 @@ export default class Game {
     if (hidden && this.state === 'PLAYING') {
       this.state = 'PAUSED';
     }
+  }
+
+  /**
+   * 사용 설명서(도움말) 열림/닫힘 (src/help.js 에서 호출)
+   * 열려 있는 동안 _tick 은 게임 로직·입력 처리를 모두 건너뛴다.
+   * @param {boolean} open
+   */
+  setHelpOpen(open) {
+    this.helpOpen = !!open;
+    // 닫은 뒤 밀린 프레임을 몰아서 진행하지 않는다
+    this.tickAccumulator = 0;
+    this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    return this.helpOpen;
   }
 
   /**

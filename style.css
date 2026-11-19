@@ -23,6 +23,7 @@ html, body {
   width: 100%;
   height: 100%;
   padding: 8px;
+  position: relative; /* 도움말 버튼(FAB) 위치 기준 */
 }
 
 #game-canvas {
@@ -106,17 +107,24 @@ body.touch-active .touch-controls {
 }
 
 .pad-actions {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 84px);
   gap: 8px;
 }
 
 .pad-skill,
 .pad-mute,
-.pad-pause {
-  width: 86px;
+.pad-pause,
+.pad-help {
+  width: 84px;
   height: 46px;
   font-size: 14px;
+}
+
+.pad-help {
+  background: rgba(255, 224, 130, 0.16);
+  border: 1px solid rgba(255, 224, 130, 0.5);
+  color: #ffe082;
 }
 
 .pad-skill {
@@ -128,6 +136,383 @@ body.touch-active .touch-controls {
 @media (max-width: 700px) {
   .touch-controls {
     display: flex;
+  }
+}
+
+/* ============================================================
+   사용 설명서 (도움말) — 처음 방문/초보자용
+   ============================================================ */
+
+/* 항상 보이는 도움말 버튼 (FAB) */
+.help-fab {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 2px solid rgba(41, 182, 246, 0.55);
+  border-radius: 999px;
+  background: rgba(15, 52, 96, 0.92);
+  color: #ffe082;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.help-fab:hover,
+.help-fab:focus-visible {
+  border-color: #29b6f6;
+  background: rgba(22, 33, 62, 0.98);
+  box-shadow: 0 0 0 3px rgba(41, 182, 246, 0.25), 0 4px 14px rgba(0, 0, 0, 0.45);
+  outline: none;
+}
+
+.help-fab:active {
+  transform: translateY(2px);
+}
+
+.help-fab-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+/* 오버레이 + 배경 */
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+/* [hidden] 이 클래스 규칙(display:grid)에 덮이지 않도록 명시 */
+.help-overlay[hidden] {
+  display: none;
+}
+
+.help-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 20, 0.74);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+/* 설명서 카드 */
+.help-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 96vw);
+  max-height: min(86vh, 760px);
+  overflow: hidden;
+  border: 2px solid rgba(41, 182, 246, 0.55);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #16213e 0%, #0d1a30 100%);
+  color: #e8f1ff;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.72),
+    0 0 0 4px rgba(41, 182, 246, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  outline: none;
+  animation: help-pop 0.22s ease-out;
+}
+
+.help-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(41, 182, 246, 0.22);
+  background: linear-gradient(180deg, rgba(41, 182, 246, 0.14), transparent);
+}
+
+.help-title-wrap h2 {
+  font-size: 20px;
+  line-height: 1.25;
+  color: #ffe082;
+  letter-spacing: 0.2px;
+}
+
+.help-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(232, 241, 255, 0.65);
+}
+
+.help-close {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #e8f1ff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.help-close:hover,
+.help-close:focus-visible {
+  border-color: #ef5350;
+  color: #ffcdd2;
+  outline: none;
+}
+
+/* 스크롤 본문 */
+.help-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 20px 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(41, 182, 246, 0.5) transparent;
+  overscroll-behavior: contain;
+}
+
+.help-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.help-body::-webkit-scrollbar-thumb {
+  background: rgba(41, 182, 246, 0.45);
+  border-radius: 8px;
+}
+
+.help-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 섹션 카드 */
+.help-section {
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(41, 182, 246, 0.18);
+  border-radius: 12px;
+  background: rgba(8, 18, 36, 0.55);
+}
+
+.help-section h3 {
+  margin-bottom: 6px;
+  font-size: 15px;
+  color: #ffe082;
+}
+
+.help-section p {
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(232, 241, 255, 0.92);
+}
+
+.help-list {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.help-list li {
+  position: relative;
+  padding-left: 14px;
+  color: rgba(232, 241, 255, 0.92);
+}
+
+.help-list li::before {
+  content: '·';
+  position: absolute;
+  left: 2px;
+  color: #29b6f6;
+  font-weight: 900;
+}
+
+.help-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(232, 241, 255, 0.62);
+}
+
+.help-section .pos,
+.help-section .pos b {
+  color: #8bc34a;
+}
+
+.help-section .neg {
+  color: #ef5350;
+}
+
+/* 키캡 */
+.help-section kbd,
+.help-hint kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  background: #0b2545;
+  color: #ffe082;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.help-kbd-row {
+  display: inline-flex;
+  gap: 3px;
+  margin-right: 2px;
+}
+
+/* 아이템/트랩 표 */
+.help-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.help-table th,
+.help-table td {
+  padding: 6px 4px;
+  text-align: center;
+  border-bottom: 1px solid rgba(41, 182, 246, 0.14);
+}
+
+.help-table th {
+  color: rgba(232, 241, 255, 0.7);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.help-table td:first-child,
+.help-table th:first-child {
+  padding-left: 8px;
+  text-align: left;
+}
+
+.help-table tbody tr:nth-child(odd) {
+  background: rgba(41, 182, 246, 0.06);
+}
+
+/* 하단 */
+.help-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid rgba(41, 182, 246, 0.22);
+  background: rgba(4, 10, 22, 0.5);
+}
+
+.help-start {
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #29b6f6, #0288d1);
+  color: #04263a;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #01579b;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.help-start:hover,
+.help-start:focus-visible {
+  filter: brightness(1.08);
+  outline: none;
+}
+
+.help-start:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #01579b;
+}
+
+.help-hint {
+  font-size: 11.5px;
+  line-height: 1.6;
+  text-align: center;
+  color: rgba(232, 241, 255, 0.6);
+}
+
+/* 애니메이션 */
+@keyframes help-pop {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes help-sheet {
+  from { transform: translateY(100%); }
+  to   { transform: none; }
+}
+
+/* 모바일: 하단 시트 + 아이콘만 남기는 버튼 */
+@media (max-width: 700px) {
+  .help-overlay {
+    padding: 0;
+    align-items: end;
+  }
+
+  .help-card {
+    width: 100%;
+    max-height: 92vh;
+    border-bottom: none;
+    border-radius: 18px 18px 0 0;
+    animation: help-sheet 0.24s ease-out;
+  }
+
+  .help-head {
+    padding: 14px 16px 10px;
+  }
+
+  .help-title-wrap h2 {
+    font-size: 17px;
+  }
+
+  .help-body {
+    padding: 10px 14px 4px;
+  }
+
+  .help-section {
+    padding: 10px 12px;
+  }
+
+  .help-foot {
+    padding: 10px 14px 14px;
+  }
+
+  .help-fab {
+    top: 10px;
+    right: 10px;
+    padding: 7px 11px;
+    font-size: 12px;
+  }
+
+  .help-fab-text {
+    display: none;
+  }
+
+  .help-hint {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .help-card {
+    animation: none;
   }
 }
 

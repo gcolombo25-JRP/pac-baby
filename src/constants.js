@@ -130,6 +130,7 @@ export const ROUND_CLEAR_MODE = 'ITEMS';    // 'ITEMS' | 'SCORE' | 'BOTH'
 export const ROUND_TARGET_SCORE = 2000;     // SCORE/BOTH 모드의 라운드 목표(증분)
 export const ROUND_SPEED_STEP = 1;          // 라운드마다 속도 단계 += (최대 10)
 export const HISCORE_KEY = 'pacbaby.hiscore'; // localStorage 키
+export const HELP_SEEN_KEY = 'pacbaby.helpSeen'; // 사용 설명서 자동 표시 여부(localStorage)
 
 // ===== 이동 방향 벡터 =====
 export const DIRECTIONS = {
