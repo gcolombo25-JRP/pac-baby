@@ -87,6 +87,132 @@ export function findNextStep(map, startRow, startCol, goalRow, goalCol, orderOff
   return null; // 도달 불가
 }
 
+/**
+ * 3x3 구역으로 나눴을 때의 구역 크기.
+ * 28타일 기준 10/10/8 로 나뉜다.
+ */
+function zoneSize(length) {
+  return Math.ceil(length / 3);
+}
+
+/** 중앙(2행 2열) 구역인지 */
+export function isCenterSpawnZone(row, col, rows, cols) {
+  const rowSize = zoneSize(rows);
+  const colSize = zoneSize(cols);
+  return Math.floor(row / rowSize) === 1 && Math.floor(col / colSize) === 1;
+}
+
+/** Fisher-Yates 셔플 (rng 주입 가능) */
+function shuffle(list, rng) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.min(i, Math.max(0, Math.floor(rng() * (i + 1))));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+/**
+ * 악당 스폰 위치를 3x3 구역의 중앙을 제외한 8개 구역에서 고른다.
+ * - 벽이 아닌 일반 바닥(0)만 사용
+ * - 서로 같은 타일 금지 + 맨해튼 거리 2 이상
+ * - 구역을 섞어 최대한 여러 구역에 분산
+ *
+ * @param {number[][]} map
+ * @param {number} count
+ * @param {() => number} rng
+ * @returns {Array<{row: number, col: number}>}
+ */
+export function createEnemySpawnPlan(map, count, rng = Math.random) {
+  const rows = map?.length || 0;
+  const cols = map?.[0]?.length || 0;
+  if (rows === 0 || cols === 0 || count <= 0) return [];
+
+  const rowSize = zoneSize(rows);
+  const colSize = zoneSize(cols);
+  const zones = [];
+
+  for (let zoneRow = 0; zoneRow < 3; zoneRow++) {
+    for (let zoneCol = 0; zoneCol < 3; zoneCol++) {
+      // 가운데(2행 2열) 구역 제외
+      if (zoneRow === 1 && zoneCol === 1) continue;
+
+      zones.push({
+        rowStart: zoneRow * rowSize,
+        rowEnd: Math.min(rows, (zoneRow + 1) * rowSize),
+        colStart: zoneCol * colSize,
+        colEnd: Math.min(cols, (zoneCol + 1) * colSize),
+      });
+    }
+  }
+
+  shuffle(zones, rng);
+
+  const chosen = [];
+  const isFloor = (row, col) => map[row][col] === 0;
+  const farEnough = (row, col) => chosen.every(pos => (
+    Math.abs(pos.row - row) + Math.abs(pos.col - col) >= 2
+  ));
+
+  const pickInZone = (zone) => {
+    const candidates = [];
+    for (let row = zone.rowStart; row < zone.rowEnd; row++) {
+      for (let col = zone.colStart; col < zone.colEnd; col++) {
+        if (!isFloor(row, col)) continue;
+        if (!farEnough(row, col)) continue;
+        candidates.push({ row, col });
+      }
+    }
+    if (candidates.length === 0) return null;
+    const index = Math.min(candidates.length - 1, Math.max(0, Math.floor(rng() * candidates.length)));
+    return candidates[index];
+  };
+
+  for (const zone of zones) {
+    if (chosen.length >= count) break;
+    const pick = pickInZone(zone);
+    if (pick) chosen.push(pick);
+  }
+
+  // 구역 후보가 부족한 예외 상황: 중앙을 제외한 전체 바닥에서 보충
+  if (chosen.length < count) {
+    const fallback = [];
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        if (isCenterSpawnZone(row, col, rows, cols)) continue;
+        if (!isFloor(row, col)) continue;
+        if (!farEnough(row, col)) continue;
+        fallback.push({ row, col });
+      }
+    }
+
+    shuffle(fallback, rng);
+    for (const pos of fallback) {
+      if (chosen.length >= count) break;
+      if (farEnough(pos.row, pos.col)) chosen.push(pos);
+    }
+  }
+
+  // 맵이 매우 좁은 경우에도 요청 수만큼은 채우기 위해 마지막으로 중복만 피한다.
+  if (chosen.length < count) {
+    const remaining = [];
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        if (isCenterSpawnZone(row, col, rows, cols)) continue;
+        if (!isFloor(row, col)) continue;
+        if (chosen.some(pos => pos.row === row && pos.col === col)) continue;
+        remaining.push({ row, col });
+      }
+    }
+    shuffle(remaining, rng);
+    for (const pos of remaining) {
+      if (chosen.length >= count) break;
+      chosen.push(pos);
+    }
+  }
+
+  return chosen.slice(0, count);
+}
+
 export default class Enemy {
   constructor(spawnPos, index = 0, startDelay = 0, mode = ENEMY_MODE.CHASE, rng = Math.random) {
     this.spawnRow = spawnPos.row;

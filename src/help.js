@@ -40,6 +40,7 @@ export default class HelpOverlay {
     this.card = this._byId('help-card');
     this.openButtons = this._all('[data-help-open]');
     this.closeButtons = this._all('[data-help-close]');
+    this.actionButtons = this._all('[data-help-action]');
 
     this._bind();
 
@@ -169,6 +170,18 @@ export default class HelpOverlay {
     for (const button of this.closeButtons) {
       on(button, 'click', stopAndClose);
     }
+
+    // 도움말 모달의 [게임 시작] / [데모 실행] / [게임 종료]
+    for (const button of this.actionButtons) {
+      on(button, 'click', (event) => {
+        event?.preventDefault?.();
+        const action = button.dataset?.helpAction
+          || button.getAttribute?.('data-help-action');
+        this.game?.handleHelpAction?.(action);
+        this.close();
+      });
+    }
+
     on(this.root, 'keydown', (event) => this._onKeyDown(event));
   }
 

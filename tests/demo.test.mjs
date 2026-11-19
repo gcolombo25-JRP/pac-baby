@@ -137,6 +137,32 @@ test('설명서가 열려 있는 동안에는 데모가 시작되지 않고, 닫
   assert.equal(game.demoMode, true, '설명서를 닫은 뒤 대기 시간이 지나면 데모');
 });
 
+test('도움말 [게임 시작]은 일시정지/게임오버에서 READY/PLAYING으로 복귀시킨다', () => {
+  const game = new Game(createStubCanvas(), createStubInput());
+
+  game.state = 'PAUSED';
+  assert.equal(game.handleHelpAction('start'), 'PLAYING');
+
+  game.state = 'GAME_OVER';
+  game.player.score = 500;
+  assert.equal(game.handleHelpAction('start'), 'READY');
+  assert.equal(game.player.score, 0, '새 게임으로 초기화');
+});
+
+test('도움말 [데모 실행]은 즉시 데모를 시작하고 [게임 종료]는 일시정지한다', () => {
+  const game = new Game(createStubCanvas(), createStubInput());
+  game.state = 'READY';
+
+  assert.equal(game.handleHelpAction('demo'), true);
+  assert.equal(game.demoMode, true);
+  assert.equal(game.botMode, false);
+  assert.equal(game.state, 'PLAYING');
+
+  assert.equal(game.handleHelpAction('exit'), 'PAUSED');
+  assert.equal(game.demoMode, false);
+  assert.equal(game.isBotActive, false);
+});
+
 test('데모 봇은 실제로 아이템을 먹으며 플레이한다', () => {
   const game = new Game(createStubCanvas(), createStubInput());
   game.state = 'PLAYING';

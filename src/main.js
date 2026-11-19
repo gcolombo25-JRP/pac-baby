@@ -32,13 +32,9 @@ function init() {
   const sound = new SoundFX();
   let game = new Game(canvas, input, { sound });
 
-  // 키보드/화면 터치 → 자동 데모 즉시 종료 (BOT 버튼 자체는 토글 대상이므로 제외)
+  // 키보드/화면 터치 → 자동 데모 즉시 종료
   // 게임 시작 전부터 등록해 초기 로딩 중의 터치도 활동으로 인정한다.
   const markUserActivity = (event) => {
-    const target = event && event.target;
-    if (target && typeof target.closest === 'function'
-      && target.closest('[data-bot-toggle]')) return;
-
     // 설명서 모달을 읽고 닫는 동작은 게임 플레이 입력으로 치지 않는다.
     const helpOverlay = document.getElementById('help-overlay');
     if (helpOverlay && !helpOverlay.hidden) return;
@@ -85,33 +81,6 @@ function init() {
 
   const touchControls = new TouchControls(input);
   window.__TOUCH = touchControls;
-
-  // ===== 모바일 [🤖 BOT] 버튼 + 자동 데모 =====
-  const botButton = document.querySelector('[data-bot-toggle]');
-  const syncBotButton = (state = null) => {
-    if (!botButton) return;
-    const active = state ? state.active : game.isBotActive;
-    const demo = state ? state.demoMode : game.demoMode;
-    botButton.classList.toggle('pad-bot-active', !!active);
-    botButton.classList.toggle('pad-bot-demo', !!demo);
-    botButton.setAttribute('aria-pressed', String(!!active));
-    botButton.setAttribute(
-      'aria-label',
-      demo ? '데모 플레이 중 — 눌러서 직접 플레이' : active ? '봇 모드 끄기' : '봇 모드 켜기',
-    );
-    const label = botButton.querySelector('.pad-bot-label');
-    if (label) label.textContent = demo ? 'DEMO' : active ? 'ON' : 'BOT';
-  };
-
-  if (botButton) {
-    game.setBotStateListener(syncBotButton);
-    botButton.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      game.toggleBot();
-    });
-    syncBotButton();
-  }
 
   // 화면 스와이프/드래그로 방향 전환 (터치/펜 전용, 마우스는 무시)
   const touchSwipe = new TouchSwipe(input, canvas);

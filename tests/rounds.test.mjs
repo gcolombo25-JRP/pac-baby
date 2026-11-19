@@ -9,11 +9,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import Game from '../src/game.js';
-import { ENEMY_MODE, findNextStep } from '../src/enemy.js';
+import { ENEMY_MODE, findNextStep, isCenterSpawnZone } from '../src/enemy.js';
 import { Trap } from '../src/item.js';
 import {
   TILE_MAP, TILE_SIZE, SPEED_LEVELS, CHASE_ENEMY_COUNT,
-  EXTRA_ENEMY_SPAWNS, GATE_OPEN_MS, GATE_MAX, GATE_POSITIONS,
+  GATE_OPEN_MS, GATE_MAX, GATE_POSITIONS,
   VISION_START_ROUND, VISION_START_TILES, VISION_MIN_TILES,
   GOLDEN_SPAWN, isWalkableTile,
   getBabySpawn, getEnemySpawns, getItemSpawns,
@@ -89,9 +89,18 @@ test('4라운드 시작 시 추격 보모가 1마리 추가된다 (총 5마리)'
 
   const extra = game.enemies[game.enemies.length - 1];
   assert.equal(extra.mode, ENEMY_MODE.CHASE);
-  assert.equal(extra.row, EXTRA_ENEMY_SPAWNS.CHASE.row);
-  assert.equal(extra.col, EXTRA_ENEMY_SPAWNS.CHASE.col);
   assert.ok(isWalkableTile(TILE_MAP, extra.row, extra.col));
+  assert.equal(
+    isCenterSpawnZone(extra.row, extra.col, TILE_MAP.length, TILE_MAP[0].length),
+    false,
+    '중앙 구역에는 스폰하지 않는다',
+  );
+  for (const other of game.enemies.slice(0, -1)) {
+    assert.ok(
+      Math.abs(extra.row - other.row) + Math.abs(extra.col - other.col) >= 2,
+      '악당끼리 최소 2칸 떨어져야 한다',
+    );
+  }
   assert.equal(
     game.enemies.filter(e => e.mode === ENEMY_MODE.CHASE).length,
     3,
@@ -108,9 +117,18 @@ test('5라운드 시작 시 순찰 보모가 1마리 추가된다 (총 6마리)'
 
   const extra = game.enemies[game.enemies.length - 1];
   assert.equal(extra.mode, ENEMY_MODE.PATROL);
-  assert.equal(extra.row, EXTRA_ENEMY_SPAWNS.PATROL.row);
-  assert.equal(extra.col, EXTRA_ENEMY_SPAWNS.PATROL.col);
   assert.ok(isWalkableTile(TILE_MAP, extra.row, extra.col));
+  assert.equal(
+    isCenterSpawnZone(extra.row, extra.col, TILE_MAP.length, TILE_MAP[0].length),
+    false,
+    '중앙 구역에는 스폰하지 않는다',
+  );
+  for (const other of game.enemies.slice(0, -1)) {
+    assert.ok(
+      Math.abs(extra.row - other.row) + Math.abs(extra.col - other.col) >= 2,
+      '악당끼리 최소 2칸 떨어져야 한다',
+    );
+  }
   assert.equal(game.enemies.filter(e => e.mode === ENEMY_MODE.CHASE).length, 3);
   assert.equal(game.enemies.filter(e => e.mode === ENEMY_MODE.PATROL).length, 3);
 

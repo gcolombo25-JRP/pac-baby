@@ -18,13 +18,13 @@ import {
   SKILL_CRY, PENALTY,
   MAX_DEVICE_PIXEL_RATIO, BABY_LIGHT_RADIUS_TILES, BABY_LIGHT_FEATHER_TILES,
   SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN,
-  EXTRA_ENEMY_SPAWNS, GATE_OPEN_MS, GATE_CLOSED_MS, GATE_MAX, GATE_POSITIONS,
+  GATE_OPEN_MS, GATE_CLOSED_MS, GATE_MAX, GATE_POSITIONS,
   VISION_START_ROUND, VISION_START_TILES, VISION_MIN_TILES,
 } from './constants.js';
 import MapRenderer from './map.js';
 import BotBrain from './bot.js';
 import Player from './player.js';
-import Enemy, { ENEMY_MODE } from './enemy.js';
+import Enemy, { ENEMY_MODE, createEnemySpawnPlan } from './enemy.js';
 import { Item, Trap } from './item.js';
 import Effects from './effects.js';
 import SoundFX from './sound.js';
@@ -262,6 +262,85 @@ export default class Game {
     if (this.bot.shouldCry(this)) this._useCry(true);
   }
 
+  /** 도움말 모달의 [게임 시작] / [데모 실행] / [게임 종료] */
+  handleHelpAction(action) {
+    if (action === 'start') return this.startFromHelp();
+    if (action === 'demo') return this.startDemoFromHelp();
+    if (action === 'exit') return this.pauseFromHelp();
+    return this.state;
+  }
+
+  /** 도움말에서 수동 플레이 시작/재개 */
+  startFromHelp() {
+    this.noteUserActivity();
+    this.botMode = false;
+    this.demoMode = false;
+    this.demoArmed = false;
+    this.demoIdleMs = 0;
+
+    if (this.tester && this.tester.mode !== 'MANUAL') this.tester.stopAll?.();
+
+    if (this.state === 'GAME_OVER') {
+      this.resetAll();
+    } else if (this.state === 'STAGE_CLEAR') {
+      this._startRound(this.round + 1);
+    } else if (this.state === 'PAUSED') {
+      this.state = 'PLAYING';
+      this.tickAccumulator = 0;
+      this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
+    this._notifyBotState();
+    return this.state;
+  }
+
+  /** 도움말에서 데모 플레이 바로 시작 */
+  startDemoFromHelp() {
+    this.noteUserActivity();
+    this.botMode = false;
+    if (this.tester && this.tester.mode !== 'MANUAL') this.tester.stopAll?.();
+
+    if (this.state === 'GAME_OVER') {
+      this.resetAll();
+    } else if (this.state === 'STAGE_CLEAR') {
+      this._startRound(this.round + 1);
+    }
+
+    if (this.state === 'READY' || this.state === 'PAUSED') {
+      this.state = 'PLAYING';
+      this.readyTimer = 0;
+      this.tickAccumulator = 0;
+      this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
+    this.demoMode = true;
+    this.demoArmed = false;
+    this.demoIdleMs = 0;
+    this._notifyBotState();
+    this.tester?.log?.('demo', '도움말에서 DEMO PLAY 시작');
+    return true;
+  }
+
+  /** 도움말에서 게임 종료(일시정지) */
+  pauseFromHelp() {
+    this.noteUserActivity();
+    this.botMode = false;
+    this.demoMode = false;
+    this.demoArmed = false;
+    this.demoIdleMs = 0;
+
+    if (this.tester && this.tester.mode !== 'MANUAL') this.tester.stopAll?.();
+
+    if (this.state === 'READY' || this.state === 'PLAYING') {
+      this.state = 'PAUSED';
+      this.tickAccumulator = 0;
+      this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
+    this._notifyBotState();
+    return this.state;
+  }
+
   /** 아이템 초기 배치 */
   _initItems() {
     const itemTypes = ['MILK', 'CANDY', 'COOKIE'];
@@ -289,17 +368,25 @@ export default class Game {
    * @returns {Enemy[]}
    */
   _buildEnemies(round) {
-    const configs = this.map.enemySpawns.map((pos, index) => ({
-      spawn: pos,
-      mode: index < CHASE_ENEMY_COUNT ? ENEMY_MODE.CHASE : ENEMY_MODE.PATROL,
-    }));
+    const baseCount = this.map.enemySpawns.length;
+    const extraCount = (round >= 4 ? 1 : 0) + (round >= 5 ? 1 : 0);
+    const totalCount = baseCount + extraCount;
 
-    if (round >= 4) {
-      configs.push({ spawn: EXTRA_ENEMY_SPAWNS.CHASE, mode: ENEMY_MODE.CHASE });
+    // 3x3 구역의 중앙(2행 2열)을 제외한 8개 구역에서 무작위로 배치한다.
+    // 같은 타일/인접 타일은 피하고, 바닥(0)만 사용한다.
+    const spawns = createEnemySpawnPlan(this.map.map, totalCount, this.rng);
+
+    const modes = [];
+    for (let index = 0; index < baseCount; index++) {
+      modes.push(index < CHASE_ENEMY_COUNT ? ENEMY_MODE.CHASE : ENEMY_MODE.PATROL);
     }
-    if (round >= 5) {
-      configs.push({ spawn: EXTRA_ENEMY_SPAWNS.PATROL, mode: ENEMY_MODE.PATROL });
-    }
+    if (round >= 4) modes.push(ENEMY_MODE.CHASE);
+    if (round >= 5) modes.push(ENEMY_MODE.PATROL);
+
+    const configs = spawns.map((pos, index) => ({
+      spawn: pos,
+      mode: modes[index] || ENEMY_MODE.PATROL,
+    }));
 
     this.enemies = configs.map((config, index) => new Enemy(
       config.spawn,

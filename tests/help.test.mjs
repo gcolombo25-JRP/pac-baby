@@ -49,6 +49,10 @@ function createDocument() {
   const card = createElement('card');
   const openButtons = [createElement('fab'), createElement('pad')];
   const closeButtons = [createElement('close'), createElement('start'), createElement('backdrop')];
+  const actionButtons = [createElement('startAction'), createElement('demoAction'), createElement('exitAction')];
+  actionButtons[0].setAttribute('data-help-action', 'start');
+  actionButtons[1].setAttribute('data-help-action', 'demo');
+  actionButtons[2].setAttribute('data-help-action', 'exit');
   const body = createElement('body');
   const documentListeners = {};
 
@@ -59,6 +63,7 @@ function createDocument() {
     card,
     openButtons,
     closeButtons,
+    actionButtons,
     getElementById(id) {
       if (id === 'help-overlay') return overlay;
       if (id === 'help-card') return card;
@@ -72,6 +77,7 @@ function createDocument() {
     querySelectorAll(selector) {
       if (selector === '[data-help-open]') return openButtons;
       if (selector === '[data-help-close]') return closeButtons;
+      if (selector === '[data-help-action]') return actionButtons;
       return [];
     },
     addEventListener(type, handler) { documentListeners[type] = handler; },
@@ -149,6 +155,32 @@ test('도움말을 닫으면 오버레이가 숨고 게임이 재개된다', () 
   // 이미 닫혀 있으면 아무 일도 하지 않는다
   assert.equal(help.close(), false);
 });
+
+test('도움말 모달의 게임 시작/데모/종료 버튼이 게임 액션을 호출하고 닫힌다', () => {
+  const root = createDocument();
+  const game = createGameStub();
+  const actions = [];
+  game.handleHelpAction = action => {
+    actions.push(action);
+    return 'PLAYING';
+  };
+
+  const help = new HelpOverlay({
+    game,
+    root,
+    storage: createStorage(),
+    autoShow: false,
+  });
+
+  const expected = ['start', 'demo', 'exit'];
+  for (let i = 0; i < expected.length; i++) {
+    if (!help.isOpen) help.open();
+    root.actionButtons[i].click();
+    assert.equal(actions.at(-1), expected[i]);
+    assert.equal(help.isOpen, false, `${expected[i]} 액션 후 모달 닫힘`);
+  }
+});
+
 
 test('toggle 은 열기/닫기를 번갈아 수행한다', () => {
   const help = new HelpOverlay({

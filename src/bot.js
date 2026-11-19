@@ -11,9 +11,11 @@ import { isWalkableTile } from './constants.js';
 
 /** 봇 판단 튜닝 값 */
 export const BOT = {
-  CRY_RADIUS_TILES: 3,       // 이 거리 안의 위협이면 울기 사용
+  CRY_RADIUS_TILES: 2,       // 1~2타일 내 위협 + 도망 불가일 때만 울기
   ESCAPE_TRIGGER_TILES: 3,   // 이 거리 안의 위협이면 회피 경로 탐색
   ESCAPE_DEPTH: 8,           // 회피 경로를 내다보는 최대 타일 수
+  GOLDEN_PURSUIT_RADIUS: 9,  // 황금 젖병을 추격할 최대 거리
+  GOLDEN_PRIORITY_MARGIN: 2, // 일반 아이템보다 이만큼 가까울 때만 황금 우선
   POWER_ITEM_RADIUS: 8,      // 캔디/쿠키를 우선하는 근접 거리
   CANDY_BONUS: 3,            // 캔디 경로 비용 할인 (슈가 러시)
   COOKIE_BONUS: 2,           // 쿠키 경로 비용 할인 (고득점/트랩)
@@ -179,7 +181,9 @@ export default class BotBrain {
 
   /**
    * 위기 시 울기 사용 여부.
-   * 쿨다운이 없고, 실제로 이동 가능한 위협이 3타일 이내일 때만 true.
+   * - 근처 1~2타일 내 위협이 있고
+   * - 실제로 안전한 도주 칸이 없을 때만 true.
+   * 쿨다운/스텔스/보행기 모드에서는 사용하지 않는다.
    */
   shouldCry(game) {
     if (!game || game.state !== 'PLAYING') return false;
@@ -197,7 +201,38 @@ export default class BotBrain {
 
     const dist = threatDistances(map, threats);
     const d = dist[game.player.row]?.[game.player.col];
-    return Number.isFinite(d) && d <= BOT.CRY_RADIUS_TILES;
+    if (!Number.isFinite(d) || d > BOT.CRY_RADIUS_TILES) return false;
+
+    // 이미 같은 타일에 악당이 있으면 최우선 탈출
+    if (d === 0) return true;
+
+    // 한 칸이라도 위협에서 멀어지는 길이 있으면 울기를 아낀다.
+    return !this._hasSafeEscape(map, game.player, threats, dist, d);
+  }
+
+  /** 현재 타일에서 위협 거리를 늘릴 수 있는 인접 칸이 있는지 */
+  _hasSafeEscape(map, player, threats, threatDist, currentDist) {
+    const blocked = blockedTiles(threats);
+    let safe = false;
+
+    forEachNeighbor(map, player.row, player.col, (nr, nc) => {
+      if (safe || blocked.has(tileKey(nr, nc))) return;
+      const nextDist = threatDist[nr]?.[nc];
+      if (!Number.isFinite(nextDist) || nextDist > currentDist) safe = true;
+    });
+
+    return safe;
+  }
+
+  /** 가장 가까운 일반 아이템까지의 맨해튼 거리 (없으면 Infinity) */
+  _nearestItemDistance(game, player) {
+    let nearest = Infinity;
+    for (const item of game.items || []) {
+      if (!item || item.collected) continue;
+      const d = Math.abs(item.row - player.row) + Math.abs(item.col - player.col);
+      if (d < nearest) nearest = d;
+    }
+    return nearest;
   }
 
   /**
@@ -237,17 +272,27 @@ export default class BotBrain {
       }
     }
 
-    // 3) 황금 젖병은 일반 아이템보다 최우선
+    // 3) 황금 젖병은 주변에 아이템이 없거나, 충분히 가까울 때만 우선한다.
     if (game.goldenBottle && !game.goldenBottle.collected) {
-      const golden = this._directionToTarget(game, map, game.goldenBottle, threats);
-      if (golden) {
-        this.lastMode = 'GOLDEN';
-        this.lastTarget = {
-          row: game.goldenBottle.row,
-          col: game.goldenBottle.col,
-          type: 'GOLDEN',
-        };
-        return golden;
+      const goldenDist = Math.abs(game.goldenBottle.row - player.row)
+        + Math.abs(game.goldenBottle.col - player.col);
+      const nearestItemDist = this._nearestItemDistance(game, player);
+      const itemExists = Number.isFinite(nearestItemDist);
+      const canPursue = !itemExists
+        || (goldenDist <= BOT.GOLDEN_PURSUIT_RADIUS
+          && goldenDist <= nearestItemDist + BOT.GOLDEN_PRIORITY_MARGIN);
+
+      if (canPursue) {
+        const golden = this._directionToTarget(game, map, game.goldenBottle, threats);
+        if (golden) {
+          this.lastMode = 'GOLDEN';
+          this.lastTarget = {
+            row: game.goldenBottle.row,
+            col: game.goldenBottle.col,
+            type: 'GOLDEN',
+          };
+          return golden;
+        }
       }
     }
 

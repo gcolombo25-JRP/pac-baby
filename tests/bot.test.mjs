@@ -78,24 +78,49 @@ test('봇은 얼어붙은 악당을 위협에서 제외하고 그 타일을 안�
   assert.equal(brain.decide(game), 'RIGHT', '얼어붙은 악당 타일을 지나 아이템으로 이동');
 });
 
-test('봇은 3타일 안의 위협에 울기를 사용하고, 얼음/쿨다운/스텔스 중에는 쓰지 않는다', () => {
+test('봇은 1~2타일 위협이라도 도망칠 길이 있으면 울기를 아끼고, 포위됐을 때만 쓴다', () => {
   const brain = new BotBrain();
-  const game = createBrainGame({
+
+  // 한 칸 옆으로 피할 수 있는 열린 공간 → 울기 금지
+  const open = createBrainGame({
     enemies: [{ row: 2, col: 4, isFrozen: false }],
   });
+  assert.equal(brain.shouldCry(open), false, '도망칠 수 있으면 울기를 아낀다');
 
-  assert.equal(brain.shouldCry(game), true);
+  // 사방이 악당으로 막힌 상황 → 울기 사용
+  const trapped = createBrainGame({
+    enemies: [
+      { row: 1, col: 2, isFrozen: false },
+      { row: 3, col: 2, isFrozen: false },
+      { row: 2, col: 1, isFrozen: false },
+      { row: 2, col: 3, isFrozen: false },
+    ],
+  });
+  assert.equal(brain.shouldCry(trapped), true, '도망칠 수 없을 때만 울기');
 
-  game.enemies[0].isFrozen = true;
-  assert.equal(brain.shouldCry(game), false, '얼어붙은 악당은 위협이 아니다');
+  // 같은 타일에 악당이 있으면 최우선 탈출
+  const sameTile = createBrainGame({
+    enemies: [{ row: 2, col: 2, isFrozen: false }],
+  });
+  assert.equal(brain.shouldCry(sameTile), true);
 
-  game.enemies[0].isFrozen = false;
-  game.cryCooldown = SKILL_CRY.cooldown;
-  assert.equal(brain.shouldCry(game), false, '쿨다운 중에는 쓰지 않는다');
+  trapped.cryCooldown = SKILL_CRY.cooldown;
+  assert.equal(brain.shouldCry(trapped), false, '쿨다운 중에는 쓰지 않는다');
 
-  game.cryCooldown = 0;
-  game.player.isStealthed = true;
-  assert.equal(brain.shouldCry(game), false, '스텔스 중에는 쓰지 않는다');
+  trapped.cryCooldown = 0;
+  trapped.player.isStealthed = true;
+  assert.equal(brain.shouldCry(trapped), false, '스텔스 중에는 쓰지 않는다');
+});
+
+test('봇은 황금 젖병이 멀고 가까운 아이템이 있으면 아이템을 먼저 먹는다', () => {
+  const brain = new BotBrain();
+  const game = createBrainGame({
+    goldenBottle: { row: 4, col: 4, collected: false },
+    items: [{ row: 2, col: 1, type: 'MILK', collected: false }],
+  });
+
+  assert.equal(brain.decide(game), 'LEFT');
+  assert.equal(brain.lastMode, 'ITEM');
 });
 
 test('봇은 황금 젖병을 일반 아이템보다 먼저 노린다', () => {

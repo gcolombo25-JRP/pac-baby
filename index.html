@@ -50,17 +50,12 @@
         <button type="button" class="pad-btn pad-left" data-key="ArrowLeft" aria-label="왼쪽">◀</button>
         <button type="button" class="pad-btn pad-right" data-key="ArrowRight" aria-label="오른쪽">▶</button>
         <button type="button" class="pad-btn pad-down" data-key="ArrowDown" aria-label="아래">▼</button>
-        <button type="button" class="pad-btn pad-bot" data-bot-toggle aria-pressed="false"
-                aria-label="봇 모드 켜기/끄기">
-          <span class="pad-bot-icon" aria-hidden="true">🤖</span>
-          <span class="pad-bot-label">BOT</span>
-        </button>
       </div>
       <div class="pad-actions">
         <button type="button" class="pad-btn pad-skill" data-key="Space">울기</button>
         <button type="button" class="pad-btn pad-mute" data-key="KeyM">소리</button>
         <button type="button" class="pad-btn pad-pause" data-key="KeyP">정지</button>
-        <button type="button" class="pad-btn pad-help" data-help-open aria-label="사용 설명서 열기">도움말</button>
+        <button type="button" class="pad-btn pad-help" data-help-open aria-label="사용 설명서 열기">? 도움말</button>
         <button type="button" class="pad-btn pad-restart" data-key="KeyR"
                 aria-label="재시작 (게임 오버/클리어)">↻ 재시작</button>
       </div>
@@ -160,16 +155,22 @@
 
           <section class="help-section">
             <h3>🤖 봇 &amp; 데모 플레이</h3>
-            <p>D-패드 가운데 <b>🤖 BOT</b> 버튼(PC는 <kbd>F2</kbd> → <b>BOT</b>)으로 자동 플레이를 켜고 끌 수 있어요.
-              봇은 아이템·황금 젖병을 노리고, 위기에는 <b>울기</b>를 쓰며, 얼어붙은 보모는 위협으로 보지 않아요.<br />
+            <p>PC에서는 <kbd>F2</kbd> → <b>BOT</b>으로 개발자용 자동 플레이를 켤 수 있어요.<br />
+              모바일에서는 이 도움말의 <b>[데모 실행]</b> 버튼으로 봇 데모를 바로 시작할 수 있습니다.
+              봇은 아이템·황금 젖병을 노리고, 정말 도망칠 수 없을 때만 <b>울기</b>를 쓰며,
+              얼어붙은 보모는 위협으로 보지 않아요.<br />
               시작 후 <b>5초 동안 조작하지 않으면</b> 데모 플레이가 자동으로 시작됩니다.
-              아무 키나 누르거나 화면을 터치하면 즉시 <b>MANUAL</b>로 참가할 수 있어요.</p>
+              데모 중 키를 누르거나 화면을 터치하면 즉시 <b>MANUAL</b>로 복귀합니다.</p>
           </section>
         </div>
 
         <footer class="help-foot">
-          <button class="help-start" type="button" data-help-close>알겠어요, 시작할게요!</button>
-          <p class="help-hint">이 설명서는 <kbd>H</kbd> 키(폰은 D-패드의 <b>도움말</b> 버튼)로 언제든 다시 볼 수 있어요.</p>
+          <div class="help-actions">
+            <button class="help-action help-start" type="button" data-help-action="start">▶ 게임 시작</button>
+            <button class="help-action help-demo" type="button" data-help-action="demo">🤖 데모 실행</button>
+            <button class="help-action help-exit" type="button" data-help-action="exit">■ 게임 종료</button>
+          </div>
+          <p class="help-hint">이 설명서는 <kbd>H</kbd> 키(폰은 D-패드의 <b>? 도움말</b> 버튼)로 언제든 다시 볼 수 있어요.</p>
         </footer>
       </section>
     </div>
