@@ -7,7 +7,7 @@
 import Game from './game.js';
 import InputManager from './input.js';
 import SoundFX from './sound.js';
-import TouchControls from './touch.js';
+import TouchControls, { TouchSwipe } from './touch.js';
 import HelpOverlay from './help.js';
 import { HISCORE_KEY } from './constants.js';
 
@@ -69,6 +69,10 @@ function init() {
 
   const touchControls = new TouchControls(input);
   window.__TOUCH = touchControls;
+
+  // 화면 스와이프/드래그로 방향 전환 (터치/펜 전용, 마우스는 무시)
+  const touchSwipe = new TouchSwipe(input, canvas);
+  window.__SWIPE = touchSwipe;
 
   // 사용 설명서(도움말): 첫 방문 시 자동 표시, H / F1 / ❔ 버튼으로 열고 닫기
   // (?no-help=1 로 자동 표시를 끌 수 있다 — 스크린샷/테스트용)

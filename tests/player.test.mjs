@@ -11,6 +11,7 @@ import Player from '../src/player.js';
 import {
   TILE_SIZE, TILE_MAP, PENALTY, ITEMS,
   STEALTH_DURATION_MS, STEALTH_COOLDOWN_MS,
+  INPUT_BUFFER_MS, TICK_RATE,
   getBabySpawn,
 } from '../src/constants.js';
 
@@ -126,8 +127,9 @@ test('입력 버퍼 시간이 지나면 대기 방향이 사라진다', () => {
   const player = new Player(SPAWN);
 
   player.setDirection('LEFT'); // 왼쪽은 벽
-  for (let i = 0; i < 7; i++) {
-    player.update(TILE_MAP); // 140ms × 7 = 980ms > 900ms
+  const ticks = Math.ceil(INPUT_BUFFER_MS / TICK_RATE) + 1;
+  for (let i = 0; i < ticks; i++) {
+    player.update(TILE_MAP);
   }
 
   assert.equal(player.col, SPAWN.col);

@@ -2,6 +2,8 @@
  * Pac-Baby: 키보드 입력 처리 모듈
  */
 
+import { TOUCH_TAP_MEMORY_MS } from './constants.js';
+
 /** 방향키 → 게임 방향 매핑 */
 const KEY_DIRECTIONS = {
   ArrowUp: 'UP',
@@ -16,6 +18,10 @@ export default class InputManager {
     this.justPressed = {};
     // 눌린 순서대로 보관하여 "가장 최근에 누른 방향"을 우선한다
     this.directionStack = [];
+
+    // 터치 전용 탭 메모리: 손가락을 아주 짧게 튕겨도 다음 tick 이 방향을 인식한다
+    this.touchDirection = null;
+    this.touchDirectionAt = 0;
 
     this._onKeyDown = (e) => {
       // 방향키/스페이스로 인한 페이지 스크롤 방지
@@ -34,6 +40,7 @@ export default class InputManager {
       this.keys = {};
       this.justPressed = {};
       this.directionStack = [];
+      this.clearTouchMemory();
     };
 
     window.addEventListener('keydown', this._onKeyDown);
@@ -41,11 +48,17 @@ export default class InputManager {
     window.addEventListener('blur', this._onBlur);
   }
 
+  /** 현재 시각 (테스트에서 주입 가능) */
+  _now() {
+    return Date.now();
+  }
+
   /**
    * 키 입력 주입 (키보드/터치 공용)
    * @param {string} code KeyboardEvent.code 형식 ('ArrowUp', 'Space' …)
+   * @param {{touch?: boolean}} [meta] 터치 입력이면 touch: true
    */
-  press(code) {
+  press(code, meta = {}) {
     if (!code) return;
     if (!this.keys[code]) {
       this.justPressed[code] = true;
@@ -53,7 +66,19 @@ export default class InputManager {
     this.keys[code] = true;
 
     const dir = KEY_DIRECTIONS[code];
-    if (dir && !this.directionStack.includes(dir)) {
+    if (!dir) return;
+
+    if (meta.touch) {
+      // 짧은 탭이 tick 사이에 묻히지 않도록 잠깐 방향을 기억한다
+      this.touchDirection = dir;
+      this.touchDirectionAt = this._now();
+    } else {
+      // 키보드 입력이 들어오면 터치 메모리는 즉시 무효화 (키보드 우선)
+      this.touchDirection = null;
+      this.touchDirectionAt = 0;
+    }
+
+    if (!this.directionStack.includes(dir)) {
       this.directionStack.push(dir);
     }
   }
@@ -68,6 +93,12 @@ export default class InputManager {
       const index = this.directionStack.indexOf(dir);
       if (index >= 0) this.directionStack.splice(index, 1);
     }
+  }
+
+  /** 터치 탭 메모리 초기화 (도움말/포커스 전환 시) */
+  clearTouchMemory() {
+    this.touchDirection = null;
+    this.touchDirectionAt = 0;
   }
 
   /** 특정 키가 눌려 있는지 확인 */
@@ -87,8 +118,19 @@ export default class InputManager {
 
   /** 방향키 → 방향 문자열 반환 (가장 최근에 누른 방향 우선) */
   getDirection() {
-    if (this.directionStack.length === 0) return null;
-    return this.directionStack[this.directionStack.length - 1];
+    const top = this.directionStack.length > 0
+      ? this.directionStack[this.directionStack.length - 1]
+      : null;
+
+    const remembered = this.touchDirection
+      && this._now() - this.touchDirectionAt <= TOUCH_TAP_MEMORY_MS
+      ? this.touchDirection
+      : null;
+
+    // 방금 탭한 터치 방향은 오래 누르고 있던 다른 방향보다 우선한다
+    if (remembered && remembered !== top) return remembered;
+
+    return top;
   }
 
   destroy() {

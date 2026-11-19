@@ -4,7 +4,7 @@
 **보모(악당)** 를 피해 도망치는 웹 게임입니다.
 
 - Vite 5 + Vanilla JS (ES Modules) + HTML5 Canvas
-- 테스트 150개 (`node --test`) · 외부 런타임 의존성 없음
+- 테스트 158개 (`node --test`) · 외부 런타임 의존성 없음
 - 기획/규칙 원본: [`.clinerules`](./.clinerules)
 
 **▶ 휴대폰으로 바로 플레이 (배포 완료)**: <https://gcolombo25-jrp.github.io/pac-baby/>
@@ -39,7 +39,8 @@ npm run dev        # http://localhost:3000
 
 | 키 | 동작 |
 |---|---|
-| `← ↑ ↓ →` | 이동 (미리 눌러도 0.9초까지 기억 → 다음 타일에서 자동 적용) |
+| `← ↑ ↓ →` | 이동 (미리 눌러도 1.2초까지 기억 → 다음 타일에서 자동 적용) |
+| 화면 스와이프/드래그 | 모바일에서 캔버스를 끌어 방향 전환 (D-패드와 동시 지원, 24px 이상 이동) |
 | `Space` | **울기(비상 탈출)**: 모든 악당 3초 얼림, **-100점**, 얼어 있는 악당은 **+3초 연장**, **쿨다운 3초** (얼린 악당은 무해) |
 | 침대(`2`) 타일 진입 | **스텔스 10초** (침대 파란색, 무적, 추격 악당은 5초간 순찰) |
 | `P` / `ESC` | 일시정지 토글 (요약 패널 표시) |
@@ -49,6 +50,8 @@ npm run dev        # http://localhost:3000
 | `R` | **GAME OVER 에서 재도전** (Space/Enter 도 가능) · STAGE CLEAR 에서 다음 라운드 |
 
 모바일: 화면 아래 **D-패드**(▲◀▶▼ + 울기/소리/정지/**도움말**)가 자동 표시됩니다.
+버튼이 이전보다 **약 33% 커지고**(히트박스는 더 넓게) 손가락이 빗나가도 잘 눌리며,
+**캔버스를 스와이프(드래그)**해도 방향을 바꿀 수 있습니다.
 
 ### 사용 설명서 (도움말)
 
@@ -241,7 +244,7 @@ __GAME.player.score;      // 현재 점수
 | `npm run build` | 프로덕션 빌드 → `dist/` |
 | `npm run preview` | 빌드 결과 미리보기 |
 | `npm run preview:host` | 빌드 결과 + 네트워크 노출 |
-| `npm test` | 단위 테스트 (150개) |
+| `npm test` | 단위 테스트 (158개) |
 | `npm run test:watch` | 테스트 워치 모드 |
 
 ### 파일 구조
@@ -267,9 +270,9 @@ PacBaby/
 │   ├── help.js              # 사용 설명서 오버레이 (첫 방문 자동 표시, 게임 정지 연동)
 │   ├── input.js             # 키보드/터치 공용 입력 (press/release)
 │   ├── sound.js             # Web Audio 합성 효과음
-│   ├── touch.js             # 모바일 D-패드 (pointer capture)
+│   ├── touch.js             # 모바일 D-패드 (히트박스 확장) + 스와이프 제스처
 │   └── tester.js            # 테스터 모드 (스위치형, 지연 로딩)
-├── tests/                   # node:test 단위 테스트 (150개)
+├── tests/                   # node:test 단위 테스트 (158개)
 └── dist/                    # 빌드 산출물 (gitignore)
 ```
 
@@ -285,7 +288,9 @@ PacBaby/
 | `TRAP_FREEZE_MS` | PEE 3000 / VOMIT 6000 / POOP 10000 | 트랩별 추가 얼림 |
 | `STEALTH_DURATION_MS` / `ENEMY_CONFUSE_MS` / `STEALTH_COOLDOWN_MS` | 10000 / 5000 / 3000 | 스텔스 규칙 |
 | `SKILL_CRY` | 3초 / -100 | 울기 스킬 |
-| `INPUT_BUFFER_MS` | 900 | 방향 선입력 기억 시간 |
+| `INPUT_BUFFER_MS` | 1200 | 방향 선입력 기억 시간 (모바일 코너링) |
+| `TOUCH_TAP_MEMORY_MS` | 260 | 짧은 터치 탭을 다음 tick 까지 기억 |
+| `TOUCH_SWIPE_THRESHOLD` | 24 | 스와이프 방향 인식 최소 이동 거리(px) |
 | `PATROL_SAFE_DISTANCE` | 5 | 경비 악당이 베이비와 유지하는 거리 |
 | `PLAYER_LIVES` | 3 | 목숨(하트) 개수 |
 | `ROUND_CLEAR_MODE` | `'ITEMS'` | 클리어 조건 (`'ITEMS'` / `'SCORE'` / `'BOTH'`) |
@@ -300,7 +305,7 @@ PacBaby/
 
 ### 테스트 / CI
 ```bash
-npm test        # 150개 통과 기준
+npm test        # 158개 통과 기준
 npm run build   # exit 0 기준
 ```
 `.github/workflows/ci.yml` 은 **PR** 에서 `npm ci → npm test → npm run build` 를 실행하고,

@@ -14,6 +14,7 @@ globalThis.window = {
 };
 
 const { default: InputManager } = await import('../src/input.js');
+import { TOUCH_TAP_MEMORY_MS } from '../src/constants.js';
 
 function press(input, code) {
   input._onKeyDown({ code, preventDefault() {} });
@@ -96,5 +97,67 @@ test('터치용 press/release API 로도 방향과 스킬이 동작한다', () =
   input.release('Space');
   assert.equal(input.isDown('Space'), false);
 
+  input.destroy();
+});
+
+test('터치 탭은 손을 뗀 직후에도 잠깐 방향을 기억한다', () => {
+  const input = new InputManager();
+
+  input.press('ArrowLeft', { touch: true });
+  input.release('ArrowLeft');
+
+  assert.equal(input.directionStack.length, 0, '손을 떼면 눌린 방향 스택은 비어 있다');
+  assert.equal(input.getDirection(), 'LEFT', '짧은 탭도 다음 tick 에서 인식된다');
+
+  // 메모리 시간이 지나면 사라진다
+  input.touchDirectionAt = Date.now() - TOUCH_TAP_MEMORY_MS - 1;
+  assert.equal(input.getDirection(), null);
+
+  input.destroy();
+});
+
+test('키보드 방향 입력은 터치 탭 메모리를 무효화한다', () => {
+  const input = new InputManager();
+
+  input.press('ArrowRight', { touch: true });
+  input.release('ArrowRight');
+  assert.equal(input.getDirection(), 'RIGHT');
+
+  input.press('ArrowUp'); // 키보드 입력
+  input.release('ArrowUp');
+  assert.equal(input.getDirection(), null, '키보드 입력 후에는 터치 메모리가 남지 않는다');
+
+  input.destroy();
+});
+
+test('포커스를 잃으면 터치 탭 메모리도 초기화된다', () => {
+  const input = new InputManager();
+
+  input.press('ArrowDown', { touch: true });
+  input.release('ArrowDown');
+  assert.equal(input.getDirection(), 'DOWN');
+
+  registered.blur();
+  assert.equal(input.getDirection(), null);
+  assert.equal(input.touchDirection, null);
+
+  input.destroy();
+});
+
+test('다른 방향을 누르고 있어도 짧은 터치 탭이 우선한다', () => {
+  const input = new InputManager();
+
+  input.press('ArrowUp', { touch: true });   // 계속 누르는 중
+  input.press('ArrowLeft', { touch: true }); // 짧은 탭
+  input.release('ArrowLeft');
+
+  assert.equal(input.directionStack[0], 'UP', 'UP 은 여전히 눌린 상태');
+  assert.equal(input.getDirection(), 'LEFT', '방금 탭한 방향이 우선');
+
+  // 탭 메모리가 만료되면 계속 누르고 있는 방향으로 돌아간다
+  input.touchDirectionAt = Date.now() - TOUCH_TAP_MEMORY_MS - 1;
+  assert.equal(input.getDirection(), 'UP');
+
+  input.release('ArrowUp');
   input.destroy();
 });

@@ -199,6 +199,7 @@ export default class HelpOverlay {
     if (!input) return;
     this.input?.clearJustPressed?.();
     input.clearJustPressed?.();
+    input.clearTouchMemory?.();
     if (input.keys) {
       for (const code of Object.keys(input.keys)) {
         if (input.keys[code]) input.release?.(code);

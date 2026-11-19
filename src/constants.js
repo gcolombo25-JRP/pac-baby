@@ -105,8 +105,12 @@ export const ENEMY_TILE_MS = 385;      // 보모 기본 1타일 이동 시간 (�
 export const ENEMY_START_DELAY_MS = 900; // 게임 시작 시 보모가 잠에서 깨는 시간 (베이비가 도망칠 틈)
 export const CHASE_ENEMY_COUNT = 2;     // 베이비를 쫓는 보모 수 (나머지는 경비/순찰)
 export const RESPAWN_GRACE_MS = 1500;  // 체포 후 잠깐의 무적 시간
-export const INPUT_BUFFER_MS = 900;    // 방향키를 미리 눌러도 기억하는 시간 (조작 여유)
+export const INPUT_BUFFER_MS = 1200;   // 방향을 미리 눌러도 기억하는 시간 (모바일 코너링 여유)
 export const PATROL_SAFE_DISTANCE = 5; // 경비(순찰) 악당이 베이비에게서 유지하는 최소 거리(타일)
+
+// ===== 터치 조작 보정 =====
+export const TOUCH_TAP_MEMORY_MS = 260;   // 짧은 탭도 다음 tick 이 인식하도록 방향을 잠깐 기억
+export const TOUCH_SWIPE_THRESHOLD = 24;  // 스와이프로 방향을 인식하는 최소 이동 거리(px)
 
 // ===== 아이템 리스폰 =====
 export const ITEM_RESPAWN_MS = 15000;  // 섭취 후 15초 뒤 임의의 장소에 다시 등장
