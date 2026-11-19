@@ -13,7 +13,7 @@ import {
   RESPAWN_GRACE_MS,
   TRAP_MAX_ACTIVE, TRAP_HIT_SCORE, TRAP_FREEZE_MS, TRAP_COLORS,
   STEALTH_DURATION_MS, ENEMY_CONFUSE_MS,
-  READY_COUNTDOWN_MS, SCORE_POPUP_MS,
+  READY_COUNTDOWN_MS, SCORE_POPUP_MS, DEMO_IDLE_MS,
   PLAYER_LIVES, ROUND_CLEAR_MODE, ROUND_TARGET_SCORE, ROUND_SPEED_STEP, HISCORE_KEY,
   SKILL_CRY, PENALTY,
   MAX_DEVICE_PIXEL_RATIO, BABY_LIGHT_RADIUS_TILES, BABY_LIGHT_FEATHER_TILES,
@@ -22,6 +22,7 @@ import {
   VISION_START_ROUND, VISION_START_TILES, VISION_MIN_TILES,
 } from './constants.js';
 import MapRenderer from './map.js';
+import BotBrain from './bot.js';
 import Player from './player.js';
 import Enemy, { ENEMY_MODE } from './enemy.js';
 import { Item, Trap } from './item.js';
@@ -106,6 +107,18 @@ export default class Game {
     this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
     this.tester = null;            // 테스터 모드 연결 지점 (src/tester.js)
 
+    // ===== 봇 / 데모 플레이 =====
+    this.bot = new BotBrain();
+    this.botMode = false;          // F2/모바일에서 명시적으로 켠 BOT
+    this.demoMode = false;         // 무입력 5초 후 자동 시작된 DEMO
+    this.demoArmed = true;         // 최초 로딩 후 한 번만 자동 데모 허용
+    this.demoIdleMs = 0;
+    this.demoDelayMs = options.demoDelayMs ?? DEMO_IDLE_MS;
+    this.lastInputActivitySeq = Number.isFinite(this.input?.activitySeq)
+      ? this.input.activitySeq
+      : 0;
+    this.onBotStateChange = null;
+
     // 진행 상태 (9단계: 목숨/라운드/하이스코어)
     this.storage = options.storage || safeStorage();
     this.lives = PLAYER_LIVES;
@@ -118,6 +131,135 @@ export default class Game {
 
     // 1라운드는 철창문/시야 제한 없음
     this._initGates(this.round);
+  }
+
+  /** 현재 봇이 조작 중인지 (데모 / 명시적 BOT / 테스터 BOT) */
+  get isBotActive() {
+    return this.botMode || this.demoMode || this.tester?.mode === 'BOT';
+  }
+
+  /** 봇 상태 변경 리스너 (모바일 [🤖 BOT] 버튼 동기화용) */
+  setBotStateListener(listener) {
+    this.onBotStateChange = typeof listener === 'function' ? listener : null;
+    this._notifyBotState();
+    return this;
+  }
+
+  _notifyBotState() {
+    if (!this.onBotStateChange) return;
+    this.onBotStateChange({
+      botMode: !!this.botMode,
+      demoMode: !!this.demoMode,
+      active: this.isBotActive,
+    });
+  }
+
+  /**
+   * 키보드/터치 등 사용자 입력 감지.
+   * - 자동 데모를 즉시 종료하고 수동 플레이(MANUAL)로 전환한다.
+   * - 명시적으로 켠 BOT 모드는 유지한다 (버튼으로만 끈다).
+   */
+  noteUserActivity() {
+    const seq = this.input?.activitySeq;
+    if (Number.isFinite(seq)) this.lastInputActivitySeq = seq;
+
+    this.demoArmed = false;
+    this.demoIdleMs = 0;
+
+    if (!this.demoMode) return;
+    this.demoMode = false;
+    this.tester?.log?.('demo', '사용자 입력 → MANUAL 전환');
+    this._notifyBotState();
+  }
+
+  /**
+   * 모바일 [🤖 BOT] 버튼 / 외부 제어용 토글.
+   * 데모/테스터 BOT이 켜져 있으면 모두 끄고 수동으로 돌아간다.
+   * @returns {boolean} 토글 후 봇 활성 여부
+   */
+  toggleBot() {
+    if (this.isBotActive) {
+      this.botMode = false;
+      this.demoMode = false;
+      this.demoArmed = false;
+      this.demoIdleMs = 0;
+      if (this.tester?.mode === 'BOT') this.tester.stopAll?.();
+      this._notifyBotState();
+      return false;
+    }
+
+    // REPLAY 중이면 먼저 종료하고 봇이 입력을 가져가게 한다
+    if (this.tester?.mode === 'REPLAY') this.tester.stopAll?.();
+
+    this.botMode = true;
+    this.demoMode = false;
+    this.demoArmed = false;
+    this.demoIdleMs = 0;
+
+    if (this.state === 'PAUSED' && !this.tester?.flags?.step) {
+      this.state = 'PLAYING';
+      this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
+    this.tester?.log?.('bot', 'BOT 모드 시작 (외부 버튼)');
+    this._notifyBotState();
+    return true;
+  }
+
+  /** 무입력 5초 자동 데모 시작 */
+  _startDemo() {
+    if (!this.demoArmed || this.demoMode || this.botMode) return false;
+    if (this.tester && this.tester.mode !== 'MANUAL') {
+      this.demoArmed = false;
+      return false;
+    }
+    if (this.state !== 'READY' && this.state !== 'PLAYING') return false;
+
+    this.demoMode = true;
+    this.demoArmed = false;
+    this.demoIdleMs = 0;
+
+    // READY 카운트다운 중이면 바로 플레이로 전환해 데모가 움직이게 한다
+    if (this.state === 'READY') {
+      this.state = 'PLAYING';
+      this.readyTimer = 0;
+      this.tickAccumulator = 0;
+    }
+
+    this.tester?.log?.('demo', `무입력 ${Math.round(this.demoDelayMs / 1000)}초 → DEMO PLAY 시작`);
+    this._notifyBotState();
+    return true;
+  }
+
+  /** READY/PLAYING 중 사용자 입력 없이 흐른 시간을 누적한다 */
+  _updateDemoTimer(dt) {
+    if (!this.demoArmed || this.demoMode || this.botMode) return;
+    if (this.state !== 'READY' && this.state !== 'PLAYING') return;
+    if (this.tester && this.tester.mode !== 'MANUAL') {
+      this.demoArmed = false;
+      return;
+    }
+
+    this.demoIdleMs += Math.max(0, dt);
+    if (this.demoIdleMs >= this.demoDelayMs) this._startDemo();
+  }
+
+  /** InputManager.activitySeq 변화 = 실제 사용자 입력 */
+  _checkUserActivity() {
+    // 설명서(모달) 조작은 게임 플레이 입력이 아니므로 데모 대기 시간을 건드리지 않는다.
+    if (this.helpOpen) return;
+
+    const seq = this.input?.activitySeq;
+    if (!Number.isFinite(seq) || seq === this.lastInputActivitySeq) return;
+    this.lastInputActivitySeq = seq;
+    this.noteUserActivity();
+  }
+
+  /** 봇이 위기라고 판단하면 키 입력 없이 울기 실행 */
+  _handleBotSkill() {
+    if (!this.botMode && !this.demoMode) return;
+    if (this.tester && this.tester.mode !== 'MANUAL') return;
+    if (this.bot.shouldCry(this)) this._useCry(true);
   }
 
   /** 아이템 초기 배치 */
@@ -422,6 +564,9 @@ export default class Game {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
+    // 입력이 들어오면 자동 데모를 즉시 종료한다 (main.js 의 터치 리스너와 함께 동작)
+    this._checkUserActivity();
+
     // 애니메이션 시간 (캐릭터 바운스/아이템 부유/트랩 흔들림)
     if (dt > 0) this.animTime = (this.animTime + dt) % 600000;
 
@@ -448,6 +593,9 @@ export default class Game {
       this.input.clearJustPressed();
       return;
     }
+
+    // 무입력 5초 → DEMO PLAY (READY/PLAYING 에서만)
+    this._updateDemoTimer(dt);
 
     if (this.state === 'READY') {
       // 준비 카운트다운 (게임 로직은 정지)
@@ -538,6 +686,9 @@ export default class Game {
     // 닫은 뒤 밀린 프레임을 몰아서 진행하지 않는다
     this.tickAccumulator = 0;
     this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    // 설명서를 여닫는 키/터치는 게임 조작이 아니므로 자동 데모 입력으로 오인하지 않는다.
+    const seq = this.input?.activitySeq;
+    if (Number.isFinite(seq)) this.lastInputActivitySeq = seq;
     return this.helpOpen;
   }
 
@@ -576,6 +727,9 @@ export default class Game {
 
     // 철창문 열림/닫힘 → navMap(이동 판정) 갱신
     this._updateGates(dt);
+
+    // 봇 모드: 위협이 가까우면 자동 울기 (얼어붙은 악당은 위협에서 제외)
+    this._handleBotSkill();
 
     // 입력 → 베이비 방향 전환 (테스터 모드에서는 입력 소스가 바뀔 수 있다)
     const dir = this._resolveDirection();
@@ -635,6 +789,10 @@ export default class Game {
       const resolved = this.tester.resolveDirection(this);
       if (resolved !== undefined) return resolved;
     }
+
+    // 모바일 버튼/자동 데모 봇
+    if (this.botMode || this.demoMode) return this.bot.decide(this);
+
     return this.input.getDirection();
   }
 
@@ -943,7 +1101,16 @@ export default class Game {
 
   /** 스페이스바 — 울기: 모든 악당 3초 얼림, -100점 (얼어 있으면 +3초 연장) */
   _handleSkillInput() {
-    if (!this.input.isJustPressed(SKILL_CRY.key)) return;
+    this._useCry();
+  }
+
+  /**
+   * 울기 실행 (사람의 Space / 봇 자동 발동 공용)
+   * @param {boolean} [force] true 이면 키 입력 없이 실행 (봇)
+   * @returns {boolean} 사용 여부
+   */
+  _useCry(force = false) {
+    if (!force && !this.input.isJustPressed(SKILL_CRY.key)) return;
     if (this.state !== 'PLAYING') return;
     if (this.enemies.length === 0) return;
     if (this.cryCooldown > 0) return; // 연사 제한: 3초에 1회
@@ -967,6 +1134,8 @@ export default class Game {
     );
     this.effects.burstTears(this.player.row, this.player.col);
     this.enemies.forEach(enemy => this.effects.burstIce(enemy.row, enemy.col));
+
+    return true;
   }
 
   // ===== 하이스코어 =====
@@ -1092,6 +1261,13 @@ export default class Game {
     this._resetBoard();
 
     this.tester?.log?.('restart', '새 게임 시작');
+
+    // 재시작 후에는 자동 데모를 다시 켜지 않는다 (명시적 BOT 은 유지)
+    this.demoMode = false;
+    this.demoIdleMs = 0;
+    this.demoArmed = false;
+    this._notifyBotState();
+
     return this;
   }
 
@@ -1401,6 +1577,7 @@ export default class Game {
     this._renderStealthGauge(ctx);
     this._renderFreezeBadge(ctx);
     this._renderBoostBadges(ctx);
+    this._renderBotStatus(ctx);
 
     // 하단 조작 안내
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -1422,6 +1599,31 @@ export default class Game {
       CANVAS_WIDTH / 2,
       CANVAS_HEIGHT - 11,
     );
+  }
+
+  /** 봇/데모 상태 배지 (상단 중앙) */
+  _renderBotStatus(ctx) {
+    if (!this.isBotActive) return;
+
+    const demo = this.demoMode;
+    const text = demo ? '🤖 DEMO PLAY · 입력하면 참가' : '🤖 BOT MODE';
+    const metrics = typeof ctx.measureText === 'function' ? ctx.measureText(text) : null;
+    const textWidth = metrics && typeof metrics.width === 'number'
+      ? metrics.width
+      : text.length * 7;
+    const width = textWidth + 20;
+    const centerX = CANVAS_WIDTH / 2;
+    const y = 64;
+
+    ctx.fillStyle = demo ? 'rgba(41, 182, 246, 0.24)' : 'rgba(255, 224, 130, 0.18)';
+    ctx.fillRect(centerX - width / 2, y - 9, width, 18);
+
+    ctx.fillStyle = demo ? '#29b6f6' : '#ffe082';
+    ctx.font = 'bold 11px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, centerX, y);
+    ctx.textAlign = 'left';
   }
 
   /** 소화 진행 게이지 (트랩 배출까지 남은 시간) */

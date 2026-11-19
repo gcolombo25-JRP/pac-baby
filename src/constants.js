@@ -166,6 +166,7 @@ export const STEALTH_COOLDOWN_MS = 3000;  // 스텔스 종료 후 재사용 대�
 // ===== 게임 상태 UI (7단계) =====
 export const READY_COUNTDOWN_MS = 3000; // 시작 전 준비(카운트다운) 시간
 export const SCORE_POPUP_MS = 900;      // 점수 팝업이 떠 있는 시간
+export const DEMO_IDLE_MS = 5000;       // 무입력 시 데모 플레이 자동 시작 시간
 
 // ===== 목숨 / 라운드 / 하이스코어 (9단계) =====
 export const PLAYER_LIVES = 3;              // 기본 목숨(하트)

@@ -19,11 +19,28 @@ export default class InputManager {
     // 눌린 순서대로 보관하여 "가장 최근에 누른 방향"을 우선한다
     this.directionStack = [];
 
+    // 사용자 활동 감지 (자동 데모 종료용)
+    this.activitySeq = 0;
+    this.lastActivityAt = 0;
+
     // 터치 전용 탭 메모리: 손가락을 아주 짧게 튕겨도 다음 tick 이 방향을 인식한다
     this.touchDirection = null;
     this.touchDirectionAt = 0;
 
     this._onKeyDown = (e) => {
+      // 설명서(모달)가 열려 있으면 게임 입력을 처리하지 않는다.
+      // (Escape/H 로 닫는 키가 자동 데모 입력으로 새는 것도 방지)
+      if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+        const helpOverlay = document.getElementById('help-overlay');
+        if (helpOverlay && !helpOverlay.hidden) return;
+      }
+
+      // BOT 버튼에 포커스가 있을 때 Space/Enter 로 버튼을 누르는 경우
+      // 게임 입력(울기 등)으로 중복 처리하지 않는다.
+      const target = e && e.target;
+      if (target && typeof target.closest === 'function'
+        && target.closest('[data-bot-toggle]')) return;
+
       // 방향키/스페이스로 인한 페이지 스크롤 방지
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         e.preventDefault();
@@ -43,9 +60,15 @@ export default class InputManager {
       this.clearTouchMemory();
     };
 
-    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keydown', this._onKeyDown, true);
     window.addEventListener('keyup', this._onKeyUp);
     window.addEventListener('blur', this._onBlur);
+  }
+
+  /** 사용자 활동 기록 (키 입력/화면 터치 → 자동 데모 종료 신호) */
+  noteActivity() {
+    this.activitySeq += 1;
+    this.lastActivityAt = this._now();
   }
 
   /** 현재 시각 (테스트에서 주입 가능) */
@@ -60,6 +83,7 @@ export default class InputManager {
    */
   press(code, meta = {}) {
     if (!code) return;
+    this.noteActivity();
     if (!this.keys[code]) {
       this.justPressed[code] = true;
     }
@@ -134,7 +158,7 @@ export default class InputManager {
   }
 
   destroy() {
-    window.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('keydown', this._onKeyDown, true);
     window.removeEventListener('keyup', this._onKeyUp);
     window.removeEventListener('blur', this._onBlur);
   }

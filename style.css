@@ -647,3 +647,48 @@ body.touch-landscape .pad-restart {
   }
 }
 
+/* ===== 모바일 [🤖 BOT] 버튼 (D-패드 중앙) ===== */
+.pad-bot {
+  grid-column: 2;
+  grid-row: 2;
+  flex-direction: column;
+  gap: 1px;
+  background: rgba(41, 182, 246, 0.16);
+  border: 1px solid rgba(41, 182, 246, 0.55);
+  color: #b3e5fc;
+  letter-spacing: 0.3px;
+}
+
+.touch-controls .pad-bot {
+  font-size: 11px;
+}
+
+.touch-controls .pad-bot .pad-bot-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.touch-controls .pad-bot .pad-bot-label {
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.pad-bot.pad-bot-active {
+  background: rgba(41, 182, 246, 0.92);
+  border-color: #29b6f6;
+  color: #04263b;
+  box-shadow:
+    0 0 16px rgba(41, 182, 246, 0.6),
+    0 3px 0 rgba(0, 0, 0, 0.45);
+}
+
+.pad-bot.pad-bot-demo {
+  background: rgba(255, 224, 130, 0.9);
+  border-color: #ffe082;
+  color: #3e2c00;
+  box-shadow:
+    0 0 18px rgba(255, 224, 130, 0.55),
+    0 3px 0 rgba(0, 0, 0, 0.45);
+}
+

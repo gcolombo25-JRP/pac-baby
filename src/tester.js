@@ -7,9 +7,9 @@
  */
 
 import {
-  COLS, ROWS, TILE_SIZE, CANVAS_WIDTH, CANVAS_HEIGHT, isWalkableTile,
+  COLS, ROWS, TILE_SIZE, CANVAS_WIDTH, CANVAS_HEIGHT,
 } from './constants.js';
-import { findNextStep } from './enemy.js';
+import BotBrain from './bot.js';
 
 const MODES = ['MANUAL', 'REPLAY', 'BOT'];
 const STORAGE_KEY = 'pacbaby.tester.v1';
@@ -25,17 +25,6 @@ function mulberry32(seed) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-/** 인접 두 타일로부터 방향을 구한다 (터널 포함) */
-function directionTo(from, to) {
-  if (to.row === from.row - 1) return 'UP';
-  if (to.row === from.row + 1) return 'DOWN';
-  if (to.col === from.col - 1) return 'LEFT';
-  if (to.col === from.col + 1) return 'RIGHT';
-  if (from.col === 0 && to.col > 1) return 'LEFT';
-  if (from.col > 1 && to.col === 0) return 'RIGHT';
-  return null;
 }
 
 export default class Tester {
@@ -63,6 +52,7 @@ export default class Tester {
     this.replayIndex = 0;
     this.replaySeed = 1;
     this.botTicks = 0;
+    this.brain = new BotBrain();
 
     this.events = [];
     this._inspectorTimer = null;
@@ -92,6 +82,7 @@ export default class Tester {
     this.game = game;
     game.tester = this;
     this._applyFlags();
+    game.notifyBotState?.();
   }
 
   /** 이번 틱에 사용할 방향 (undefined = 실제 입력 사용) */
@@ -103,6 +94,7 @@ export default class Tester {
         this.mode = 'MANUAL';
         this._syncButtons();
         this.log('replay', '재생 끝 → MANUAL');
+        game.notifyBotState?.();
         return null;
       }
       return this.frames[this.replayIndex++] ?? null;
@@ -110,6 +102,7 @@ export default class Tester {
 
     if (this.mode === 'BOT') {
       this.botTicks += 1;
+      this._botCry(game);
       return this._botDirection(game);
     }
 
@@ -133,9 +126,11 @@ export default class Tester {
       this.flags.teleport = false;
       this.recording = false;
       this.mode = 'MANUAL';
+      this._suspendGameBot();
     }
     this._applyFlags();
     this._syncButtons();
+    this.game?.notifyBotState?.();
   }
 
   /** 기능 스위치 토글 */
@@ -158,6 +153,7 @@ export default class Tester {
     if (!MODES.includes(mode)) return;
 
     if (mode === 'MANUAL') {
+      this._suspendGameBot();
       this.recording = false;
       this.replayIndex = 0;
       if (!this.flags.step && this.game.state === 'PAUSED') this.game.state = 'PLAYING';
@@ -166,10 +162,12 @@ export default class Tester {
     this.mode = mode;
     this._save();
     this._syncButtons();
+    this.game.notifyBotState?.();
   }
 
   /** 기록 시작 (게임을 초기 상태로 되돌린 뒤 시작) */
   startRecording() {
+    this._suspendGameBot();
     this.recording = false;
     this.mode = 'MANUAL';
     this.frames = [];
@@ -179,6 +177,7 @@ export default class Tester {
     this.recording = true;
     this.log('record', `기록 시작 (seed ${this.replaySeed})`);
     this._syncButtons();
+    this.game.notifyBotState?.();
   }
 
   /** 기록 재생 (같은 시드로 리셋 후 입력만 재생) */
@@ -188,6 +187,7 @@ export default class Tester {
       return false;
     }
 
+    this._suspendGameBot();
     this.recording = false;
     this.restart();
     this._applyRng(this.replaySeed);
@@ -195,26 +195,32 @@ export default class Tester {
     this.mode = 'REPLAY';
     this.log('replay', `재생 시작 (${this.frames.length} 프레임)`);
     this._syncButtons();
+    this.game.notifyBotState?.();
     return true;
   }
 
   /** AI 자동 플레이 시작 */
   startBot() {
+    this._suspendGameBot();
     this.recording = false;
     this.botTicks = 0;
+    this.brain = new BotBrain();
     this.mode = 'BOT';
     if (this.game.state === 'PAUSED' && !this.flags.step) this.game.state = 'PLAYING';
     this.log('bot', '봇 시작');
     this._syncButtons();
+    this.game.notifyBotState?.();
   }
 
   /** 모든 자동 동작 정지 */
   stopAll() {
+    this._suspendGameBot();
     this.recording = false;
     this.replayIndex = 0;
     this.mode = 'MANUAL';
     this.log('stop', '정지');
     this._syncButtons();
+    this.game.notifyBotState?.();
   }
 
   /** 게임 한 틱 수동 진행 (1틱 모드) */
@@ -255,74 +261,24 @@ export default class Tester {
   }
   // ===== 봇 AI =====
 
-  /** 봇: 아이템을 향해 이동, 악당이 가까우면 도망 */
+  /** 테스터 자동 모드(기록/재생/봇)가 게임 쪽 봇과 겹치지 않게 정리 */
+  _suspendGameBot() {
+    if (!this.game) return;
+    this.game.botMode = false;
+    this.game.demoMode = false;
+    this.game.demoArmed = false;
+    this.game.notifyBotState?.();
+  }
+
+  /** 위기 시 키 입력 없이 울기 (테스터 BOT 모드) */
+  _botCry(game) {
+    if (!this.enabled || !game) return;
+    if (this.brain.shouldCry(game)) game._useCry?.(true);
+  }
+
+  /** 봇: 얼어붙은 악당을 무시하고 회피/황금 젖병/아이템을 계산한다 */
   _botDirection(game) {
-    const player = game.player;
-    // 철창문이 닫힌 상태를 반영한 이동용 맵을 사용한다
-    const map = game.navMap || game.map.map;
-    const cols = map[0].length;
-
-    const step = (dr, dc) => {
-      let row = player.row + dr;
-      let col = player.col + dc;
-      if (col < 0) col = cols - 1;
-      if (col >= cols) col = 0;
-      return { row, col };
-    };
-
-    const dirs = [
-      { name: 'UP', dr: -1, dc: 0 },
-      { name: 'DOWN', dr: 1, dc: 0 },
-      { name: 'LEFT', dr: 0, dc: -1 },
-      { name: 'RIGHT', dr: 0, dc: 1 },
-    ];
-
-    // 가장 가까운 악당
-    let nearest = null;
-    let nearestDist = Infinity;
-    for (const enemy of game.enemies) {
-      const dist = Math.abs(enemy.row - player.row) + Math.abs(enemy.col - player.col);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearest = enemy;
-      }
-    }
-
-    // 위험: 가장 멀어지는 방향으로 회피
-    if (nearest && nearestDist <= 2) {
-      let best = null;
-      let bestDist = -1;
-      for (const dir of dirs) {
-        const tile = step(dir.dr, dir.dc);
-        if (!isWalkableTile(map, tile.row, tile.col)) continue;
-        if (game.enemies.some(e => e.row === tile.row && e.col === tile.col)) continue;
-        const dist = Math.abs(nearest.row - tile.row) + Math.abs(nearest.col - tile.col);
-        if (dist > bestDist) {
-          bestDist = dist;
-          best = dir.name;
-        }
-      }
-      if (best) return best;
-    }
-
-    // 가장 가까운 아이템으로 BFS
-    let target = null;
-    let targetDist = Infinity;
-    for (const item of game.items) {
-      if (item.collected) continue;
-      const dist = Math.abs(item.row - player.row) + Math.abs(item.col - player.col);
-      if (dist < targetDist) {
-        targetDist = dist;
-        target = item;
-      }
-    }
-    if (!target) return null;
-
-    const next = findNextStep(map, player.row, player.col, target.row, target.col, 0);
-    if (!next) return null;
-    if (game.enemies.some(e => e.row === next.row && e.col === next.col)) return null;
-
-    return directionTo(player, next);
+    return this.brain.decide(game);
   }
 
   // ===== 로그 / 오버레이 =====
@@ -604,7 +560,7 @@ export default class Tester {
       + `score ${player.score} | stealth ${(player.stealthTimer / 1000).toFixed(1)}s | catch ${game.catchCount}\n`
       + `items ${game.itemCount}/${game.items.length} | traps ${game.traps.length} | digest ${player.digesting.length}\n`
       + `enemies ${game.enemies.map(e => `${e.mode[0]}${e.pinned ? 'p' : ''}${e.isFrozen ? 'f' : ''}@${e.row},${e.col}`).join(' ')}\n`
-      + `rec ${this.recording ? 'ON' : 'off'} ${this.frames.length}f | replay ${this.replayIndex} | bot ${this.botTicks}`;
+      + `rec ${this.recording ? 'ON' : 'off'} ${this.frames.length}f | replay ${this.replayIndex} | bot ${this.botTicks} ${this.brain.lastMode}`;
   }
 
   // ===== 저장 / 정리 =====
@@ -641,5 +597,6 @@ export default class Tester {
     if (this._panel && this._panel.parentNode) this._panel.parentNode.removeChild(this._panel);
     this._panel = null;
     if (this.game) this.game.tester = null;
+    this.game?.notifyBotState?.();
   }
 }

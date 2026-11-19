@@ -161,3 +161,54 @@ test('다른 방향을 누르고 있어도 짧은 터치 탭이 우선한다', (
   input.release('ArrowUp');
   input.destroy();
 });
+
+test('키/터치 활동은 activitySeq 를 증가시켜 자동 데모 종료 신호로 쓰인다', () => {
+  const input = new InputManager();
+  const before = input.activitySeq;
+
+  input.press('ArrowRight', { touch: true });
+  input.release('ArrowRight');
+  assert.ok(input.activitySeq > before, '터치 입력도 활동으로 기록');
+  assert.ok(input.lastActivityAt > 0);
+
+  const afterTouch = input.activitySeq;
+  press(input, 'Space');
+  assert.ok(input.activitySeq > afterTouch, '키보드 입력도 활동으로 기록');
+
+  input.destroy();
+});
+
+test('BOT 버튼에 포커스된 키 입력은 게임 입력으로 중복 처리하지 않는다', () => {
+  const input = new InputManager();
+  const before = input.activitySeq;
+  let prevented = false;
+
+  input._onKeyDown({
+    code: 'Space',
+    preventDefault() { prevented = true; },
+    target: { closest: selector => (selector === '[data-bot-toggle]' ? {} : null) },
+  });
+
+  assert.equal(input.activitySeq, before);
+  assert.equal(prevented, false);
+  assert.equal(input.isDown('Space'), false);
+
+  input.destroy();
+});
+
+test('설명서가 열려 있으면 게임 키 입력을 처리하지 않는다', () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    getElementById: id => (id === 'help-overlay' ? { hidden: false } : null),
+  };
+
+  const input = new InputManager();
+  const before = input.activitySeq;
+  press(input, 'ArrowRight');
+
+  assert.equal(input.activitySeq, before);
+  assert.equal(input.getDirection(), null);
+
+  input.destroy();
+  globalThis.document = previousDocument;
+});
