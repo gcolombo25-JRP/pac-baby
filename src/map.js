@@ -35,6 +35,65 @@ function safeLinearGradient(ctx, x0, y0, x1, y1, stops) {
   return gradient;
 }
 
+/**
+ * 침대(타일 2) 팔레트
+ * - 평소: 따뜻한 원목 프레임 + 파스텔 침구
+ * - 스텔스: 신비로운 푸른 네온
+ */
+const CRIB_WARM = {
+  frame: '#b07a4f',
+  frameLight: '#d9a877',
+  frameDark: '#7a4e2e',
+  sheet: '#f6e7c9',
+  blanket: '#bfe3d0',
+  blanketFold: '#d8f0e2',
+  blanketEdge: '#9fcfb4',
+  pillow: '#fffaf0',
+  pillowEdge: '#ecd9bd',
+  accent: '#f2a6b8',
+  underlay: 'rgba(255, 205, 140, 0.12)',
+  grain: 'rgba(90, 55, 30, 0.35)',
+};
+
+const CRIB_STEALTH = {
+  frame: '#29b6f6',
+  frameLight: '#81d4fa',
+  frameDark: '#0277bd',
+  sheet: '#e1f5fe',
+  blanket: '#81d4fa',
+  blanketFold: '#b3e5fc',
+  blanketEdge: '#4fc3f7',
+  pillow: '#f4fcff',
+  pillowEdge: '#b3e5fc',
+  accent: '#ffffff',
+  underlay: 'rgba(41, 182, 246, 0.18)',
+  grain: 'rgba(255, 255, 255, 0.35)',
+};
+
+/**
+ * 둥근 모서리 사각형 경로 (roundRect 미지원 컨텍스트에서도 동작)
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} x
+ * @param {number} y
+ * @param {number} w
+ * @param {number} h
+ * @param {number} r
+ */
+function roundedRectPath(ctx, x, y, w, h, r) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.arc(x + w - radius, y + radius, radius, -Math.PI / 2, 0);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.arc(x + w - radius, y + h - radius, radius, 0, Math.PI / 2);
+  ctx.lineTo(x + radius, y + h);
+  ctx.arc(x + radius, y + h - radius, radius, Math.PI / 2, Math.PI);
+  ctx.lineTo(x, y + radius);
+  ctx.arc(x + radius, y + radius, radius, Math.PI, Math.PI * 1.5);
+  ctx.closePath();
+}
+
 export default class MapRenderer {
   constructor() {
     this.map = TILE_MAP;
@@ -76,8 +135,9 @@ export default class MapRenderer {
    * - 브라우저: 정적 맵을 오프스크린 캔버스에 1회만 그려 두고 매 프레임 blit
    * - DOM 없음(테스트): 매번 직접 그린다
    * @param {CanvasRenderingContext2D} ctx
+   * @param {number} [timeMs] 애니메이션 시간(ms) — 스텔스 침대 연출용
    */
-  render(ctx) {
+  render(ctx, timeMs = 0) {
     if (this._ensureCache()) {
       // 캐시는 devicePixelRatio 만큼 큰 해상도 → 논리 좌표(640x640)로 축소해 그린다
       ctx.drawImage(this._cache, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -87,7 +147,10 @@ export default class MapRenderer {
 
     // 스텔스로 사용 중인 침대는 파란색으로 덧그린다
     if (this.highlightBed) {
-      this._drawBedTile(ctx, this.highlightBed.row, this.highlightBed.col, COLORS.STEALTH_BED);
+      this._drawBedTile(ctx, this.highlightBed.row, this.highlightBed.col, {
+        stealth: true,
+        timeMs,
+      });
     }
   }
 
@@ -163,7 +226,7 @@ export default class MapRenderer {
             break;
 
           case 2: // 베이비 스폰 (침대) — 하이라이트는 render()에서 덧그린다
-            this._drawBedTile(ctx, row, col, COLORS.SPAWN_BED);
+            this._drawBedTile(ctx, row, col);
             break;
 
           case 3: // 악당 스폰 (보모 대기실)
@@ -315,61 +378,205 @@ export default class MapRenderer {
     ctx.fill();
   }
 
-  /** 침대 타일 1개 (바닥 + 매트리스 + 베개) */
-  _drawBedTile(ctx, row, col, color) {
+  /** 침대 타일 1개 — 둥근 원목 프레임 + 미니 베개 + 파스텔 이불 */
+  _drawBedTile(ctx, row, col, options = {}) {
+    const stealth = options.stealth === true;
+    const timeMs = Number.isFinite(options.timeMs) ? options.timeMs : 0;
+    const palette = stealth ? CRIB_STEALTH : CRIB_WARM;
     const x = col * TILE_SIZE;
     const y = row * TILE_SIZE;
-    const pad = 2.5;
     const cx = x + TILE_SIZE / 2;
     const cy = y + TILE_SIZE / 2;
 
-    // 1) 바닥
+    this._drawCribBase(ctx, x, y, palette);
+    if (stealth) this._drawCribGlow(ctx, x, y, timeMs);
+    this._drawCribFurniture(ctx, x, y, cx, palette);
+    if (stealth) this._drawCribParticles(ctx, cx, cy, timeMs);
+  }
+
+  /** 침대 바닥 + 은은한 빛 번짐 (fillRect 2회 — 기존 렌더 계약 유지) */
+  _drawCribBase(ctx, x, y, palette) {
     ctx.fillStyle = COLORS.FLOOR;
     ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 
-    // 2) 매트리스 (네온 글로우)
+    ctx.fillStyle = palette.underlay;
+    ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+  }
+
+  /** 스텔스 침대를 감싸는 푸른 네온 글로우 (숨쉬는 듯한 펄스) */
+  _drawCribGlow(ctx, x, y, timeMs) {
+    const pad = 1.7;
+    const frameSize = TILE_SIZE - pad * 2;
+    const radius = TILE_SIZE * 0.19;
+    const pulse = 0.72 + 0.28 * Math.sin(timeMs / 420);
+
     ctx.save?.();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = TILE_SIZE * 0.5;
-    ctx.fillStyle = color;
-    ctx.fillRect(x + pad, y + pad, TILE_SIZE - pad * 2, TILE_SIZE - pad * 2);
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
-
-    // 시트 하이라이트
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-    ctx.beginPath();
-    if (typeof ctx.ellipse === 'function') {
-      ctx.ellipse(cx, cy + 1, TILE_SIZE * 0.30, TILE_SIZE * 0.20, 0, 0, Math.PI * 2);
-    } else {
-      ctx.arc(cx, cy + 1, TILE_SIZE * 0.24, 0, Math.PI * 2);
-    }
-    ctx.fill();
-
-    // 베개
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.beginPath();
-    if (typeof ctx.ellipse === 'function') {
-      ctx.ellipse(
-        x + TILE_SIZE * 0.3, y + TILE_SIZE * 0.3,
-        TILE_SIZE * 0.16, TILE_SIZE * 0.11,
-        -0.3, 0, Math.PI * 2,
-      );
-    } else {
-      ctx.arc(x + TILE_SIZE * 0.3, y + TILE_SIZE * 0.3, TILE_SIZE * 0.13, 0, Math.PI * 2);
-    }
-    ctx.fill();
-
-    // 담요 주름 (십자 무늬)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x + pad, y + TILE_SIZE * 0.72);
-    ctx.lineTo(x + TILE_SIZE - pad, y + TILE_SIZE * 0.72);
-    ctx.moveTo(x + TILE_SIZE * 0.5, y + pad);
-    ctx.lineTo(x + TILE_SIZE * 0.5, y + TILE_SIZE - pad);
+    ctx.shadowColor = `rgba(79, 195, 247, ${(0.9 * pulse).toFixed(3)})`;
+    ctx.shadowBlur = TILE_SIZE * 0.6 * pulse;
+    ctx.strokeStyle = `rgba(79, 195, 247, ${(0.55 * pulse).toFixed(3)})`;
+    ctx.lineWidth = 2.6;
+    roundedRectPath(ctx, x + pad - 1, y + pad - 1, frameSize + 2, frameSize + 2, radius + 1);
     ctx.stroke();
 
+    ctx.shadowBlur = TILE_SIZE * 0.28;
+    ctx.strokeStyle = 'rgba(225, 245, 254, 0.85)';
+    ctx.lineWidth = 1;
+    roundedRectPath(ctx, x + pad + 0.6, y + pad + 0.6, frameSize - 1.2, frameSize - 1.2, radius - 0.6);
+    ctx.stroke();
+    ctx.restore?.();
+  }
+
+  /** 둥근 원목 프레임 + 시트 + 이불 + 미니 베개 + 기둥/나뭇결 */
+  _drawCribFurniture(ctx, x, y, cx, p) {
+    const pad = 1.7;
+    const frameSize = TILE_SIZE - pad * 2;
+    const radius = TILE_SIZE * 0.19;
+    const innerPad = pad + 1.9;
+
+    // 원목 프레임
+    roundedRectPath(ctx, x + pad, y + pad, frameSize, frameSize, radius);
+    ctx.fillStyle = p.frame;
+    ctx.fill();
+    ctx.strokeStyle = p.frameDark;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 매트리스/시트
+    roundedRectPath(
+      ctx, x + innerPad, y + innerPad,
+      TILE_SIZE - innerPad * 2, TILE_SIZE - innerPad * 2,
+      radius * 0.62,
+    );
+    ctx.fillStyle = p.sheet;
+    ctx.fill();
+
+    // 이불 (아래쪽 절반)
+    const blanketX = x + innerPad + 0.4;
+    const blanketY = y + TILE_SIZE * 0.47;
+    const blanketW = TILE_SIZE - (innerPad + 0.4) * 2;
+    const blanketH = y + TILE_SIZE - innerPad - 0.4 - blanketY;
+    roundedRectPath(ctx, blanketX, blanketY, blanketW, blanketH, radius * 0.55);
+    ctx.fillStyle = p.blanket;
+    ctx.fill();
+    ctx.strokeStyle = p.blanketEdge;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    // 이불 접힌 윗단
+    roundedRectPath(ctx, blanketX, blanketY, blanketW, 2.4, 1.2);
+    ctx.fillStyle = p.blanketFold;
+    ctx.fill();
+    ctx.strokeStyle = p.blanketEdge;
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(blanketX + 1, blanketY + 2.5);
+    ctx.lineTo(blanketX + blanketW - 1, blanketY + 2.5);
+    ctx.stroke();
+
+    // 이불 패턴 (작은 점 3개)
+    ctx.fillStyle = p.accent;
+    ctx.globalAlpha = p === CRIB_STEALTH ? 0.75 : 0.45;
+    ctx.beginPath();
+    ctx.arc(cx - 3, blanketY + blanketH * 0.62, 0.65, 0, Math.PI * 2);
+    ctx.arc(cx + 0.2, blanketY + blanketH * 0.72, 0.65, 0, Math.PI * 2);
+    ctx.arc(cx + 3.2, blanketY + blanketH * 0.62, 0.65, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // 미니 베개
+    const pillowCx = cx - 1.3;
+    const pillowCy = y + TILE_SIZE * 0.33;
+    const pillowRx = TILE_SIZE * 0.21;
+    const pillowRy = TILE_SIZE * 0.125;
+    ctx.fillStyle = p.pillow;
+    ctx.beginPath();
+    if (typeof ctx.ellipse === 'function') {
+      ctx.ellipse(pillowCx, pillowCy, pillowRx, pillowRy, -0.18, 0, Math.PI * 2);
+    } else {
+      ctx.arc(pillowCx, pillowCy, pillowRx * 0.8, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.strokeStyle = p.pillowEdge;
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+
+    // 베개 광택
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(pillowCx - pillowRx * 0.55, pillowCy - 0.7);
+    ctx.lineTo(pillowCx + pillowRx * 0.2, pillowCy - 1.3);
+    ctx.stroke();
+
+    // 모서리 기둥 (침대 다리)
+    ctx.fillStyle = p.frameLight;
+    ctx.strokeStyle = p.frameDark;
+    ctx.lineWidth = 0.5;
+    const postInset = pad + 1.15;
+    const posts = [
+      [x + postInset, y + postInset],
+      [x + TILE_SIZE - postInset, y + postInset],
+      [x + postInset, y + TILE_SIZE - postInset],
+      [x + TILE_SIZE - postInset, y + TILE_SIZE - postInset],
+    ];
+    for (const [px, py] of posts) {
+      ctx.beginPath();
+      ctx.arc(px, py, 1.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // 나뭇결 (원목 느낌)
+    ctx.strokeStyle = p.grain;
+    ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(x + pad + 0.9, y + TILE_SIZE * 0.36);
+    ctx.lineTo(x + pad + 0.9, y + TILE_SIZE * 0.5);
+    ctx.moveTo(x + TILE_SIZE - pad - 0.9, y + TILE_SIZE * 0.5);
+    ctx.lineTo(x + TILE_SIZE - pad - 0.9, y + TILE_SIZE * 0.64);
+    ctx.stroke();
+
+    // 작은 반짝이 포인트
+    const sparkleX = cx + 4.2;
+    const sparkleY = blanketY + blanketH * 0.38;
+    ctx.strokeStyle = p.accent;
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(sparkleX - 1.3, sparkleY);
+    ctx.lineTo(sparkleX + 1.3, sparkleY);
+    ctx.moveTo(sparkleX, sparkleY - 1.3);
+    ctx.lineTo(sparkleX, sparkleY + 1.3);
+    ctx.stroke();
+  }
+
+  /** 스텔스 침대 위로 피어오르는 푸른 별가루 */
+  _drawCribParticles(ctx, cx, cy, timeMs) {
+    ctx.save?.();
+    for (let i = 0; i < 6; i++) {
+      const phase = ((timeMs / 1400) + i * 0.19) % 1;
+      const alpha = Math.sin(phase * Math.PI) * 0.85;
+      if (alpha <= 0.02) continue;
+
+      const sx = cx + Math.sin(timeMs / 650 + i * 1.9) * TILE_SIZE * 0.16 + (i - 2.5) * 1.3;
+      const sy = cy + TILE_SIZE * 0.16 - phase * TILE_SIZE * 0.92;
+      const size = 0.9 + (1 - phase) * 1.2;
+
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = '#e1f5fe';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(sx - size, sy);
+      ctx.lineTo(sx + size, sy);
+      ctx.moveTo(sx, sy - size);
+      ctx.lineTo(sx, sy + size);
+      ctx.stroke();
+
+      ctx.fillStyle = '#b3e5fc';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
     ctx.restore?.();
   }
 

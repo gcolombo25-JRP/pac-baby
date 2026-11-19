@@ -1115,7 +1115,7 @@ export default class Game {
     ctx.translate(shake.x, shake.y);
 
     // 맵 렌더링
-    this.map.render(ctx);
+    this.map.render(ctx, this.animTime);
 
     // 철창문 (닫힌 문은 벽처럼 통행을 막는다)
     this._renderGates(ctx);
