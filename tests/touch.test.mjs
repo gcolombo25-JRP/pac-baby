@@ -176,3 +176,20 @@ test('destroy 후에는 스와이프가 입력을 주입하지 않는다', () =>
 
   assert.equal(input.pressed.length, 0);
 });
+
+test('폰의 재시작 버튼(data-key=KeyR)이 입력으로 연결된다', () => {
+  const restart = createFakeButton('KeyR');
+  const root = { querySelectorAll: () => [restart] };
+  const input = createFakeInput();
+
+  const touch = new TouchControls(input, root);
+
+  restart.dispatch('pointerdown', { pointerId: 7 });
+  assert.deepEqual(input.pressed, ['KeyR'], 'R 키와 동일한 입력을 주입');
+  assert.deepEqual(input.pressedMeta[0], { touch: true });
+
+  restart.dispatch('pointerup', { pointerId: 7 });
+  assert.deepEqual(input.released, ['KeyR']);
+
+  touch.destroy();
+});

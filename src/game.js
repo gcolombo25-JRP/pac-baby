@@ -1388,7 +1388,7 @@ export default class Game {
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 20px "Segoe UI", sans-serif';
-    ctx.fillText('[R] 재도전', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 104);
+    ctx.fillText('[R] 재도전 · 폰: 재시작', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 104);
   }
 
   /** 경비(순찰) 중인 악당 수 */

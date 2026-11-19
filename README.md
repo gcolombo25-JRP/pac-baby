@@ -4,7 +4,7 @@
 **보모(악당)** 를 피해 도망치는 웹 게임입니다.
 
 - Vite 5 + Vanilla JS (ES Modules) + HTML5 Canvas
-- 테스트 158개 (`node --test`) · 외부 런타임 의존성 없음
+- 테스트 159개 (`node --test`) · 외부 런타임 의존성 없음
 - 기획/규칙 원본: [`.clinerules`](./.clinerules)
 
 **▶ 휴대폰으로 바로 플레이 (배포 완료)**: <https://gcolombo25-jrp.github.io/pac-baby/>
@@ -47,9 +47,9 @@ npm run dev        # http://localhost:3000
 | `-` / `+`, `1`~`9`, `0` | 속도 단계 1~10 (기본 1 = 가장 느림) |
 | `M` | 음향 + **BGM** on/off |
 | `H` / `F1` | **사용 설명서(도움말)** 열기·닫기 (화면의 **❔ 도움말** 버튼과 동일) |
-| `R` | **GAME OVER 에서 재도전** (Space/Enter 도 가능) · STAGE CLEAR 에서 다음 라운드 |
+| `R` | **GAME OVER 에서 재도전** (Space/Enter 도 가능) · STAGE CLEAR 에서 다음 라운드 · **폰은 D-패드의 `재시작` 버튼** |
 
-모바일: 화면 아래 **D-패드**(▲◀▶▼ + 울기/소리/정지/**도움말**)가 자동 표시됩니다.
+모바일: 화면 아래 **D-패드**(▲◀▶▼ + 울기/소리/정지/**도움말**/**재시작**)가 자동 표시됩니다.
 버튼이 이전보다 **약 33% 커지고**(히트박스는 더 넓게) 손가락이 빗나가도 잘 눌리며,
 **캔버스를 스와이프(드래그)**해도 방향을 바꿀 수 있습니다.
 
@@ -142,7 +142,7 @@ npm run dev        # http://localhost:3000
 
 ### 목숨 · 게임 오버
 - 목숨 **3개**(하트)로 시작, 체포될 때마다 **1개 차감** (`-200점`은 그대로 적용)
-- 목숨 **0 → GAME OVER** 오버레이: 최종 점수 · HI-SCORE · `NEW RECORD!` · **`[R] 재도전`**
+- 목숨 **0 → GAME OVER** 오버레이: 최종 점수 · HI-SCORE · `NEW RECORD!` · **`[R] 재도전`** (폰은 **재시작** 버튼)
 - 재도전 시 점수 0 · 목숨 3 · 라운드 1로 초기화 (하이스코어는 유지)
 
 ### 라운드 클리어 · 하이스코어
@@ -244,7 +244,7 @@ __GAME.player.score;      // 현재 점수
 | `npm run build` | 프로덕션 빌드 → `dist/` |
 | `npm run preview` | 빌드 결과 미리보기 |
 | `npm run preview:host` | 빌드 결과 + 네트워크 노출 |
-| `npm test` | 단위 테스트 (158개) |
+| `npm test` | 단위 테스트 (159개) |
 | `npm run test:watch` | 테스트 워치 모드 |
 
 ### 파일 구조
@@ -272,7 +272,7 @@ PacBaby/
 │   ├── sound.js             # Web Audio 합성 효과음
 │   ├── touch.js             # 모바일 D-패드 (히트박스 확장) + 스와이프 제스처
 │   └── tester.js            # 테스터 모드 (스위치형, 지연 로딩)
-├── tests/                   # node:test 단위 테스트 (158개)
+├── tests/                   # node:test 단위 테스트 (159개)
 └── dist/                    # 빌드 산출물 (gitignore)
 ```
 
@@ -305,7 +305,7 @@ PacBaby/
 
 ### 테스트 / CI
 ```bash
-npm test        # 158개 통과 기준
+npm test        # 159개 통과 기준
 npm run build   # exit 0 기준
 ```
 `.github/workflows/ci.yml` 은 **PR** 에서 `npm ci → npm test → npm run build` 를 실행하고,

@@ -120,7 +120,7 @@ vercel --prod
 
 ## D. 배포 전 체크리스트
 
-- [ ] `npm test` — 158개 통과
+- [ ] `npm test` — 159개 통과
 - [ ] `npm run build` — `dist/index.html` 의 스크립트/스타일 경로가 **`./assets/index-<hash>...`** 인지 확인
 - [ ] `dist/version.json` 생성 확인 (카카오톡 캐시 우회용)
 - [ ] `npm run preview` 로 빌드본 동작 확인 (개발 서버와 별개)
