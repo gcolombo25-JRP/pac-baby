@@ -34,7 +34,7 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build (base: ./ 로 상대 경로 산출)
+      - name: Build production bundle (relative base)
         run: npm run build
 
       - name: Configure Pages
