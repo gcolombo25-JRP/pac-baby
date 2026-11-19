@@ -1037,6 +1037,22 @@ export default class Game {
       && enemy.prevRow === player.row && enemy.prevCol === player.col;
   }
 
+  /** 체포/넉백된 악당을 이전 위치·구역과 베이비 근처를 피해 안전하게 리스폰 */
+  _respawnEnemy(enemy) {
+    if (!enemy) return;
+
+    const avoid = this.enemies
+      .filter(other => other !== enemy)
+      .map(other => ({ row: other.row, col: other.col }));
+
+    enemy.resetToSpawn({
+      map: this.navMap,
+      baby: this.player,
+      avoid,
+      rng: this.rng,
+    });
+  }
+
   /** 악당 날려버리기: +300점, 스폰 지점 복귀, 남은 보행기 시간 동안 다시 도망 */
   _knockEnemy(enemy) {
     const hitRow = enemy.row;
@@ -1047,7 +1063,7 @@ export default class Game {
     this.stats.knocks += 1;
     this._updateHiScore();
 
-    enemy.resetToSpawn();
+    this._respawnEnemy(enemy);
     if (fleeRemaining > 0) enemy.startFlee(fleeRemaining);
 
     this._addPopup(hitRow, hitCol, `+${GOLDEN_BOTTLE.knockScore}`, COLORS.GOLDEN);
@@ -1129,7 +1145,7 @@ export default class Game {
     const caughtAt = { row: this.player.row, col: this.player.col };
 
     this.player.onCaught(this.map.babySpawn);
-    this.enemies.forEach(e => e.resetToSpawn());
+    this.enemies.forEach(e => this._respawnEnemy(e));
     this.graceTimer = RESPAWN_GRACE_MS;
     this.catchCount += 1;
     this.lives = Math.max(0, this.lives - 1);

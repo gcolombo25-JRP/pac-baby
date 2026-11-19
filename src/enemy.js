@@ -213,6 +213,106 @@ export function createEnemySpawnPlan(map, count, rng = Math.random) {
   return chosen.slice(0, count);
 }
 
+/** 3x3 구역 인덱스 */
+function zoneOf(row, col, rows, cols) {
+  const rowSize = zoneSize(rows);
+  const colSize = zoneSize(cols);
+  return {
+    row: Math.min(2, Math.max(0, Math.floor(row / rowSize))),
+    col: Math.min(2, Math.max(0, Math.floor(col / colSize))),
+  };
+}
+
+/**
+ * 체포/황금 젖병 넉백 후 안전한 리스폰 타일을 고른다.
+ * - 이전 위치의 3x3 구역(및 중앙 구역)은 제외
+ * - 벽이 아닌 일반 바닥(0)만 사용
+ * - 베이비와 최소 minBabyDistance(기본 4) 이상 떨어짐
+ * - 다른 악당과 같은/인접 타일은 피함
+ *
+ * @param {number[][]} map
+ * @param {object} [options]
+ * @param {number} [options.fromRow] 이전(사망/넉백) 위치
+ * @param {number} [options.fromCol]
+ * @param {{row: number, col: number}} [options.baby]
+ * @param {Array<{row: number, col: number}>} [options.avoid]
+ * @param {() => number} [options.rng]
+ * @param {number} [options.minBabyDistance]
+ * @returns {{row: number, col: number} | null}
+ */
+export function findEnemyRespawnTile(map, options = {}) {
+  const rows = map?.length || 0;
+  const cols = map?.[0]?.length || 0;
+  if (rows === 0 || cols === 0) return null;
+
+  const {
+    fromRow = null,
+    fromCol = null,
+    baby = null,
+    avoid = [],
+    rng = Math.random,
+    minBabyDistance = 4,
+  } = options;
+
+  const rowSize = zoneSize(rows);
+  const colSize = zoneSize(cols);
+  const deathZone = Number.isFinite(fromRow) && Number.isFinite(fromCol)
+    ? zoneOf(fromRow, fromCol, rows, cols)
+    : null;
+
+  const zones = [];
+  for (let zoneRow = 0; zoneRow < 3; zoneRow++) {
+    for (let zoneCol = 0; zoneCol < 3; zoneCol++) {
+      // 중앙 구역과 이전(사망/넉백) 구역 제외
+      if (zoneRow === 1 && zoneCol === 1) continue;
+      if (deathZone && deathZone.row === zoneRow && deathZone.col === zoneCol) continue;
+
+      zones.push({
+        rowStart: zoneRow * rowSize,
+        rowEnd: Math.min(rows, (zoneRow + 1) * rowSize),
+        colStart: zoneCol * colSize,
+        colEnd: Math.min(cols, (zoneCol + 1) * colSize),
+      });
+    }
+  }
+
+  const babyDistanceOk = (row, col) => {
+    if (!baby || !Number.isFinite(baby.row) || !Number.isFinite(baby.col)) return true;
+    return Math.abs(row - baby.row) + Math.abs(col - baby.col) >= minBabyDistance;
+  };
+
+  const avoidDistanceOk = (row, col) => avoid.every(pos => (
+    !pos
+    || !Number.isFinite(pos.row)
+    || !Number.isFinite(pos.col)
+    || Math.abs(row - pos.row) + Math.abs(col - pos.col) >= 2
+  ));
+
+  const collect = (checkBaby, checkAvoid) => {
+    const candidates = [];
+    for (const zone of zones) {
+      for (let row = zone.rowStart; row < zone.rowEnd; row++) {
+        for (let col = zone.colStart; col < zone.colEnd; col++) {
+          if (map[row][col] !== 0) continue;
+          if (checkBaby && !babyDistanceOk(row, col)) continue;
+          if (checkAvoid && !avoidDistanceOk(row, col)) continue;
+          candidates.push({ row, col });
+        }
+      }
+    }
+    return candidates;
+  };
+
+  // 베이비 거리와 다른 악당 회피를 우선하고, 맵이 좁을 때만 단계적으로 완화한다.
+  let candidates = collect(true, true);
+  if (candidates.length === 0) candidates = collect(true, false);
+  if (candidates.length === 0) candidates = collect(false, false);
+  if (candidates.length === 0) return null;
+
+  const index = Math.min(candidates.length - 1, Math.max(0, Math.floor(rng() * candidates.length)));
+  return candidates[index];
+}
+
 export default class Enemy {
   constructor(spawnPos, index = 0, startDelay = 0, mode = ENEMY_MODE.CHASE, rng = Math.random) {
     this.spawnRow = spawnPos.row;
@@ -384,8 +484,26 @@ export default class Enemy {
     return true;
   }
 
-  /** 스폰 위치로 되돌린다 (체포 후 리셋) */
-  resetToSpawn() {
+  /**
+   * 스폰 위치로 되돌린다 (체포 후 리셋).
+   * options.map 이 주어지면 이전 위치/구역을 피한 안전한 랜덤 위치로 이동한다.
+   */
+  resetToSpawn(options = null) {
+    if (options && options.map) {
+      const next = findEnemyRespawnTile(options.map, {
+        fromRow: this.row,
+        fromCol: this.col,
+        baby: options.baby,
+        avoid: options.avoid,
+        rng: options.rng || this.rng,
+        minBabyDistance: options.minBabyDistance,
+      });
+      if (next) {
+        this.spawnRow = next.row;
+        this.spawnCol = next.col;
+      }
+    }
+
     this.row = this.spawnRow;
     this.col = this.spawnCol;
     this.x = this.col * TILE_SIZE;
