@@ -4,7 +4,7 @@
 **보모(악당)** 를 피해 도망치는 웹 게임입니다.
 
 - Vite 5 + Vanilla JS (ES Modules) + HTML5 Canvas
-- 테스트 171개 (`node --test`) · 외부 런타임 의존성 없음
+- 테스트 227개 (`node --test`) · Supabase 클라이언트는 필요할 때만 지연 로딩 (미설정 시 LOCAL 모드)
 - 기획/규칙 원본: [`.clinerules`](./.clinerules)
 
 **▶ 휴대폰으로 바로 플레이 (배포 완료)**: <https://gcolombo25-jrp.github.io/pac-baby/>
@@ -166,6 +166,17 @@ npm run dev        # http://localhost:3000
 - 브라우저 탭을 벗어나거나 창을 최소화하면 **자동으로 PAUSED**
 - 돌아와도 자동 재개되지 않음 → `P` 또는 `ESC`로 재개
 
+### 글로벌 리더보드 · 게스트 선행 플레이
+- 첫 방문에는 **닉네임 입력 없이 바로 플레이**합니다(Supabase Anonymous Auth).
+- `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` 가 없으면 **LOCAL 모드**로 동작하며 기록은 브라우저에만 저장됩니다.
+- 게임 오버 시 **접속 3회 / 최고 500점 / 2라운드** 중 하나를 만족하면 닉네임+이모지 등록 모달이 부드럽게 표시됩니다.
+  - **[나중에]** 를 고르면 다음 3번의 게임 오버 동안 다시 묻지 않습니다. (강제 가입 없음)
+- 등록하면 같은 uid 의 기존 게스트 기록이 그대로 **글로벌 리더보드(Top 50, 30초 캐시)** 에 반영됩니다.
+- 리더보드/등록은 캔버스 좌상단 **프로필 배지** 또는 도움말의 **🏆 리더보드** 버튼으로 엽니다.
+- **보안**: `users`/`runs` 테이블 직접 수정은 RLS+GRANT 로 차단되고, 점수는 서버 run 토큰·최소 플레이 시간·라운드별 상한·1회성 검증을 통과해야만 `greatest()` 로 갱신됩니다.
+  - DEMO/BOT/테스터 치트로 플레이한 런은 제출되지 않습니다.
+- Supabase 프로젝트/마이그레이션 설정: **[`supabase/README.md`](./supabase/README.md)**
+
 ---
 
 ## 4. 테스터 모드 (개발/QA용)
@@ -270,7 +281,7 @@ __GAME.player.score;      // 현재 점수
 | `npm run build` | 프로덕션 빌드 → `dist/` |
 | `npm run preview` | 빌드 결과 미리보기 |
 | `npm run preview:host` | 빌드 결과 + 네트워크 노출 |
-| `npm test` | 단위 테스트 (197개) |
+| `npm test` | 단위 테스트 (227개) |
 | `npm run test:watch` | 테스트 워치 모드 |
 
 ### 파일 구조
@@ -295,11 +306,21 @@ PacBaby/
 │   ├── item.js              # 아이템(섭취/리스폰) + 트랩
 │   ├── effects.js           # 파티클 / 화면 플래시 / 카메라 셰이크
 │   ├── help.js              # 사용 설명서 오버레이 (첫 방문 자동 표시, 게임 정지 연동)
+│   ├── profile.js           # 게스트 세션/등록/점수 제출 오케스트레이션
+│   ├── profileApi.js        # Supabase RPC 래퍼 (run 토큰/제출/닉네임/리더보드)
+│   ├── profileStore.js      # 게스트 프로필·팝업 스누즈·리더보드 캐시 (localStorage)
+│   ├── supabaseClient.js    # env 감지 + 지연 로딩 + LOCAL 모드 폴백
+│   ├── validation.js        # 닉네임/이모지/점수 상한 순수 검증
+│   ├── registerModal.js     # 조건부 등록 모달 (중복 확인/이모지 선택)
+│   ├── leaderboardModal.js  # 글로벌 리더보드 모달
+│   ├── toast.js             # 토스트 알림
 │   ├── input.js             # 키보드/터치 공용 입력 (press/release)
 │   ├── sound.js             # Web Audio 합성 효과음
 │   ├── touch.js             # 모바일 D-패드 (히트박스 확장) + 스와이프 제스처
 │   └── tester.js            # 테스터 모드 (스위치형, 지연 로딩)
-├── tests/                   # node:test 단위 테스트 (197개)
+├── supabase/                # users/runs 스키마, RLS, RPC, 운영 문서
+├── .env.example             # VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY 예시
+├── tests/                   # node:test 단위 테스트 (227개)
 └── dist/                    # 빌드 산출물 (gitignore)
 ```
 
@@ -334,10 +355,15 @@ PacBaby/
 | `GATE_OPEN_MS` / `GATE_CLOSED_MS` / `GATE_MAX` | 3000 / 3000 / 4 | 철창문 열림·닫힘 주기 / 최대 개수 |
 | `GATE_POSITIONS` | 4곳 | 철창문 통로 좌표 |
 | `VISION_START_ROUND` / `VISION_START_TILES` / `VISION_MIN_TILES` | 8 / 8 / 3 | 시야 제한 시작 라운드 / 타일 범위 |
+| `AVATAR_EMOJIS` | 12개 | 등록 시 선택 가능한 이모지 (id 1~12) |
+| `NICKNAME_RULE` | 2~12자 | 한글/영문/숫자/밑줄 (DB CHECK 와 동일) |
+| `REGISTER_PROMPT_RULE` | 3회 / 500점 / 2R | 등록 유도 조건 + 3회 스누즈 |
+| `SCORE_RULES` | 400 + 5000×R | 라운드별 점수 상한 미러 (서버 RPC 와 동일) |
+| `LEADERBOARD_CACHE_MS` / `LEADERBOARD_LIMIT` | 30000 / 50 | 리더보드 캐시·표시 개수 |
 
 ### 테스트 / CI
 ```bash
-npm test        # 171개 통과 기준
+npm test        # 227개 통과 기준
 npm run build   # exit 0 기준
 ```
 `.github/workflows/ci.yml` 은 **PR** 에서 `npm ci → npm test → npm run build` 를 실행하고,
@@ -347,7 +373,8 @@ npm run build   # exit 0 기준
 
 ## 7. 배포 (무료)
 
-- Pac-Baby 는 **100% 정적 사이트**라서 **GitHub Pages / Vercel / Netlify** 무료 배포가 가능합니다.
+- Pac-Baby 는 **정적 사이트**라서 **GitHub Pages / Vercel / Netlify** 무료 배포가 가능합니다.
+  글로벌 리더보드는 **선택적으로 Supabase** 를 사용하며, 미설정 시 LOCAL 모드로 동작합니다.
 - **저장소**: <https://github.com/gcolombo25-JRP/pac-baby> · **배포 주소**: <https://gcolombo25-jrp.github.io/pac-baby/>
 - `vite.config.js` 의 **`base: './'`** 덕분에 GitHub Pages 의 하위 경로(`/pac-baby/`)에서도 에셋이 정상 로드됩니다.
 - **업로드**: `push.bat` 더블클릭 (최초 1회 GitHub 로그인) → **Settings → Pages → Source: GitHub Actions**

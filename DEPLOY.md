@@ -1,7 +1,7 @@
 # 🚀 배포 가이드 (무료)
 
-Pac-Baby 는 **100% 정적 사이트**입니다(서버·DB 없음). 그래서 **GitHub Pages / Vercel / Netlify** 어디에나 무료로 올릴 수 있고,
-지인에게 URL만 보내면 휴대폰 브라우저에서 바로 플레이할 수 있습니다.
+Pac-Baby 는 **정적 사이트**이며, 글로벌 리더보드는 **선택적으로 Supabase(무료 티어)** 를 사용합니다.
+Supabase 설정이 없으면 **LOCAL 모드**로 100% 정적 사이트로 동작합니다(게임·하이스코어는 그대로).
 
 - 빌드: `npm run build` → `dist/` (index.html + assets/*.js + assets/*.css)
 - `vite.config.js` 에 **`base: './'`** 설정이 있어 **하위 경로**(예: GitHub Pages `/<repo>/`)에서도 에셋이 정상 로드됩니다.
@@ -79,6 +79,26 @@ npm ci → npm test → npm run build → Pages 업로드 → 배포
 
 ---
 
+## A-2. Supabase 연결 (글로벌 리더보드, 선택)
+
+1. **[`supabase/README.md`](./supabase/README.md)** 절차대로 프로젝트를 만들고
+   **Authentication → Anonymous sign-ins** 를 켠 뒤 마이그레이션을 적용합니다.
+2. 로컬 개발: 프로젝트 루트에 `.env.local` 생성
+
+   ```bash
+   VITE_SUPABASE_URL=https://xxxx.supabase.co
+   VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
+   ```
+
+3. GitHub Pages 배포: 저장소 **Settings → Secrets and variables → Actions** 에
+   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` 를 등록합니다.
+   (`deploy.yml` 이 빌드 시 주입)
+4. 값이 없거나 네트워크가 실패하면 **LOCAL 모드**로 자동 폴백합니다.
+   - 등록/리더보드 CTA 가 숨겨지고 게임과 하이스코어는 정상 동작합니다.
+5. `service_role` 키는 **절대** 프론트엔드/저장소/CI 빌드에 넣지 마세요. (anon key 는 공개 키)
+
+---
+
 ## B. Vercel (Git 연동 또는 CLI)
 
 1. <https://vercel.com> → **Add New… → Project** → `gcolombo25-JRP/pac-baby` Import
@@ -93,7 +113,9 @@ CLI 로 하려면:
 npm i -g vercel
 vercel --prod
 ```
-서버·환경변수가 필요 없고, `base: './'` 설정 그대로 루트 도메인에서 동작합니다.
+서버는 필요 없지만, 글로벌 리더보드를 쓰려면 Vercel 프로젝트 설정의 **Environment Variables** 에
+`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` 를 추가하세요. 없으면 LOCAL 모드로 동작하며
+`base: './'` 설정 그대로 루트 도메인에서 정상 배포됩니다.
 
 ---
 
@@ -120,13 +142,15 @@ vercel --prod
 
 ## D. 배포 전 체크리스트
 
-- [ ] `npm test` — 171개 통과
+- [ ] `npm test` — 227개 통과
 - [ ] `npm run build` — `dist/index.html` 의 스크립트/스타일 경로가 **`./assets/index-<hash>...`** 인지 확인
 - [ ] `dist/version.json` 생성 확인 (카카오톡 캐시 우회용)
 - [ ] `npm run preview` 로 빌드본 동작 확인 (개발 서버와 별개)
 - [ ] 침대 스텔스 · 울기(쿨다운/무해/연장) · 트랩 얼림 · 목숨/게임오버 · 라운드 클리어 확인
 - [ ] BGM/효과음(첫 터치 후) · 모바일 D-패드 확인
 - [ ] `?test=1` 로 테스터 모드 확인
+- [ ] (Supabase 사용 시) 게스트 플레이 → 500점/2라운드 게임 오버 → 등록 모달 → 리더보드 반영
+- [ ] (Supabase 사용 시) F12 콘솔에서 `users.high_score` 직접 UPDATE 가 권한 오류로 막히는지 확인
 
 ---
 
@@ -142,3 +166,7 @@ vercel --prod
 | 소리가 안 남 | 첫 터치/키 입력 이후인지, 기기 무음 모드/볼륨, `M` 토글 상태 |
 | 하이스코어가 초기화됨 | 도메인이 바뀌면 저장소가 분리됨(정상). `?reset-hi=1` 로 수동 초기화도 가능 |
 | 모바일에서 패드가 안 보임 | 터치 기기이거나 화면 폭 700px 이하일 때만 표시 |
+| 리더보드가 **오프라인**으로 표시됨 | `.env.local`/Actions secrets 의 `VITE_SUPABASE_URL`·`ANON_KEY` 확인, Supabase 프로젝트 상태 확인 |
+| 등록 CTA/모달이 안 뜸 | Supabase 미설정(LOCAL 모드), **Anonymous sign-ins** 비활성, 또는 이미 등록된 유저인지 확인 |
+| 닉네임이 계속 **중복**으로 나옴 | `users.nickname` UNIQUE(citext) 확인. 관리자 SQL 로 기존 행 정리 |
+| 점수 제출이 거부됨 | `TOO_FAST`(최소 플레이 시간), `SCORE_EXCEEDS_CAP`(라운드별 상한), `RATE_LIMITED` 여부를 `runs.reject_reason` 에서 확인 |

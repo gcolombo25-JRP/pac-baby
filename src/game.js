@@ -88,6 +88,7 @@ export default class Game {
 
     // 게임 상태
     this.running = false;
+    this.loopToken = 0;            // [게임 종료] 후 재시작 시 이전 rAF 체인을 무효화
     this.tickAccumulator = 0;
     this.lastTime = 0;
     this.graceTimer = 0;   // 체포 직후 무적 시간
@@ -119,6 +120,12 @@ export default class Game {
       : 0;
     this.onBotStateChange = null;
 
+    // ===== 글로벌 기록용 런 추적 =====
+    this.onRunStart = typeof options.onRunStart === 'function' ? options.onRunStart : null;
+    this.onRunEnd = typeof options.onRunEnd === 'function' ? options.onRunEnd : null;
+    this.runStartedAt = 0;
+    this.runAssisted = false;
+
     // 진행 상태 (9단계: 목숨/라운드/하이스코어)
     this.storage = options.storage || safeStorage();
     this.lives = PLAYER_LIVES;
@@ -131,6 +138,9 @@ export default class Game {
 
     // 1라운드는 철창문/시야 제한 없음
     this._initGates(this.round);
+
+    // 초기 런 시작 시각 기록 (상위 ProfileManager 가 run 토큰을 발급한다)
+    this._beginRun();
   }
 
   /** 현재 봇이 조작 중인지 (데모 / 명시적 BOT / 테스터 BOT) */
@@ -266,6 +276,9 @@ export default class Game {
   handleHelpAction(action) {
     if (action === 'start') return this.startFromHelp();
     if (action === 'demo') return this.startDemoFromHelp();
+    // 실제 UI의 [게임 종료] 는 메인 타이틀(READY 로비)로 완전 복귀한다.
+    if (action === 'exit-lobby') return this.resetToLobby();
+    // (기존 'exit' 동작은 단위 테스트/외부 호환을 위해 일시정지로 유지)
     if (action === 'exit') return this.pauseFromHelp();
     return this.state;
   }
@@ -627,14 +640,15 @@ export default class Game {
   /** 게임 시작 */
   start() {
     this.running = true;
+    this.loopToken = (this.loopToken || 0) + 1;
     this.lastTime = performance.now();
     this.sound.playStart();
-    this._loop(this.lastTime);
+    this._loop(this.lastTime, this.loopToken);
   }
 
   /** 메인 루프 */
-  _loop = (now) => {
-    if (!this.running) return;
+  _loop = (now, token = this.loopToken) => {
+    if (!this.running || token !== this.loopToken) return;
 
     try {
       this._tick(now);
@@ -643,7 +657,7 @@ export default class Game {
       console.error('[Pac-Baby] loop error:', err);
     }
 
-    requestAnimationFrame(this._loop);
+    requestAnimationFrame(next => this._loop(next, token));
   };
 
   /** 한 프레임 처리 (예외는 _loop 에서 잡는다) */
@@ -653,6 +667,7 @@ export default class Game {
 
     // 입력이 들어오면 자동 데모를 즉시 종료한다 (main.js 의 터치 리스너와 함께 동작)
     this._checkUserActivity();
+    this._markAssistedIfNeeded();
 
     // 애니메이션 시간 (캐릭터 바운스/아이템 부유/트랩 흔들림)
     if (dt > 0) this.animTime = (this.animTime + dt) % 600000;
@@ -777,6 +792,15 @@ export default class Game {
     const seq = this.input?.activitySeq;
     if (Number.isFinite(seq)) this.lastInputActivitySeq = seq;
     return this.helpOpen;
+  }
+
+  /**
+   * 등록/리더보드 모달도 도움말과 동일하게 게임 로직·입력을 멈춘다.
+   * (도움말 외 UI 가 늘어나도 호출부는 이 이름을 쓰면 된다)
+   * @param {boolean} open
+   */
+  setUiBlocked(open) {
+    return this.setHelpOpen(open);
   }
 
   /**
@@ -1298,6 +1322,54 @@ export default class Game {
     this._updateHiScore();
     this.tester?.log?.('gameover', `최종 점수 ${this.player.score}`);
     this.sound.playGameOver();
+    this._endRun();
+  }
+
+  // ===== 글로벌 기록용 런 추적 =====
+
+  /** 새 런 시작 (재도전 포함) — 상위 ProfileManager 가 run 토큰을 발급한다 */
+  _beginRun() {
+    this.runStartedAt = Date.now();
+    this.runAssisted = false;
+    this._safeRunCallback(this.onRunStart, { startedAt: this.runStartedAt });
+  }
+
+  /** 게임 오버 시 런 요약을 상위로 전달 (UI 오류가 게임 루프를 죽이지 않게 격리) */
+  _endRun() {
+    this._safeRunCallback(this.onRunEnd, this.getRunSummary());
+  }
+
+  /** 이번 런의 요약 (서버 제출/등록 유도 판단용) */
+  getRunSummary() {
+    return {
+      score: this.player.score,
+      round: this.round,
+      catchCount: this.catchCount,
+      lives: this.lives,
+      stats: { ...this.stats },
+      durationMs: this.runStartedAt ? Date.now() - this.runStartedAt : null,
+      assisted: !!this.runAssisted,
+      newRecord: this.newRecord,
+    };
+  }
+
+  /** 데모/봇/테스터 치트로 플레이한 런은 리더보드에 제출하지 않는다 */
+  _markAssistedIfNeeded() {
+    if (this.runAssisted) return;
+    if (this.isBotActive
+        || (this.tester && this.tester.mode !== 'MANUAL')
+        || this.tester?.hasCheatFlags?.()) {
+      this.runAssisted = true;
+    }
+  }
+
+  _safeRunCallback(callback, payload) {
+    if (typeof callback !== 'function') return;
+    try {
+      callback(payload);
+    } catch (err) {
+      console.error('[Pac-Baby] run hook error:', err);
+    }
   }
 
   /** 보드/플레이어 초기화 (점수·목숨·하이스코어는 유지) */
@@ -1354,6 +1426,8 @@ export default class Game {
 
   /** 새 게임 (GAME OVER → 재도전): 점수/목숨/라운드 초기화, 하이스코어는 유지 */
   resetAll() {
+    this._beginRun();
+
     this.player.score = 0;
     this.lives = PLAYER_LIVES;
     this.round = 1;
@@ -1893,6 +1967,11 @@ export default class Game {
       CANVAS_WIDTH / 2,
       CANVAS_HEIGHT / 2 + 62,
     );
+
+    // 전역 [게임 종료] 버튼 안내
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.font = '13px "Segoe UI", sans-serif';
+    ctx.fillText('나가려면 우측 상단 [게임 종료] 버튼을 누르세요', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 100);
   }
 
   /** 스테이지 클리어 오버레이 */
@@ -1982,5 +2061,43 @@ export default class Game {
   /** 게임 중지 */
   stop() {
     this.running = false;
+  }
+
+  /**
+   * 전역 [게임 종료]: 진행 중인 루프와 BGM 을 즉시 멈춘다.
+   * 화면 안내 레이어는 main.js 가 담당한다.
+   */
+  exitGame() {
+    this.running = false;
+    this.loopToken = (this.loopToken || 0) + 1;
+    this.tickAccumulator = 0;
+    this.helpOpen = false;
+    this.input?.clearJustPressed?.();
+    this.sound?.stopBgm?.();
+    this.state = 'EXITED';
+    return this.state;
+  }
+
+  /** [게임 종료] 이후 다시 시작: 로비(READY) 상태로 초기화하고 루프를 재가동한다 */
+  resumeFromExit() {
+    if (this.state !== 'EXITED') return this.state;
+    this.resetAll();
+    this.running = true;
+    this.loopToken = (this.loopToken || 0) + 1;
+    this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    this.sound?.playStart?.();
+    this.sound?.startBgm?.(); // 종료 시 멈춘 BGM 을 다시 켠다 (음향 ON 인 경우)
+    this._loop(this.lastTime, this.loopToken);
+    return this.state;
+  }
+
+  /**
+   * 전역 [게임 종료] → 메인 타이틀(READY 로비)로 완전 초기화.
+   * 플레이 중 / 일시정지 / 도움말 / 모달 어디서든 호출할 수 있다.
+   * 루프 중복 없이 정확히 한 번만 재가동한다.
+   */
+  resetToLobby() {
+    this.exitGame();          // 진행 중인 루프/BGM 즉시 정지 + rAF 토큰 무효화
+    return this.resumeFromExit(); // READY 로비로 리셋 후 루프 재가동
   }
 }

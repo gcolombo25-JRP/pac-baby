@@ -354,6 +354,8 @@ body.touch-landscape .pad-restart {
   display: flex;
   flex-direction: column;
   width: min(620px, 96vw);
+  max-width: 100%;
+  min-width: 0; /* 그리드 아이템 min-content 때문에 좁은 폰에서 가로로 넘치지 않게 */
   max-height: min(86vh, 760px);
   overflow: hidden;
   border: 2px solid rgba(41, 182, 246, 0.55);
@@ -415,6 +417,8 @@ body.touch-landscape .pad-restart {
 /* 스크롤 본문 */
 .help-body {
   flex: 1 1 auto;
+  min-height: 0; /* flex 자식이 줄어들 수 있어야 하단 버튼이 잘리지 않는다 */
+  min-width: 0;  /* 표/긴 문장이 카드 폭을 밀어내지 않게 */
   overflow-y: auto;
   padding: 14px 20px 6px;
   scrollbar-width: thin;
@@ -552,6 +556,8 @@ body.touch-landscape .pad-restart {
 .help-foot {
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto; /* 본문이 길어도 하단 액션 버튼은 절대 찌그러지지 않는다 */
+  min-width: 0;
   gap: 8px;
   padding: 12px 20px 16px;
   border-top: 1px solid rgba(41, 182, 246, 0.22);
@@ -559,6 +565,7 @@ body.touch-landscape .pad-restart {
 }
 
 .help-start {
+  grid-area: start;
   padding: 12px 16px;
   border: 0;
   border-radius: 12px;
@@ -647,15 +654,26 @@ body.touch-landscape .pad-restart {
   }
 }
 
-/* ===== 도움말 모달 액션 버튼 ===== */
+/* ===== 도움말 모달 액션 버튼 =====
+   PC/모바일 공통: [게임 시작] [데모 실행]
+                   [게임 종료] [🏆 리더보드]  → 2 x 2 그리드로 항상 4개 모두 노출 */
+#help-card .help-actions,
 .help-actions {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-template-rows: repeat(2, auto) !important;
+  grid-template-areas:
+    "start demo"
+    "exit board" !important;
+  gap: 8px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
 }
 
 .help-action {
   width: 100%;
+  min-width: 0; /* 좁은 화면에서도 버튼이 가로로 넘치지 않게 */
   padding: 12px 10px;
   border: 1px solid rgba(41, 182, 246, 0.32);
   border-radius: 12px;
@@ -682,20 +700,934 @@ body.touch-landscape .pad-restart {
 }
 
 .help-demo {
+  grid-area: demo;
   background: rgba(248, 187, 208, 0.2);
   border-color: rgba(240, 98, 146, 0.55);
   color: #ffd9e4;
 }
 
 .help-exit {
+  grid-area: exit;
   background: rgba(239, 83, 80, 0.14);
   border-color: rgba(239, 83, 80, 0.5);
   color: #ffcdd2;
 }
 
+/* 모바일에서도 2 x 2 그리드 유지 — 리더보드 버튼이 화면 밖으로 밀리지 않는다 */
 @media (max-width: 700px) {
+  /* 모바일에서는 다른 규칙이 있더라도 무조건 2열 2행으로 고정한다. */
+  #help-card .help-actions,
   .help-actions {
-    grid-template-columns: 1fr;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: repeat(2, auto) !important;
+    grid-template-areas:
+      "start demo"
+      "exit board" !important;
+    gap: 8px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* DOM 순서/다른 규칙과 무관하게 4개 버튼의 위치를 고정한다. */
+  #help-card .help-start,
+  .help-start { grid-area: start !important; }
+  #help-card .help-demo,
+  .help-demo { grid-area: demo !important; }
+  #help-card .help-exit,
+  .help-exit { grid-area: exit !important; }
+  #help-card .help-board,
+  .help-board {
+    grid-area: board !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  .help-action,
+  .help-start {
+    min-width: 0;
+    padding: 11px 6px;
+    font-size: 13px;
+    line-height: 1.2;
   }
 }
 
+@media (max-width: 400px) {
+  .help-action,
+  .help-start {
+    padding: 10px 4px;
+    font-size: 12px;
+  }
+}
+
+/* ============================================================
+   글로벌 프로필 / 등록 모달 / 리더보드 / 토스트
+   ============================================================ */
+
+/* 캔버스 위 프로필 배지 (게스트/등록 유저 공용) */
+.profile-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(220px, 46vw);
+  padding: 6px 12px;
+  border: 1px solid rgba(41, 182, 246, 0.5);
+  border-radius: 999px;
+  background: rgba(8, 18, 36, 0.82);
+  color: #e8f1ff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.profile-badge:hover,
+.profile-badge:focus-visible {
+  border-color: #29b6f6;
+  outline: none;
+  filter: brightness(1.1);
+}
+
+.profile-badge.is-registered {
+  border-color: rgba(255, 224, 130, 0.65);
+  color: #ffe082;
+}
+
+.profile-badge-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.profile-badge-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 모달 공통 (help-overlay 와 같은 톤, 독립 네임스페이스) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+#leaderboard-overlay { z-index: 62; }
+#register-overlay    { z-index: 70; }
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 8, 20, 0.76);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.modal-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(520px, 96vw);
+  max-height: min(88vh, 760px);
+  overflow: hidden;
+  border: 2px solid rgba(41, 182, 246, 0.55);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #16213e 0%, #0d1a30 100%);
+  color: #e8f1ff;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.72),
+    0 0 0 4px rgba(41, 182, 246, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  outline: none;
+  animation: help-pop 0.22s ease-out;
+}
+
+.leaderboard-card {
+  width: min(560px, 96vw);
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(41, 182, 246, 0.22);
+  background: linear-gradient(180deg, rgba(41, 182, 246, 0.14), transparent);
+}
+
+.modal-head h2 {
+  font-size: 20px;
+  line-height: 1.25;
+  color: #ffe082;
+  letter-spacing: 0.2px;
+}
+
+.modal-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(232, 241, 255, 0.65);
+}
+
+.modal-close {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  color: #e8f1ff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.modal-close:hover,
+.modal-close:focus-visible {
+  border-color: #ef5350;
+  color: #ffcdd2;
+  outline: none;
+}
+
+.modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 20px 18px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(41, 182, 246, 0.5) transparent;
+  overscroll-behavior: contain;
+}
+
+.modal-label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgba(232, 241, 255, 0.8);
+}
+
+.modal-status {
+  min-height: 18px;
+  margin: 8px 0 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(232, 241, 255, 0.7);
+}
+
+.modal-status.is-ok { color: #8bc34a; }
+.modal-status.is-error { color: #ef9a9a; }
+
+.modal-note {
+  margin-top: 12px;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: rgba(232, 241, 255, 0.55);
+}
+
+/* 닉네임 입력 */
+.nickname-row {
+  display: flex;
+  gap: 8px;
+}
+
+.nickname-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(41, 182, 246, 0.4);
+  border-radius: 12px;
+  background: rgba(4, 10, 22, 0.7);
+  color: #e8f1ff;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.nickname-input::placeholder {
+  color: rgba(232, 241, 255, 0.35);
+}
+
+.nickname-input:focus {
+  border-color: #29b6f6;
+  box-shadow: 0 0 0 3px rgba(41, 182, 246, 0.18);
+}
+
+.nickname-check {
+  flex: 0 0 auto;
+  padding: 11px 14px;
+  border: 1px solid rgba(41, 182, 246, 0.5);
+  border-radius: 12px;
+  background: rgba(41, 182, 246, 0.16);
+  color: #cfe8ff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nickname-check:active {
+  transform: translateY(1px);
+}
+
+/* 이모지 선택 */
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.avatar-btn {
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(41, 182, 246, 0.22);
+  border-radius: 12px;
+  background: rgba(4, 10, 22, 0.55);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.06s ease, border-color 0.08s ease, background-color 0.08s ease;
+}
+
+.avatar-btn:hover,
+.avatar-btn:focus-visible {
+  border-color: rgba(41, 182, 246, 0.65);
+  outline: none;
+}
+
+.avatar-btn.is-selected {
+  border-color: #ffe082;
+  background: rgba(255, 224, 130, 0.16);
+  box-shadow: 0 0 0 2px rgba(255, 224, 130, 0.25);
+  transform: scale(1.04);
+}
+
+/* 모달 액션 버튼 */
+.modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.modal-primary,
+.modal-secondary {
+  width: 100%;
+  padding: 12px 12px;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 0.08s ease, transform 0.06s ease;
+}
+
+.modal-primary {
+  border: 0;
+  background: linear-gradient(180deg, #29b6f6, #0288d1);
+  color: #04263a;
+  box-shadow: 0 4px 0 #01579b;
+}
+
+.modal-primary:disabled {
+  background: rgba(41, 182, 246, 0.22);
+  color: rgba(232, 241, 255, 0.45);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.modal-primary:not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #01579b;
+}
+
+.modal-secondary {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.24);
+  color: #cfe8ff;
+}
+
+.modal-secondary:hover,
+.modal-secondary:focus-visible {
+  filter: brightness(1.12);
+  outline: none;
+}
+
+/* 리더보드 */
+.leaderboard-wrap {
+  max-height: min(48vh, 420px);
+  overflow-y: auto;
+  margin-top: 6px;
+  border: 1px solid rgba(41, 182, 246, 0.18);
+  border-radius: 12px;
+  background: rgba(4, 10, 22, 0.5);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(41, 182, 246, 0.5) transparent;
+  overscroll-behavior: contain;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.leaderboard-table th,
+.leaderboard-table td {
+  padding: 8px 6px;
+  text-align: center;
+  border-bottom: 1px solid rgba(41, 182, 246, 0.1);
+}
+
+.leaderboard-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #10203a;
+  color: rgba(232, 241, 255, 0.7);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.leaderboard-table td.lb-player {
+  text-align: left;
+}
+
+.leaderboard-table .lb-rank {
+  width: 42px;
+  color: #ffe082;
+  font-weight: 800;
+}
+
+.leaderboard-table .lb-score {
+  color: #8bc34a;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard-table .lb-round,
+.leaderboard-table .lb-country {
+  color: rgba(232, 241, 255, 0.72);
+}
+
+.leaderboard-table .lb-emoji {
+  margin-right: 2px;
+}
+
+.leaderboard-table tbody tr:nth-child(odd) {
+  background: rgba(41, 182, 246, 0.05);
+}
+
+.leaderboard-table tbody tr.is-me {
+  background: rgba(255, 224, 130, 0.14);
+  box-shadow: inset 3px 0 0 #ffe082;
+}
+
+/* 토스트 */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 90;
+  max-width: min(420px, 88vw);
+  padding: 11px 18px;
+  border: 1px solid rgba(41, 182, 246, 0.45);
+  border-radius: 999px;
+  background: rgba(8, 18, 36, 0.94);
+  color: #e8f1ff;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  opacity: 0;
+  transform: translate(-50%, 12px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+.toast[hidden] {
+  display: none;
+}
+
+.toast.toast-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+/* 모바일: 하단 시트 형태 + 배지 축소 */
+@media (max-width: 700px) {
+  .modal-overlay {
+    padding: 0;
+    align-items: end;
+  }
+
+  .modal-card {
+    width: 100%;
+    max-height: 92dvh;
+    border-bottom: none;
+    border-radius: 18px 18px 0 0;
+    animation: help-sheet 0.24s ease-out;
+  }
+
+  .modal-head {
+    padding: 14px 16px 10px;
+  }
+
+  .modal-head h2 {
+    font-size: 17px;
+  }
+
+  .modal-body {
+    padding: 10px 14px 16px;
+  }
+
+  .avatar-grid {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+  }
+
+  .avatar-btn {
+    font-size: 21px;
+    border-radius: 10px;
+  }
+
+  .modal-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-badge {
+    top: 6px;
+    left: 6px;
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+
+  .profile-badge-emoji {
+    font-size: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-card {
+    animation: none;
+  }
+
+  .toast {
+    transition: none;
+  }
+}
+
+/* 도움말 하단 4번째 버튼(리더보드) — 2 x 2 그리드의 한 칸으로 배치 */
+.help-board {
+  grid-area: board;
+  min-width: 0;
+  background: rgba(255, 224, 130, 0.14);
+  border-color: rgba(255, 224, 130, 0.55);
+  color: #ffe082;
+}
+
+/* 리더보드 CTA 가 숨겨져도 닫기 버튼이 자연스럽게 채워지게 */
+.leaderboard-card .modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.leaderboard-card .modal-actions > * {
+  flex: 1 1 160px;
+}
+
+/* ============================================================
+   전역 [게임 종료] 버튼 + 모바일 UI 가시성 보장
+   ============================================================ */
+
+/* 모바일 탭 지연/제스처 간섭 방지 (리더보드/등록/종료 버튼이 터치를 확실히 받도록) */
+.profile-badge,
+.help-action,
+.help-board,
+.modal-close,
+.modal-primary,
+.modal-secondary,
+.avatar-btn,
+.exit-button,
+.pad-board {
+  touch-action: manipulation;
+}
+
+/* [게임 종료] — 노치/홈 인디케이터를 피해 항상 화면 안쪽에 고정한다.
+   도움말/모달(z-index 60~70)보다 위에 두어 어디서든 누를 수 있게 한다. */
+.exit-button {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  right: calc(env(safe-area-inset-right, 0px) + 10px);
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 46vw;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 205, 210, 0.55);
+  border-radius: 12px;
+  background: rgba(120, 20, 26, 0.86);
+  color: #ffcdd2;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+}
+
+.exit-button:hover,
+.exit-button:focus-visible {
+  border-color: #ef5350;
+  background: rgba(183, 28, 28, 0.92);
+  outline: none;
+  filter: brightness(1.06);
+}
+
+.exit-button:active {
+  transform: translateY(1px);
+}
+
+/* D-패드의 리더보드 버튼: 액션 영역 전체 폭을 차지해 절대 잘리지 않게 한다. */
+.pad-board {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: var(--action-h);
+  font-size: 13px;
+  line-height: 1.1;
+  white-space: nowrap;
+  touch-action: manipulation;
+  background: rgba(255, 224, 130, 0.16);
+  border: 1px solid rgba(255, 224, 130, 0.45);
+  color: #ffe082;
+}
+
+/* ============================================================
+   모바일 레이아웃: 안전 영역 + 작은 화면에서도 모든 버튼 노출
+   ============================================================ */
+
+/* 컨테이너가 노치/홈 인디케이터 안쪽에서만 그려지도록 한다. */
+#game-container {
+  padding-top: max(4px, env(safe-area-inset-top, 0px));
+  padding-right: max(4px, env(safe-area-inset-right, 0px));
+  padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(4px, env(safe-area-inset-left, 0px));
+}
+
+/* 터치 기기: 캔버스가 안전 영역과 D-패드 높이를 모두 고려해 줄어들게 한다. */
+body.touch-active #game-canvas {
+  width: min(
+    100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 8px,
+    100dvh - var(--touch-controls-h, 220px) - env(safe-area-inset-top, 0px)
+      - env(safe-area-inset-bottom, 0px) - 16px
+  );
+}
+
+/* 좁은 화면: D-패드와 액션 버튼을 컴팩트하게 2열로 재배치한다.
+   (기존 1열 세로 배치는 화면 아래로 넘쳐 리더보드 버튼이 잘릴 수 있었다) */
+@media (max-width: 700px) {
+  .touch-controls {
+    --pad-cell: 58px;
+    --pad-gap: 4px;
+    --hit-pad: 2px;
+    --action-w: 64px;
+    --action-h: 38px;
+    gap: 6px;
+    padding-bottom: max(2px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .pad-actions {
+    grid-template-columns: repeat(2, var(--action-w));
+    gap: var(--pad-gap);
+  }
+
+  .pad-btn {
+    font-size: 16px;
+  }
+
+  .pad-skill,
+  .pad-mute,
+  .pad-pause,
+  .pad-help,
+  .pad-restart {
+    font-size: 11px;
+  }
+
+  .pad-board {
+    font-size: 11.5px;
+  }
+
+  .exit-button {
+    top: calc(env(safe-area-inset-top, 0px) + 6px);
+    right: calc(env(safe-area-inset-right, 0px) + 6px);
+    padding: 5px 9px;
+    font-size: 11.5px;
+    max-width: 42vw;
+  }
+}
+
+/* 아주 좁은 화면(구형/소형 폰) */
+@media (max-width: 400px) {
+  .touch-controls {
+    --pad-cell: 50px;
+    --pad-gap: 3px;
+    --action-w: 58px;
+    --action-h: 34px;
+    gap: 4px;
+  }
+
+  .pad-skill,
+  .pad-mute,
+  .pad-pause,
+  .pad-help,
+  .pad-restart,
+  .pad-board {
+    font-size: 10.5px;
+  }
+}
+
+/* 낮은 화면(가로 모드/작은 세로 화면)에서도 컨트롤이 화면 밖으로 나가지 않게 */
+@media (max-height: 700px) {
+  .touch-controls {
+    --pad-cell: 52px;
+    --pad-gap: 3px;
+    --action-h: 34px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exit-button {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   모바일 실기기 UI 가시성 최종 보정 (스마트폰 폭/높이/노치 대응)
+   ------------------------------------------------------------
+   - D-패드의 [🏆 리더보드] 버튼과 우측 상단 [게임 종료] 버튼이
+     화면 밖으로 밀리거나 잘리지 않게 레이아웃을 확정한다.
+   - 100dvh: 모바일 브라우저 툴바 때문에 하단 UI 가 가려지는 문제 해결
+   - flex-start + margin-top:auto: 가운데 정렬로 위/아래가 잘리던 문제 해결
+   - clamp(): 어떤 폭에서도 D-패드가 가로로 잘리지 않게
+   ============================================================ */
+
+/* 1) 루트 높이: 모바일 동적 뷰포트(dvh) 기준으로 고정한다. */
+html,
+body {
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+#game-container {
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0; /* flex 자식이 넘칠 때 잘리지 않고 줄어들 수 있게 */
+}
+
+/* 2) 터치 기기: 캔버스는 위쪽, D-패드는 화면 맨 아래에 붙인다. */
+body.touch-active #game-container {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+body.touch-active .touch-controls {
+  margin-top: auto;
+  max-width: 100%;
+}
+
+/* 캔버스는 남는 공간의 가운데에 두어 상단 버튼과 겹치지 않게 한다. */
+body.touch-active #game-canvas {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+/* 3) 세로 모드: 캔버스가 안전 영역 + D-패드 높이를 모두 빼고 줄어들게 한다. */
+body.touch-active #game-canvas {
+  width: min(
+    calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 8px),
+    calc(
+      100dvh - var(--touch-controls-h, 220px) - env(safe-area-inset-top, 0px)
+        - env(safe-area-inset-bottom, 0px) - 20px
+    )
+  );
+  max-height: calc(
+    100dvh - var(--touch-controls-h, 220px) - env(safe-area-inset-top, 0px)
+      - env(safe-area-inset-bottom, 0px) - 20px
+  );
+}
+
+/* 4) 가로 모드: D-패드가 옆에 있으므로 높이만 고려한다 (3번 규칙보다 뒤에 둔다). */
+body.touch-landscape #game-canvas {
+  width: min(
+    calc(
+      100vw - var(--touch-controls-w, 366px) - env(safe-area-inset-left, 0px)
+        - env(safe-area-inset-right, 0px) - 16px
+    ),
+    calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 12px)
+  );
+  max-height: calc(
+    100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 12px
+  );
+}
+
+body.touch-landscape .touch-controls {
+  margin-top: 0;
+  max-height: 100%;
+}
+
+/* 5) 좁은 화면(터치 여부 무관): 같은 레이아웃 + clamp 로 D-패드 폭을 보장한다. */
+@media (max-width: 700px) {
+  #game-container {
+    justify-content: flex-start;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  #game-canvas {
+    width: min(
+      calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 8px),
+      calc(
+        100dvh - var(--touch-controls-h, 220px) - env(safe-area-inset-top, 0px)
+          - env(safe-area-inset-bottom, 0px) - 20px
+      )
+    );
+    max-height: calc(
+      100dvh - var(--touch-controls-h, 220px) - env(safe-area-inset-top, 0px)
+        - env(safe-area-inset-bottom, 0px) - 20px
+    );
+  }
+
+  .touch-controls {
+    --pad-cell: clamp(48px, 17vw, 68px);
+    --pad-gap: clamp(3px, 1vw, 5px);
+    --action-w: clamp(56px, 16vw, 66px);
+    --action-h: clamp(30px, 9vw, 40px);
+    gap: clamp(4px, 1.5vw, 8px);
+    margin-top: auto;
+    padding-bottom: 0; /* 안전 영역은 #game-container 가 이미 확보한다 */
+    max-width: 100%;
+  }
+
+  .pad-actions {
+    grid-template-columns: repeat(2, var(--action-w));
+    gap: var(--pad-gap);
+  }
+
+  .pad-skill,
+  .pad-mute,
+  .pad-pause,
+  .pad-help,
+  .pad-restart,
+  .pad-board {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* 6) [게임 종료]: 어떤 화면에서도 우측 상단에 고정 노출한다. */
+.exit-button {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  right: calc(env(safe-area-inset-right, 0px) + 10px);
+  bottom: auto;
+  left: auto;
+  z-index: 95;
+  max-width: min(46vw, 210px);
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .exit-button {
+    top: calc(env(safe-area-inset-top, 0px) + 6px);
+    right: calc(env(safe-area-inset-right, 0px) + 6px);
+    padding: 6px 10px;
+    font-size: 12px;
+    max-width: 42vw;
+  }
+}
+
+/* 7) 프로필 배지도 노치/안전 영역 안쪽에 둔다. */
+.profile-badge {
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: calc(env(safe-area-inset-left, 0px) + 12px);
+}
+
+@media (max-width: 700px) {
+  .profile-badge {
+    top: calc(env(safe-area-inset-top, 0px) + 6px);
+    left: calc(env(safe-area-inset-left, 0px) + 6px);
+  }
+}
+
+/* 8) 모달/설명서도 안전 영역 안쪽에서만 그려지게 한다. */
+.help-overlay,
+.modal-overlay {
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+
+@media (max-width: 700px) {
+  .modal-overlay {
+    padding: 0;
+    align-items: end;
+  }
+
+  /* 우측 상단 [게임 종료] 버튼(z-index 95)이 모달의 ✕ 버튼을 가리지 않도록
+     시트 상단을 조금 내려서 띄운다. */
+  .modal-card {
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 56px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* 설명서 카드도 [게임 종료] 버튼 아래에서 시작하게 해
+     상단 ✕ 버튼과 겹치지 않게 한다. */
+  .help-overlay {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 44px);
+    padding-right: 16px;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    padding-left: 16px;
+  }
+
+  .help-card {
+    max-height: calc(
+      100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 64px
+    );
+  }
+}
+
+/* 9) 노치/홈 인디케이터 안전 영역 패딩.
+   (body.touch-active / body.touch-landscape 규칙이 padding: 4px 로
+   안전 영역을 덮어쓰지 않도록 뒤에서 다시 확정한다) */
+body.touch-active #game-container,
+body.touch-landscape #game-container {
+  padding-top: max(4px, env(safe-area-inset-top, 0px));
+  padding-right: max(4px, env(safe-area-inset-right, 0px));
+  padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(4px, env(safe-area-inset-left, 0px));
+}

@@ -10,6 +10,12 @@ dist/
 .vite-*
 .live*
 
+# environment (실제 키는 커밋 금지, 예시 파일만 허용)
+.env
+.env.local
+.env.*.local
+!.env.example
+
 # editor / OS
 .vscode/
 .idea/

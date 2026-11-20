@@ -109,6 +109,13 @@ export default class Tester {
     return undefined;
   }
 
+  /** 테스터 치트 플래그가 하나라도 켜져 있는지 (리더보드 제출 제외 판정) */
+  hasCheatFlags() {
+    const flags = this.flags || {};
+    return !!(flags.invincible || flags.noclip || flags.freezeAll
+      || flags.step || flags.teleport);
+  }
+
   /** MANUAL 모드에서 실제로 쓰인 방향을 기록 */
   record(dir) {
     if (!this.recording) return;

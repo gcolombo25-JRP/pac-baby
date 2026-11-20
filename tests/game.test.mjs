@@ -376,9 +376,14 @@ test('아이템 섭취 → 소화 → 트랩 배출 → 악당 감속까지 이�
   assert.equal(trap.col, game.player.col);
 
   // 베이비를 옆 칸으로 옮기고(체포 방지) 악당을 트랩 타일로 이동
+  // (랜덤 스폰된 다른 악당이 베이비 타일에 겹쳐 체포→리셋되는 것을 막기 위해 모두 안전한 곳으로 옮긴다)
   game.player.col = item.col + 1;
+  game.enemies.forEach(e => {
+    e.pinned = true;
+    e.row = 1;
+    e.col = 1;
+  });
   const enemy = game.enemies[0];
-  game.enemies.forEach(e => { e.pinned = true; });
   enemy.row = trap.row;
   enemy.col = trap.col;
 

@@ -1,3 +1,14 @@
+# Role & Project Context (CRITICAL)
+- **Project Name**: Pac-Baby (팩-베이비)
+- **Genre**: Pac-Man homage top-down maze chase web game.
+- **Tech Stack**: Vite, Vanilla JavaScript (ES Modules), HTML5 Canvas 2D, CSS, Supabase (Backend/Leaderboard).
+- **Current State**: 231+ unit tests passing, production-ready, mobile responsive, supports guest play and cloud leaderboard.
+
+## Strict Rules for Cline
+1. **Context Retention**: Always assume you are working on the 'Pac-Baby' canvas game project unless explicitly told otherwise.
+2. **Surgical Precision (Pinpoint Edits)**: Do not perform massive over-engineering. Make minimal, surgical edits to specific files when fixing bugs. Never break existing unit tests.
+3. **Mobile & Desktop Parity**: Ensure UI elements (like Exit, Leaderboard, Help buttons) are always visible and touch-accessible on both PC and mobile viewports.
+
 # Pac-Baby (팩 베이비) — 게임 기획 및 핵심 규칙 문서
 
 ## 1. 게임 개요
@@ -74,27 +85,47 @@
 ```
 PacBaby/
 ├── .clinerules            # 이 파일 — 게임 기획 문서
-├── package.json           # 프로젝트 설정 및 의존성
+├── .env.example           # VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY 예시
+├── package.json           # 프로젝트 설정 및 의존성 (supabase-js 지연 로딩)
 ├── vite.config.js         # Vite 설정
-├── index.html             # HTML 진입점 + Canvas
+├── index.html             # HTML 진입점 + Canvas + 등록/리더보드 모달
+├── supabase/              # users/runs 스키마, RLS, 검증 RPC, 운영 문서
 ├── src/
-│   ├── main.js            # 앱 진입점 (Canvas 초기화, 게임 시작)
-│   ├── constants.js       # 상수 (맵 데이터, 타일 크기, 색상, 속성 등)
+│   ├── main.js            # 앱 진입점 (Canvas/게임/프로필/모달 연결)
+│   ├── constants.js       # 상수 (맵/색상/속도/프로필/점수 상한)
 │   ├── map.js             # 맵 데이터 및 렌더링 로직
-│   ├── game.js            # 게임 루프 (requestAnimationFrame 기반)
-│   ├── player.js          # 베이비 클래스 (이동, 아이템 섭취, 트랩 배출)
-│   ├── enemy.js           # 보모(악당) 클래스 (AI 추적, 상태 관리)
+│   ├── game.js            # 게임 루프, 상태머신, 런(run) 시작/종료 훅
+│   ├── player.js          # 베이비 클래스
+│   ├── enemy.js           # 보모(악당) 클래스
 │   ├── item.js            # 아이템 & 트랩 클래스
-│   └── input.js           # 키보드 입력 처리 모듈
-└── style.css              # 스타일
+│   ├── profile.js         # 게스트 세션/등록/점수 제출 오케스트레이션
+│   ├── profileApi.js      # Supabase RPC 래퍼
+│   ├── profileStore.js    # 로컬 미러/팝업 스누즈/리더보드 캐시
+│   ├── supabaseClient.js  # env 감지 + 지연 로딩 + LOCAL 모드 폴백
+│   ├── validation.js      # 닉네임/이모지/점수 검증 (순수 함수)
+│   ├── registerModal.js   # 조건부 등록 모달
+│   ├── leaderboardModal.js# 글로벌 리더보드 모달
+│   ├── toast.js           # 토스트 알림
+│   └── input.js           # 키보드/터치 입력 처리 모듈
+├── tests/                 # node:test 단위 테스트 (227개)
+└── style.css              # 스타일 (모달/배지/리더보드 포함)
 ```
 
 ## 7. 개발 단계 (로드맵)
-1. ✅ 프로젝트 초기화 및 기본 맵 세팅 (현재 단계)
-2. ❏ 베이비(플레이어) 이동 구현
-3. ❏ 보모(악당) AI 및 추격 로직
-4. ❏ 아이템 시스템 (우유병, 캔디, 쿠키)
-5. ❏ 트랩 시스템 (오줌, 토사물, 똥)
-6. ❏ 스킬 시스템 (울기 - 스페이스바)
-7. ❏ 점수 및 게임 상태 UI
-8. ❏ 모바일 D-패드 및 최종 폴리싱
+1. ✅ 프로젝트 초기화 및 기본 맵 세팅
+2. ✅ 베이비(플레이어) 이동 구현
+3. ✅ 보모(악당) AI 및 추격 로직
+4. ✅ 아이템 시스템 (우유병, 캔디, 쿠키)
+5. ✅ 트랩 시스템 (오줌, 토사물, 똥)
+6. ✅ 스킬 시스템 (울기 - 스페이스바)
+7. ✅ 점수 및 게임 상태 UI
+8. ✅ 모바일 D-패드 및 최종 폴리싱
+9. ✅ 글로벌 유저/리더보드/게스트 선행 플레이 (Supabase 선택)
+
+## 8. 글로벌 유저 / 리더보드 (선택적 Supabase)
+- **게스트 선행**: Anonymous Auth 로 닉네임 없이 즉시 플레이. env 미설정/네트워크 실패 시 LOCAL 모드로 게임은 그대로 동작.
+- **users**: `id`(auth uid), `nickname`(citext UNIQUE), `avatar_emoji_id`(1~12), `high_score`, `max_round`, `access_count`(30분 세션), `country`, `device_type`, `created_at`, `last_login_at`, `note` + 운영 컬럼(`is_registered`, `flagged`, `risk_score`).
+- **등록 유도**: 게임 오버 시 `access_count >= 3` **OR** `high_score >= 500` **OR** `max_round >= 2` 이면 모달. [나중에]는 다음 3번의 게임 오버 동안 스누즈.
+- **등록**: 같은 uid 의 게스트 기록을 그대로 승계하고 `is_registered=true` 로 리더보드에 공개.
+- **안티치트**: 테이블 직접 쓰기 RLS/GRANT 차단 + SECURITY DEFINER RPC만 허용. 서버 run 토큰, 1회성 제출, 최소 플레이 시간, 라운드별 점수 상한, 60초당 3회 제한, `greatest()` 단조 증가, 위반 시 `flagged`/`note`.
+- **공정성**: DEMO/BOT/테스터 치트 플래그로 플레이한 런은 제출하지 않는다(`game.getRunSummary().assisted`).

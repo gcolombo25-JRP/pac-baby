@@ -221,6 +221,13 @@ test('철창문 위에 베이비가 있으면 닫히지 않는다', () => {
   const game = setup();
   game._startRound(6);
 
+  // 랜덤 스폰된 악당이 철창문 위에 있으면 문이 열린 채 유지되므로, 테스트에서는 멀리 치운다.
+  game.enemies.forEach(enemy => {
+    enemy.pinned = true;
+    enemy.row = 1;
+    enemy.col = 1;
+  });
+
   const gate = game.gates[0];
   game.player.row = gate.row;
   game.player.col = gate.col;

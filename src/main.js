@@ -9,6 +9,12 @@ import InputManager from './input.js';
 import SoundFX from './sound.js';
 import TouchControls, { TouchSwipe } from './touch.js';
 import HelpOverlay from './help.js';
+import ProfileManager from './profile.js';
+import ProfileStore from './profileStore.js';
+import RegisterModal from './registerModal.js';
+import LeaderboardModal from './leaderboardModal.js';
+import { detectCountryHint } from './supabaseClient.js';
+import { avatarEmoji } from './validation.js';
 import { HISCORE_KEY } from './constants.js';
 
 function init() {
@@ -91,6 +97,102 @@ function init() {
   const params = new URLSearchParams(window.location.search);
   const help = new HelpOverlay({ game, autoShow: !params.has('no-help') });
   window.__HELP = help;
+
+  // ===== 글로벌 프로필 / 게스트 선행 플레이 =====
+  // 닉네임 입력 없이 익명 세션으로 바로 시작하고, 조건을 만족하면 게임 오버 시 등록을 부드럽게 안내한다.
+  const profile = new ProfileManager({
+    store: new ProfileStore(),
+    deviceType: isTouchDevice ? 'Mobile' : 'PC',
+    countryHint: detectCountryHint(),
+  });
+  window.__PROFILE = profile;
+
+  let registerModal = null;
+  let leaderboardModal = null;
+
+  // 모달을 열 때 도움말이 겹쳐 있으면 먼저 닫아 UI 차단 상태가 꼬이지 않게 한다.
+  const blockGameForModal = () => {
+    if (help.isOpen) help.close();
+    game.setUiBlocked(true);
+  };
+
+  const updateProfileBadge = (snapshot) => {
+    const badge = document.getElementById('profile-badge');
+    const emoji = document.getElementById('profile-badge-emoji');
+    const name = document.getElementById('profile-badge-name');
+
+    if (emoji) emoji.textContent = avatarEmoji(snapshot.avatarEmojiId);
+    if (name) name.textContent = snapshot.nickname || 'GUEST';
+    if (badge) {
+      badge.classList?.toggle?.('is-registered', !!snapshot.isRegistered);
+      badge.title = snapshot.isRegistered ? '리더보드 보기' : '리더보드 · 기록 등록';
+    }
+
+    // 서버 최고점이 로컬(HUD)보다 높으면 표시용 하이스코어를 맞춘다.
+    if (snapshot.highScore > game.hiScore) {
+      game.hiScore = snapshot.highScore;
+      try {
+        window.localStorage.setItem(HISCORE_KEY, String(game.hiScore));
+      } catch (err) { /* 저장 실패 무시 */ }
+    }
+  };
+  profile.subscribe(updateProfileBadge);
+
+  registerModal = new RegisterModal({
+    profile,
+    onOpen: blockGameForModal,
+    onClose: () => {
+      if (!leaderboardModal?.isOpen) game.setUiBlocked(false);
+    },
+    onRegistered: () => leaderboardModal?.refresh?.(),
+  });
+
+  leaderboardModal = new LeaderboardModal({
+    profile,
+    onOpen: blockGameForModal,
+    onClose: () => {
+      if (!registerModal?.isOpen) game.setUiBlocked(false);
+    },
+    onRegisterRequest: (summary) => registerModal.open(summary),
+    isCovered: () => !!registerModal?.isOpen,
+  });
+
+  // 모달이 열린 동안 H/F1 로 도움말이 겹쳐 열리지 않게 한다.
+  window.addEventListener('keydown', (event) => {
+    if (!registerModal?.isOpen && !leaderboardModal?.isOpen) return;
+    if (event.code === 'KeyH' || event.code === 'F1') {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, true);
+
+  window.__REGISTER = registerModal;
+  window.__LEADERBOARD = leaderboardModal;
+
+  // ===== 전역 [게임 종료] =====
+  // 타이틀/플레이/일시정지/도움말/모달 어디서든 누르면
+  // 메인 타이틀(READY 로비)로 완전 초기화되어 돌아간다.
+  const exitButton = document.getElementById('exit-button');
+
+  const handleExit = () => {
+    // 열려 있는 모달을 먼저 닫아 UI 차단 상태가 남지 않게 한다.
+    if (help.isOpen) help.close();
+    if (registerModal?.isOpen) registerModal.close({ dismiss: false });
+    if (leaderboardModal?.isOpen) leaderboardModal.close();
+    game.resetToLobby();
+  };
+
+  exitButton?.addEventListener('click', handleExit);
+
+  // 조건 충족 시 게임 오버에서 호출된다 (강제 가입 아님 — [나중에] 선택 가능)
+  profile.onPrompt = (summary) => registerModal.open(summary);
+
+  game.onRunStart = () => profile.beginRun();
+  game.onRunEnd = (summary) => profile.handleRunEnd(summary);
+
+  // 원격 초기화는 비동기. env 가 없거나 네트워크가 실패해도 LOCAL 모드로 게임은 계속된다.
+  profile.init();
+  profile.beginRun();
 
   // ===== 테스터 모드 (F2 또는 ?test=1 로 지연 로딩) =====
   const restart = () => {

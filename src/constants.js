@@ -176,6 +176,52 @@ export const ROUND_SPEED_STEP = 1;          // 라운드마다 속도 단계 += 
 export const HISCORE_KEY = 'pacbaby.hiscore'; // localStorage 키
 export const HELP_SEEN_KEY = 'pacbaby.helpSeen'; // 사용 설명서 자동 표시 여부(localStorage)
 
+// ===== 글로벌 프로필 / 리더보드 (게스트 선행 플레이) =====
+/** 등록 시 선택할 수 있는 개인 이모지. id 는 배열 인덱스 + 1 (DB: 1~12) */
+export const AVATAR_EMOJIS = [
+  '🍼', '👶', '🧸', '🍭', '🦄', '🐣',
+  '🌟', '🍪', '🎈', '🧦', '🚼', '🥛',
+];
+
+/** localStorage 키 모음 (게스트 프로필 미러/팝업 스누즈/리더보드 캐시) */
+export const PROFILE_STORAGE_KEYS = {
+  PROFILE: 'pacbaby.profile',
+  PROMPT: 'pacbaby.registerPrompt',
+  LEADERBOARD: 'pacbaby.leaderboardCache',
+};
+
+/** 닉네임 규칙 — DB CHECK 제약(users_nickname_format)과 반드시 동일하게 유지한다 */
+export const NICKNAME_RULE = {
+  minLength: 2,
+  maxLength: 12,
+  pattern: /^[A-Za-z0-9가-힣_]{2,12}$/,
+};
+
+/** 게스트 → 등록 유도 조건 (OR). 하나라도 만족하면 게임 오버 시 부드럽게 안내한다. */
+export const REGISTER_PROMPT_RULE = {
+  minAccessCount: 3,     // 접속(세션) 3회 이상
+  minHighScore: 500,     // 최고 점수 500점 이상
+  minRound: 2,           // 2라운드 이상 도달
+  dismissCooldownRuns: 3, // "나중에" 선택 시 3번의 게임 오버 동안 다시 묻지 않음
+};
+
+/**
+ * 점수 검증 규칙 — Supabase RPC(pacbaby_score_cap / pacbaby_min_duration)와 동일한 값.
+ * 클라이언트에서는 사전 안내/테스트용으로만 사용하고, 최종 판정은 서버가 한다.
+ */
+export const SCORE_RULES = {
+  scoreBase: 400,          // 기본 여유 점수
+  scorePerRound: 5000,     // 라운드당 상한 (이론 최대 ~4200)
+  minBaseSeconds: 3,       // 최소 플레이 시간 기본값
+  minSecondsPerRound: 10,  // 라운드당 최소 플레이 시간
+  maxRound: 99,
+  maxScore: 1000000,
+  minScore: -100000, // 울기/체포 페널티로 음수가 될 수 있다
+};
+
+export const LEADERBOARD_CACHE_MS = 30000; // 리더보드 캐시 유효 시간
+export const LEADERBOARD_LIMIT = 50;       // 한 번에 가져올 순위 수
+
 // ===== 이동 방향 벡터 =====
 export const DIRECTIONS = {
   UP:    { row: -1, col:  0 },
