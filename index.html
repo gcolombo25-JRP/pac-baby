@@ -65,14 +65,21 @@
         <button type="button" class="pad-btn pad-down" data-key="ArrowDown" aria-label="아래">▼</button>
       </div>
       <div class="pad-actions">
-        <button type="button" class="pad-btn pad-skill" data-key="Space">울기</button>
-        <button type="button" class="pad-btn pad-mute" data-key="KeyM">소리</button>
-        <button type="button" class="pad-btn pad-pause" data-key="KeyP">정지</button>
-        <button type="button" class="pad-btn pad-help" data-help-open aria-label="사용 설명서 열기">? 도움말</button>
-        <button type="button" class="pad-btn pad-restart" data-key="KeyR"
-                aria-label="재시작 (게임 오버/클리어)">↻ 재시작</button>
-        <button type="button" class="pad-btn pad-board" data-leaderboard-open
-                aria-label="리더보드 열기">🏆 리더보드</button>
+        <!-- 비상용 [울기]: 단독 강조 버튼 -->
+        <button type="button" class="pad-btn pad-skill" data-key="Space" aria-label="울기 (비상)">
+          <span class="pad-skill-tag" aria-hidden="true">비상</span>
+          <span class="pad-skill-text" aria-hidden="true">😭 울기</span>
+        </button>
+        <!-- 기능 버튼: 소리/정지 · 도움말/재시작 · 리더보드로 구역 정돈 -->
+        <div class="pad-functions" role="group" aria-label="게임 기능 버튼">
+          <button type="button" class="pad-btn pad-mute" data-key="KeyM" aria-label="소리 켜기/끄기">🔊 소리</button>
+          <button type="button" class="pad-btn pad-pause" data-key="KeyP" aria-label="일시정지">⏸ 정지</button>
+          <button type="button" class="pad-btn pad-help" data-help-open aria-label="사용 설명서 열기">? 도움말</button>
+          <button type="button" class="pad-btn pad-restart" data-key="KeyR"
+                  aria-label="재시작 (게임 오버/클리어)">↻ 재시작</button>
+          <button type="button" class="pad-btn pad-board" data-leaderboard-open
+                  aria-label="리더보드 열기">🏆 리더보드</button>
+        </div>
       </div>
     </div>
 

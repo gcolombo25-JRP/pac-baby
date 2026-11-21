@@ -1631,3 +1631,188 @@ body.touch-landscape #game-container {
   padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
   padding-left: max(4px, env(safe-area-inset-left, 0px));
 }
+
+/* ============================================================
+   모바일 액션 버튼 그룹화 (핀셋 UI 정돈)
+   - [울기]는 비상용 단독 버튼으로 전체 폭 강조 (황금 그라데이션 + 발광)
+   - 소리/정지 · 도움말/재시작 · 리더보드 → 별도 패널로 묶어 구역 정돈
+   - 크기는 기존 --action-w / --action-h 변수를 그대로 사용해
+     모든 미디어쿼리(좁은 화면/가로 모드) 대응을 유지한다.
+   ============================================================ */
+
+/* 액션 영역: 울기(위) + 기능 패널(아래) 세로 스택 */
+.pad-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--pad-gap);
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* 기능 버튼 그룹: 2열 그리드 + 얇은 패널 배경으로 구역을 구분 */
+.pad-functions {
+  display: grid;
+  grid-template-columns: repeat(2, var(--action-w));
+  gap: var(--pad-gap);
+  max-width: 100%;
+  padding: 5px;
+  border: 1px solid rgba(41, 182, 246, 0.26);
+  border-radius: 14px;
+  background: rgba(8, 20, 38, 0.5);
+}
+
+.pad-functions .pad-btn {
+  width: 100%;
+  min-width: 0;
+  height: var(--action-h);
+  padding: 0 2px;
+  font-size: clamp(10px, 3vw, 13px);
+  white-space: nowrap;
+  background: rgba(15, 52, 96, 0.92);
+  border: 1px solid rgba(41, 182, 246, 0.22);
+  color: #cfe8ff;
+}
+
+.pad-functions .pad-help {
+  background: rgba(255, 224, 130, 0.14);
+  border-color: rgba(255, 224, 130, 0.4);
+  color: #ffe082;
+}
+
+/* 재시작: 패널 안에서는 한 칸(도움말 옆)으로 정돈한다. */
+.pad-functions .pad-restart {
+  grid-column: auto;
+  background: rgba(255, 224, 130, 0.14);
+  border-color: rgba(255, 224, 130, 0.45);
+  color: #ffe082;
+}
+
+/* 리더보드: 패널 전체 폭 한 줄 */
+.pad-functions .pad-board {
+  grid-column: 1 / -1;
+  background: rgba(255, 224, 130, 0.16);
+  border-color: rgba(255, 224, 130, 0.45);
+  color: #ffe082;
+  font-size: clamp(10.5px, 3.1vw, 13px);
+}
+
+/* [울기] 비상 버튼: 전체 폭 + 황금 그라데이션 + 은은한 발광 */
+.pad-actions .pad-skill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: calc(var(--action-h) + 6px);
+  border: 2px solid rgba(255, 236, 179, 0.96);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffe082 0%, #ffb300 60%, #ff8f00 100%);
+  color: #2b1300;
+  font-size: clamp(13px, 4vw, 17px);
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 0 0 2px rgba(255, 143, 0, 0.28),
+    0 4px 0 rgba(0, 0, 0, 0.45),
+    0 0 18px rgba(255, 179, 0, 0.55);
+  animation: pad-skill-pulse 1.6s ease-in-out infinite;
+}
+
+.pad-actions .pad-skill:active {
+  background: linear-gradient(180deg, #fff3c4 0%, #ffc107 60%, #f57c00 100%);
+  box-shadow:
+    0 0 0 3px rgba(255, 193, 7, 0.4),
+    0 2px 0 rgba(0, 0, 0, 0.45),
+    0 0 22px rgba(255, 193, 7, 0.75);
+}
+
+.pad-actions .pad-skill:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+/* "비상" 배지 + "😭 울기" 라벨 */
+.pad-skill-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: #d32f2f;
+  color: #fff8e1;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  line-height: 1.3;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.pad-skill-text {
+  white-space: nowrap;
+}
+
+@keyframes pad-skill-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px rgba(255, 143, 0, 0.28),
+      0 4px 0 rgba(0, 0, 0, 0.45),
+      0 0 16px rgba(255, 179, 0, 0.45);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(255, 193, 7, 0.42),
+      0 4px 0 rgba(0, 0, 0, 0.45),
+      0 0 26px rgba(255, 193, 7, 0.8);
+  }
+}
+
+/* 좁은 화면: 패널 여백/배지 크기를 줄여 세로 공간을 아낀다 */
+@media (max-width: 400px) {
+  .pad-functions {
+    padding: 4px;
+    border-radius: 12px;
+  }
+
+  .pad-skill-tag {
+    padding: 0 4px;
+    font-size: 8px;
+  }
+}
+
+/* 300px 급 초소형 화면: 울기 패널까지 포함해도 가로로 잘리지 않게 압축 */
+@media (max-width: 300px) {
+  .touch-controls {
+    --pad-cell: 44px;
+    --pad-gap: 2px;
+    --action-w: 52px;
+    gap: 2px;
+  }
+
+  .pad-actions {
+    gap: 2px;
+  }
+
+  .pad-functions {
+    padding: 3px;
+    border-radius: 10px;
+  }
+}
+
+/* 가로 모드: 세로 공간이 좁으므로 패널 여백과 울기 버튼 높이를 조금 줄인다 */
+body.touch-landscape .pad-functions {
+  padding: 4px;
+  border-radius: 12px;
+}
+
+body.touch-landscape .pad-actions .pad-skill {
+  height: calc(var(--action-h) + 4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pad-actions .pad-skill {
+    animation: none;
+  }
+}

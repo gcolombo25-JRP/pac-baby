@@ -201,15 +201,21 @@ export default class SoundFX {
     this._beep({ freq: 784, toFreq: 1046, duration: 0.18, type: 'triangle', delay: 0.13 });
   }
 
-  /** 한 타일 이동: 짧은 발걸음 (음높이 교대) */
+  /**
+   * 한 타일 이동: 아기 운동화 삑삑 소리 (짧은 고음 두 번, 음높이 교대)
+   * - 살짝 위로 미끄러지는 triangle 파형이라 "삑-" 하는 신발 소리가 난다.
+   */
   playStep() {
     this.stepToggle = !this.stepToggle;
+    const base = this.stepToggle ? 1568 : 1397; // G6 / F6
+    this._beep({ freq: base, toFreq: base * 1.32, duration: 0.05, type: 'triangle', volume: 0.5 });
     this._beep({
-      freq: this.stepToggle ? 330 : 294,
-      toFreq: this.stepToggle ? 370 : 320,
-      duration: 0.06,
-      type: 'square',
-      volume: 0.7,
+      freq: base * 1.12,
+      toFreq: base * 1.45,
+      duration: 0.055,
+      type: 'triangle',
+      volume: 0.4,
+      delay: 0.055,
     });
   }
 
@@ -245,9 +251,21 @@ export default class SoundFX {
     this._beep({ freq: 880, toFreq: 1320, duration: 0.09, type: 'triangle', volume: 0.8 });
   }
 
-  /** 울기 스킬: 얼림 (6단계에서 사용) */
+  /**
+   * 아기 울음소리 (Space 울기): "앙~ 앙~" 흐느끼는 두 마디
+   * - 톱니파를 상승 → 하강으로 휘어 아기자기한 울음 느낌을 만든다.
+   */
+  playCry() {
+    this._beep({ freq: 720, toFreq: 1180, duration: 0.22, type: 'sawtooth', volume: 0.45 });
+    this._beep({ freq: 1180, toFreq: 640, duration: 0.28, type: 'sawtooth', volume: 0.42, delay: 0.18 });
+    this._beep({ freq: 600, toFreq: 940, duration: 0.2, type: 'triangle', volume: 0.32, delay: 0.48 });
+  }
+
+  /** 울기 스킬: 아기 울음 + 얼음 결정이 맺히는 소리 */
   playFreeze() {
-    this._beep({ freq: 1300, toFreq: 300, duration: 0.35, type: 'sine', volume: 0.8 });
+    this.playCry();
+    this._beep({ freq: 2093, toFreq: 2637, duration: 0.08, type: 'sine', volume: 0.22, delay: 0.03 });
+    this._beep({ freq: 2637, toFreq: 3136, duration: 0.1, type: 'sine', volume: 0.18, delay: 0.12 });
   }
 
   /** 침대 스텔스 발동 */
