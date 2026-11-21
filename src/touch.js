@@ -19,10 +19,12 @@ export default class TouchControls {
   /**
    * @param {import('./input.js').default} input
    * @param {Document|HTMLElement|null} root 버튼을 찾을 범위 (기본: document)
+   * @param {{playUiClick?: () => void}|null} sound UI 클릭음용 SoundFX (선택)
    */
-  constructor(input, root = null) {
+  constructor(input, root = null, sound = null) {
     this.input = input;
     this.root = root || (typeof document !== 'undefined' ? document : null);
+    this.sound = sound;
     this.handlers = [];
     this.held = new Set(); // 현재 눌린 키 (중복 press/release 방지)
 
@@ -53,6 +55,7 @@ export default class TouchControls {
 
         if (this.held.has(code)) return;
         this.held.add(code);
+        this.sound?.playUiClick?.(); // 손끝 반응: 짧은 틱 사운드
         this.input.press(code, { touch: true });
       };
       const onUp = (event) => {

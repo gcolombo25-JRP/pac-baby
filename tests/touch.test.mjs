@@ -83,6 +83,32 @@ test('D-패드 버튼을 누르면 입력이 주입되고, 떼면 해제된다',
   assert.equal(input.pressed.length, pressedCount);
 });
 
+test('D-패드를 누르면 UI 클릭음이 한 번 재생된다', () => {
+  const up = createFakeButton('ArrowUp');
+  const root = { querySelectorAll: () => [up] };
+  const input = createFakeInput();
+
+  const clicks = [];
+  const sound = { playUiClick: () => clicks.push('click') };
+
+  const touch = new TouchControls(input, root, sound);
+
+  up.dispatch('pointerdown', { pointerId: 1 });
+  assert.equal(clicks.length, 1, '누를 때 클릭음이 재생된다');
+
+  // 같은 손가락이 유지되는 동안의 중복 pointerdown 은 클릭음도 중복 재생하지 않는다
+  up.dispatch('pointerdown', { pointerId: 1 });
+  assert.equal(clicks.length, 1);
+
+  up.dispatch('pointerup', { pointerId: 1 });
+  up.dispatch('pointerdown', { pointerId: 2 });
+  assert.equal(clicks.length, 2, '다시 누르면 클릭음이 재생된다');
+
+  // 사운드 객체를 넘기지 않아도 예외가 없다
+  touch.destroy();
+  assert.doesNotThrow(() => new TouchControls(createFakeInput(), root));
+});
+
 test('DOM 이 없는 환경에서도 생성이 실패하지 않는다', () => {
   const input = createFakeInput();
   assert.doesNotThrow(() => new TouchControls(input, null));

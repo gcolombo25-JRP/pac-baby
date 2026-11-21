@@ -18,8 +18,9 @@ import {
   SKILL_CRY, PENALTY,
   MAX_DEVICE_PIXEL_RATIO, BABY_LIGHT_RADIUS_TILES, BABY_LIGHT_FEATHER_TILES,
   SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN,
-  GATE_OPEN_MS, GATE_CLOSED_MS, GATE_MAX, GATE_POSITIONS,
+  GATE_OPEN_MS, GATE_CLOSED_MS, GATE_WARN_MS, GATE_MAX, GATE_POSITIONS,
   VISION_START_ROUND, VISION_START_TILES, VISION_MIN_TILES,
+  DARK_HEARTBEAT_WARN_TILES,
 } from './constants.js';
 import MapRenderer from './map.js';
 import BotBrain from './bot.js';
@@ -94,6 +95,7 @@ export default class Game {
     this.graceTimer = 0;   // 체포 직후 무적 시간
     this.catchCount = 0;   // 체포 횟수 (HUD 표시용)
     this.cryCooldown = 0;  // 울기 재사용 대기(ms)
+    this.heartbeatIntensity = 0; // 어둠 모드 보모 근접 경고 강도 (0 = 안전 ~ 1 = 바로 옆)
 
     // 침대 스텔스
     this.stealthBed = null; // 스텔스에 사용 중인 침대 { row, col }
@@ -872,7 +874,10 @@ export default class Game {
 
     // 닫힌 철창문이 반영된 navMap 으로 이동한다
     this.player.update(this.navMap, dt);
-    if (this.player.isMoving) this.sound.playStep();
+    if (this.player.isMoving) {
+      // 슈가 러시 중에는 더 높고 짧은 발자국 소리로 바뀐다
+      this.sound.playStep({ sugarRush: this.sugarRushTimer > 0 });
+    }
 
     // 침대 진입 → 스텔스, 종료 시 침대 표시 해제
     this._updateStealth();
@@ -891,6 +896,9 @@ export default class Game {
 
     // 트랩 수명 & 악당 감속 판정
     this._updateTraps(dt);
+
+    // 어둠 모드: 보모가 시야 근처로 오면 심장박동 경고
+    this._updateHeartbeat(dt);
 
     // 체포/무적 판정
     const wasInvincible = this.graceTimer > 0;
@@ -947,6 +955,48 @@ export default class Game {
       && player.isMoving
       && e.row === player.prevRow && e.col === player.prevCol
       && e.prevRow === player.row && e.prevCol === player.col);
+  }
+
+  /** 가장 가까운 보모까지의 거리(타일) — 얼어붙은 보모는 위협에서 제외 */
+  _nearestEnemyDistance() {
+    let nearest = Infinity;
+    for (const enemy of this.enemies) {
+      if (enemy.isFrozen) continue;
+      const distance = Math.hypot(enemy.row - this.player.row, enemy.col - this.player.col);
+      if (distance < nearest) nearest = distance;
+    }
+    return nearest;
+  }
+
+  /**
+   * 8라운드 이후 어둠 모드 근접 경고.
+   * - 시야 반경 + 여유(DARK_HEARTBEAT_WARN_TILES) 안으로 보모가 들어오면
+   *   가까울수록 빠르고 큰 심장박동 소리를 낸다.
+   * - 무적(보행기 모드) / 스텔스 / 플레이 중이 아닐 때는 조용히 초기화한다.
+   * @param {number} dt
+   * @returns {number} 이번 tick 의 경고 강도 (0 = 안전, 1 = 바로 옆)
+   */
+  _updateHeartbeat(dt) {
+    const silent = !this.darkMode
+      || this.state !== 'PLAYING'
+      || this.goldenTimer > 0
+      || this.player.isStealthed;
+
+    if (silent) {
+      if (this.heartbeatIntensity > 0) this.sound?.resetHeartbeat?.();
+      this.heartbeatIntensity = 0;
+      return 0;
+    }
+
+    const warningRange = this.visionTiles + DARK_HEARTBEAT_WARN_TILES;
+    const distance = this._nearestEnemyDistance();
+    const intensity = Number.isFinite(distance)
+      ? Math.min(1, Math.max(0, (warningRange - distance) / Math.max(1, warningRange - 1)))
+      : 0;
+
+    this.heartbeatIntensity = intensity;
+    this.sound?.updateHeartbeat?.(intensity, dt);
+    return intensity;
   }
 
   /**
@@ -1478,6 +1528,8 @@ export default class Game {
     this._wasOnBed = true;
 
     this.cryCooldown = 0;
+    this.heartbeatIntensity = 0;
+    this.sound?.resetHeartbeat?.();
     this.tickAccumulator = 0;
     this.caughtTimer = 0;
     this.state = 'READY';
@@ -1549,6 +1601,13 @@ export default class Game {
     // 철창문 (닫힌 문은 벽처럼 통행을 막는다)
     this._renderGates(ctx);
 
+    // 파워업 잔상 트레일 (슈가 러시 / 황금 보행기) — 매 프레임 위치를 샘플링
+    const powerOptions = {
+      sugarRush: this.sugarRushTimer > 0,
+      goldenWalker: this.goldenTimer > 0,
+    };
+    this.player.updateTrail(this.animTime, alpha, powerOptions);
+
     if (!this.darkMode) {
       // 아이템 렌더링
       this.items.forEach(item => item.render(ctx, this.animTime));
@@ -1562,11 +1621,9 @@ export default class Game {
       // 적 렌더링
       this.enemies.forEach(e => e.render(ctx, this.animTime));
 
-      // 플레이어 렌더링 (tick 사이 보간 + 파워업 연출)
-      this.player.render(ctx, alpha, this.animTime, {
-        sugarRush: this.sugarRushTimer > 0,
-        goldenWalker: this.goldenTimer > 0,
-      });
+      // 플레이어 잔상 → 본체 순서로 렌더링 (tick 사이 보간 + 파워업 연출)
+      this.player.renderTrail(ctx);
+      this.player.render(ctx, alpha, this.animTime, powerOptions);
     } else {
       // 8라운드 이후: 적/미로는 어둠에 가리고,
       // 아이템과 트랩은 어둠 위에 다시 그려 반짝이게 한다.
@@ -1581,10 +1638,9 @@ export default class Game {
       // 어둠 속에서도 철창문 상태를 알 수 있게 작은 표시등
       this._renderGateLamps(ctx);
 
-      this.player.render(ctx, alpha, this.animTime, {
-        sugarRush: this.sugarRushTimer > 0,
-        goldenWalker: this.goldenTimer > 0,
-      });
+      // 잔상은 어둠 위에서도 빛나야 파워업 중임을 알 수 있다
+      this.player.renderTrail(ctx);
+      this.player.render(ctx, alpha, this.animTime, powerOptions);
     }
 
     // 점수 팝업 (+50 / -200 …)
@@ -1616,6 +1672,27 @@ export default class Game {
     this.effects.renderFlash(ctx);
   }
 
+  /**
+   * 철창문 상태 변화까지 남은 시간 비율 (경고 깜빡임용)
+   * - gateClock 주기에서 다음 열림/닫힘 전환까지 얼마나 남았는지 계산한다.
+   * @param {{closed: boolean}} gate
+   * @returns {{warn: number, closing: boolean}} warn: 0(여유)~1(곧 변화), closing: 곧 닫히는지
+   */
+  _gateWarning(gate) {
+    const cycle = GATE_OPEN_MS + GATE_CLOSED_MS;
+    const phase = ((this.gateClock % cycle) + cycle) % cycle;
+    const closing = !gate.closed;
+
+    // 열린 문 → 열림 구간이 끝날 때 닫힌다 / 닫힌 문 → 닫힘 구간이 끝날 때 열린다
+    // (문 위에 사람이 있어 못 닫는 경우엔 remaining 0 → 계속 경고)
+    const remaining = gate.closed
+      ? cycle - phase
+      : (phase < GATE_OPEN_MS ? GATE_OPEN_MS - phase : 0);
+
+    const warn = Math.max(0, Math.min(1, 1 - remaining / GATE_WARN_MS));
+    return { warn, closing };
+  }
+
   /** 철창문 렌더링 (anim: 1 열림 ~ 0 닫힘) */
   _renderGates(ctx) {
     if (this.gates.length === 0) return;
@@ -1625,6 +1702,7 @@ export default class Game {
       const y = gate.row * TILE_SIZE;
       const cx = x + TILE_SIZE / 2;
       const closedAmount = 1 - gate.anim;
+      const warning = this._gateWarning(gate);
 
       ctx.save?.();
 
@@ -1667,11 +1745,36 @@ export default class Game {
         ctx.fillRect(x + 3, y + TILE_SIZE - 4, TILE_SIZE - 6, 2);
       }
 
-      // 상태등 (열림 초록 / 닫힘 빨강)
-      ctx.fillStyle = gate.closed ? '#ef5350' : '#8bc34a';
+      // 상태등 (열림 초록 / 닫힘 빨강) — 변화가 임박하면 점멸 + 크기 증가
+      const pulse = 0.5 + 0.5 * Math.sin(this.animTime / 70);
+      const warnPulse = warning.warn * pulse;
+      let lampColor = gate.closed ? '#ef5350' : '#8bc34a';
+      if (warnPulse > 0.02) {
+        lampColor = warning.closing ? '#ffb300' : '#aed581';
+      }
+      ctx.fillStyle = lampColor;
       ctx.beginPath();
-      ctx.arc(cx, y + 3, 1.6, 0, Math.PI * 2);
+      ctx.arc(cx, y + 3, 1.6 + warnPulse * 1.4, 0, Math.PI * 2);
       ctx.fill();
+
+      // 상태 변화 직전 은은한 경고 깜빡임 (닫힘=호박색 / 열림=연두색)
+      if (warning.warn > 0.02) {
+        const glow = warning.warn * (0.45 + 0.55 * pulse);
+        const warnColor = warning.closing ? '255, 179, 0' : '174, 213, 129';
+
+        ctx.fillStyle = `rgba(${warnColor}, ${(0.14 * glow).toFixed(3)})`;
+        ctx.fillRect(x + 1.5, y + 1.5, TILE_SIZE - 3, TILE_SIZE - 3);
+
+        ctx.strokeStyle = `rgba(${warnColor}, ${(0.85 * glow).toFixed(3)})`;
+        ctx.lineWidth = 1.4 + 1.4 * glow;
+        if (warning.closing) {
+          ctx.shadowColor = 'rgba(255, 179, 0, 0.85)';
+          ctx.shadowBlur = 9 * glow;
+        }
+        ctx.strokeRect(x + 2.5, y + 2.5, TILE_SIZE - 5, TILE_SIZE - 5);
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+      }
 
       ctx.restore?.();
     }
@@ -1679,15 +1782,33 @@ export default class Game {
 
   /** 어둠 속 철창문 위치 표시등 (멀리서도 열림/닫힘을 알 수 있게) */
   _renderGateLamps(ctx) {
+    const pulse = 0.5 + 0.5 * Math.sin(this.animTime / 70);
+
     for (const gate of this.gates) {
       const cx = (gate.col + 0.5) * TILE_SIZE;
       const cy = (gate.row + 0.5) * TILE_SIZE;
+      const { warn, closing } = this._gateWarning(gate);
+      const warnPulse = warn * pulse;
 
-      ctx.fillStyle = gate.closed
-        ? 'rgba(239, 83, 80, 0.95)'
-        : 'rgba(139, 195, 74, 0.9)';
+      // 상태 변화가 임박하면 은은한 후광이 함께 깜빡인다
+      if (warnPulse > 0.02) {
+        ctx.globalAlpha = warnPulse * 0.75;
+        ctx.fillStyle = closing ? '#ffb300' : '#aed581';
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2.4 + warn * 3.4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      let lampColor;
+      if (gate.closed) lampColor = 'rgba(239, 83, 80, 0.95)';
+      else if (warnPulse > 0.02) {
+        lampColor = `rgba(255, 193, 7, ${(0.35 + 0.65 * warnPulse).toFixed(3)})`;
+      } else lampColor = 'rgba(139, 195, 74, 0.9)';
+
+      ctx.fillStyle = lampColor;
       ctx.beginPath();
-      ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 1.8 + warnPulse * 1.2, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -1714,6 +1835,24 @@ export default class Game {
     ctx.fillStyle = darkness;
     // 카메라 셰이크로 화면 가장자리가 비지 않게 넉넉히 채운다
     ctx.fillRect(-32, -32, CANVAS_WIDTH + 64, CANVAS_HEIGHT + 64);
+
+    // 보모가 가까워지면 시야 경계가 심장박동처럼 붉게 맥동한다 (시각 경고)
+    const danger = this.heartbeatIntensity || 0;
+    if (this.state === 'PLAYING' && danger > 0.02) {
+      const beat = 0.5 + 0.5 * Math.sin(this.animTime / 130);
+      const ring = ctx.createRadialGradient(
+        center.x, center.y, radius * 0.62,
+        center.x, center.y, radius * 1.06,
+      );
+      if (ring && typeof ring.addColorStop === 'function') {
+        const alphaEdge = 0.16 * danger * (0.35 + 0.65 * beat);
+        ring.addColorStop(0, 'rgba(255, 60, 60, 0)');
+        ring.addColorStop(0.72, `rgba(255, 60, 60, ${alphaEdge.toFixed(3)})`);
+        ring.addColorStop(1, 'rgba(255, 60, 60, 0)');
+        ctx.fillStyle = ring;
+        ctx.fillRect(-32, -32, CANVAS_WIDTH + 64, CANVAS_HEIGHT + 64);
+      }
+    }
   }
 
   /**

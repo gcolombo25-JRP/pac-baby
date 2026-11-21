@@ -36,6 +36,7 @@ test('오디오 장치가 없어도 모든 재생 함수가 예외 없이 동작
     sound.playStealth();
     sound.playClear();
     sound.playGameOver();
+    sound.playUiClick();
     sound.startBgm();
     sound.updateBgm();
     sound.stopBgm();
@@ -114,6 +115,58 @@ test('오디오 장치가 있으면 실제로 노드가 생성·재생된다', (
   }
 });
 
+test('슈가 러시 발자국은 일반 발자국보다 높고 짧은 소리를 낸다', () => {
+  globalThis.window = { AudioContext: FakeAudioContext };
+
+  try {
+    const normal = new SoundFX();
+    normal.playStep();
+
+    const rush = new SoundFX();
+    rush.playStep({ sugarRush: true });
+
+    const normalOsc = normal.ctx.oscillators[0];
+    const rushOsc = rush.ctx.oscillators[0];
+
+    const normalFreq = normalOsc.frequency.calls[0][1];
+    const rushFreq = rushOsc.frequency.calls[0][1];
+    assert.ok(rushFreq > normalFreq, '슈가 러시 발자국은 더 높은 피치로 시작한다');
+
+    const normalDuration = normalOsc.stoppedAt - normalOsc.startedAt;
+    const rushDuration = rushOsc.stoppedAt - rushOsc.startedAt;
+    assert.ok(rushDuration < normalDuration, '슈가 러시 발자국은 더 짧게 끝난다');
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test('playUiClick 은 짧은 클릭음을 재생하고 연타는 제한한다', () => {
+  globalThis.window = { AudioContext: FakeAudioContext };
+
+  try {
+    const sound = new SoundFX();
+
+    sound.playUiClick();
+    const firstCount = sound.ctx.oscillators.length;
+    assert.ok(firstCount >= 1, '클릭음 오실레이터가 생성된다');
+    assert.ok(
+      sound.ctx.oscillators.every(osc => osc.stoppedAt - osc.startedAt <= 0.08),
+      '클릭음은 80ms 이내로 매우 짧다',
+    );
+
+    // 30ms 이내 연타는 소리가 겹치지 않도록 무시된다
+    sound.playUiClick();
+    assert.equal(sound.ctx.oscillators.length, firstCount, '연타는 무시된다');
+
+    // 간격이 지난 뒤에는 다시 재생된다
+    sound._lastUiClickAt = 0;
+    sound.playUiClick();
+    assert.ok(sound.ctx.oscillators.length > firstCount, '간격이 지나면 다시 재생된다');
+  } finally {
+    delete globalThis.window;
+  }
+});
+
 test('unlock 은 오디오를 준비하고 확인음을 재생한다', () => {
   globalThis.window = { AudioContext: FakeAudioContext };
 
@@ -154,6 +207,49 @@ test('unlock 은 8비트 BGM 을 시작하고 updateBgm 이 음을 예약한다'
 
     sound.destroy();
     assert.equal(sound.bgmRunning, false, '정리 시 BGM 정지');
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test('updateHeartbeat 는 위협이 없으면 조용하고, 가까우면 간격을 좁힌다', () => {
+  const sound = new SoundFX();
+
+  // 위협 없음 → 박동 없음
+  assert.equal(sound.updateHeartbeat(0, 100), false);
+  assert.equal(sound.heartbeatLevel, 0);
+
+  // 첫 근접 → 즉시 한 번 박동
+  assert.equal(sound.updateHeartbeat(1, 0), true);
+  const nearInterval = sound.heartbeatTimer;
+  assert.ok(nearInterval > 0);
+
+  // 같은 간격 안에서는 다시 박동하지 않는다
+  assert.equal(sound.updateHeartbeat(1, nearInterval - 1), false);
+  assert.equal(sound.updateHeartbeat(1, 1), true);
+
+  // 약한 위협은 더 느린 간격으로 박동한다
+  sound.resetHeartbeat();
+  assert.equal(sound.updateHeartbeat(0.2, 0), true);
+  assert.ok(sound.heartbeatTimer > nearInterval, '약한 위협은 박동 간격이 더 길다');
+});
+
+test('playHeartbeat 는 오디오 장치가 없어도 예외 없이 무시된다', () => {
+  const sound = new SoundFX();
+  assert.doesNotThrow(() => sound.playHeartbeat(0.8));
+});
+
+test('playHeartbeat 는 두 박자 저음(쿵-덥)을 예약한다', () => {
+  globalThis.window = { AudioContext: FakeAudioContext };
+
+  try {
+    const sound = new SoundFX();
+    sound.playHeartbeat(1);
+
+    assert.equal(sound.ctx.oscillators.length, 2, '심장박동은 두 박자');
+    const [first, second] = sound.ctx.oscillators;
+    assert.ok(first.frequency.calls[0][1] < 200, '첫 박자는 저음');
+    assert.ok(second.startedAt > first.startedAt, '두 번째 박자는 뒤에 온다');
   } finally {
     delete globalThis.window;
   }

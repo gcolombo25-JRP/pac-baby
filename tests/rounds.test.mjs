@@ -10,10 +10,10 @@ import assert from 'node:assert/strict';
 
 import Game from '../src/game.js';
 import { ENEMY_MODE, findNextStep, isCenterSpawnZone } from '../src/enemy.js';
-import { Trap } from '../src/item.js';
+import { Item, Trap } from '../src/item.js';
 import {
   TILE_MAP, TILE_SIZE, SPEED_LEVELS, CHASE_ENEMY_COUNT,
-  GATE_OPEN_MS, GATE_MAX, GATE_POSITIONS,
+  GATE_OPEN_MS, GATE_CLOSED_MS, GATE_WARN_MS, GATE_MAX, GATE_POSITIONS,
   VISION_START_ROUND, VISION_START_TILES, VISION_MIN_TILES,
   GOLDEN_SPAWN, isWalkableTile,
   getBabySpawn, getEnemySpawns, getItemSpawns,
@@ -336,5 +336,96 @@ test('새 게임(resetAll)은 1라운드 상태로 돌아간다', () => {
     TILE_MAP[9][12],
     '이전 라운드 철창문 흔적이 남지 않는다',
   );
+});
+
+test('철창문은 닫힘/열림 직전에 경고 상태를 노출한다', () => {
+  const game = setup();
+  game._startRound(6);
+
+  const gate = game.gates[0];
+  const cycle = GATE_OPEN_MS + GATE_CLOSED_MS;
+  assert.equal(gate.closed, false);
+
+  // 열린 지 얼마 안 된 시점: 경고 없음
+  game.gateClock = 400;
+  let warning = game._gateWarning(gate);
+  assert.equal(warning.closing, true);
+  assert.equal(warning.warn, 0);
+
+  // 닫히기 직전: 경고가 켜진다
+  game.gateClock = GATE_OPEN_MS - GATE_WARN_MS / 6;
+  warning = game._gateWarning(gate);
+  assert.ok(warning.warn > 0.5, '닫힘 임박 경고');
+  assert.equal(warning.closing, true);
+
+  // 닫힌 문이 곧 열릴 때도 경고 (색만 다르다)
+  gate.closed = true;
+  game.gateClock = cycle - GATE_WARN_MS / 6;
+  warning = game._gateWarning(gate);
+  assert.ok(warning.warn > 0.5, '열림 임박 경고');
+  assert.equal(warning.closing, false);
+
+  // 경고 중 렌더링도 예외 없이 동작한다
+  assert.doesNotThrow(() => game._render(0));
+});
+
+test('어둠 속 아이템 링과 트랩 웅덩이가 시간에 따라 맥동한다', () => {
+  const ctx = createStubCtx();
+  const spot = getItemSpawns(TILE_MAP)[0];
+  const item = new Item(spot.row, spot.col, 'MILK');
+
+  const itemSizes = new Set();
+  for (let i = 0; i < 8; i++) {
+    ctx.calls.length = 0;
+    item.render(ctx, i * 220, { dark: true });
+    const arcs = ctx.calls.filter(call => call.name === 'arc').map(call => call.args[2]);
+    itemSizes.add(Math.max(...arcs).toFixed(3));
+  }
+  assert.ok(itemSizes.size > 1, '아이템 발광 후광 크기가 시간에 따라 변해야 한다');
+
+  const trap = new Trap(spot.row, spot.col, 'POOP', 0.3, 10000);
+  const trapSizes = new Set();
+  for (let i = 0; i < 8; i++) {
+    ctx.calls.length = 0;
+    trap.render(ctx, i * 220, { dark: true });
+    const ellipses = ctx.calls.filter(call => call.name === 'ellipse').map(call => call.args[2]);
+    trapSizes.add(Math.max(...ellipses).toFixed(3));
+  }
+  assert.ok(trapSizes.size > 1, '트랩 웅덩이 크기가 시간에 따라 변해야 한다');
+});
+
+test('어둠 모드에서 보모가 가까워지면 심장박동 경고 강도가 올라간다', () => {
+  const game = setup();
+  game._startRound(8);
+  game.state = 'PLAYING';
+
+  const { row, col } = game.player;
+  game.enemies = [{ row, col: col + 1, isFrozen: false }];
+
+  const near = game._updateHeartbeat(100);
+  assert.ok(near > 0.8, `바로 옆이면 강한 경고 (${near})`);
+  assert.ok(game.sound.heartbeatLevel > 0.8, '사운드 모듈에 강도가 전달된다');
+
+  // 시야 밖으로 멀어지면 경고가 사라진다
+  game.enemies = [{ row, col: col + 40, isFrozen: false }];
+  assert.equal(game._updateHeartbeat(100), 0);
+  assert.equal(game.sound.heartbeatLevel, 0);
+
+  // 8라운드 이전(어둠 없음)에는 경고도 없다
+  game.round = 7;
+  game.enemies = [{ row, col: col + 1, isFrozen: false }];
+  assert.equal(game._updateHeartbeat(100), 0);
+});
+
+test('얼어붙은 보모는 심장박동 경고에서 제외된다', () => {
+  const game = setup();
+  game._startRound(8);
+  game.state = 'PLAYING';
+
+  const { row, col } = game.player;
+  game.enemies = [{ row, col: col + 1, isFrozen: true }];
+
+  assert.equal(game._updateHeartbeat(100), 0);
+  assert.equal(game.heartbeatIntensity, 0);
 });
 

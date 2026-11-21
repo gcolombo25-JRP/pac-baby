@@ -9,6 +9,12 @@ import {
   PENALTY,
 } from './constants.js';
 
+/** 파워업(슈가 러시 / 황금 보행기) 잔상 트레일 설정 */
+const TRAIL_SAMPLE_MS = 36;   // 잔상 샘플 간격 (약 28fps 느낌)
+const TRAIL_LIFE_MS = 340;    // 잔상 하나가 사라지기까지
+const TRAIL_MAX = 24;         // 동시에 유지하는 최대 잔상 수
+const TRAIL_MIN_MOVE = 2.5;   // 이 거리(px) 이상 움직였을 때만 새 잔상
+
 export default class Player {
   constructor(spawnPos) {
     this.row = spawnPos.row;
@@ -37,6 +43,11 @@ export default class Player {
 
     // 체포 연출: 잡힌 자리에서 굳어버린 상태 (이 동안 이동/입력 무시)
     this.stunTimer = 0;
+
+    // 파워업 잔상 트레일 (슈가 러시 / 황금 보행기)
+    this.trail = [];       // { x, y, life, maxLife, radius, color, alpha }
+    this._trailAccum = 0;  // 다음 잔상 샘플까지 누적 시간(ms)
+    this._trailTime = null; // 마지막 프레임 시간(dt 계산용)
   }
 
   /** 현재 스텔스 중인지 */
@@ -251,6 +262,107 @@ export default class Player {
     if (dir === 'UP') return { x: 0, y: -1 };
     if (dir === 'DOWN') return { x: 0, y: 1 };
     return { x: 0, y: 0.55 }; // 정지: 살짝 아래(발끝)를 본다
+  }
+
+  /**
+   * 파워업 잔상 트레일 갱신 — 게임 루프가 매 프레임(렌더 직전) 호출한다.
+   * - 슈가 러시 / 황금 보행기 중에만 새 잔상을 남긴다.
+   * - 파워업이 끝나도 남은 잔상은 수명을 다하며 자연스럽게 사라진다.
+   * @param {number} timeMs 애니메이션 시간(ms)
+   * @param {number} alpha tick 보간 계수 (0~1)
+   * @param {{sugarRush?: boolean, goldenWalker?: boolean}} options 파워업 상태
+   */
+  updateTrail(timeMs, alpha = 1, options = {}) {
+    // dt 계산: 시간 역행(리셋/랩)이나 탭 복귀 폭주는 안전하게 잘라낸다
+    const previous = this._trailTime;
+    this._trailTime = timeMs;
+    let dt = previous == null ? 0 : timeMs - previous;
+    if (!Number.isFinite(dt) || dt < 0) dt = 0;
+    dt = Math.min(dt, 100);
+
+    // 수명 감소 + 만료 정리
+    for (const ghost of this.trail) ghost.life -= dt;
+    this.trail = this.trail.filter(ghost => ghost.life > 0);
+
+    const sugarRush = options.sugarRush === true;
+    const goldenWalker = options.goldenWalker === true;
+    if (!sugarRush && !goldenWalker) {
+      this._trailAccum = 0;
+      return;
+    }
+
+    this._trailAccum += dt;
+    if (this._trailAccum < TRAIL_SAMPLE_MS) return;
+    this._trailAccum %= TRAIL_SAMPLE_MS;
+
+    const center = this.getRenderCenter(alpha);
+    const last = this.trail[this.trail.length - 1];
+    if (last) {
+      const dx = center.x - last.x;
+      const dy = center.y - last.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < TRAIL_MIN_MOVE * TRAIL_MIN_MOVE) return; // 정지 중엔 잔상 없음
+      // 터널 통과(맵 반대편 순간이동)처럼 크게 점프한 경우엔 선이 남지 않게 건너뛴다
+      if (distSq > (TILE_SIZE * 6) * (TILE_SIZE * 6)) return;
+    }
+
+    const hue = (timeMs / 8) % 360;
+    const ghost = {
+      x: center.x,
+      y: center.y,
+      life: TRAIL_LIFE_MS,
+      maxLife: TRAIL_LIFE_MS,
+      radius: TILE_SIZE / 2 - 2,
+      color: '#ffd54f',
+      alpha: 0.4,
+    };
+
+    if (goldenWalker && sugarRush) {
+      ghost.color = `hsl(${hue}, 100%, 72%)`;
+      ghost.alpha = 0.44;
+    } else if (goldenWalker) {
+      ghost.color = hue % 40 < 20 ? '#ffd54f' : '#fff8dc';
+      ghost.alpha = 0.46;
+    } else {
+      ghost.color = `hsl(${hue}, 100%, 70%)`;
+      ghost.alpha = 0.34;
+    }
+
+    this.trail.push(ghost);
+    if (this.trail.length > TRAIL_MAX) {
+      this.trail.splice(0, this.trail.length - TRAIL_MAX);
+    }
+  }
+
+  /**
+   * 잔상 트레일 렌더링 — 베이비 몸통보다 먼저 호출해 아래에 깔리게 한다.
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  renderTrail(ctx) {
+    if (this.trail.length === 0) return;
+
+    const supportsEllipse = typeof ctx.ellipse === 'function';
+    ctx.save?.();
+
+    // 오래된 잔상부터 그려 최신 잔상이 위에 오게 한다
+    for (const ghost of this.trail) {
+      const ratio = Math.max(0, Math.min(1, ghost.life / ghost.maxLife));
+      const fade = ratio * ratio; // 끝에서 빠르게 사라진다
+      const radius = ghost.radius * (0.5 + 0.5 * ratio);
+
+      ctx.globalAlpha = fade * ghost.alpha;
+      ctx.fillStyle = ghost.color;
+      ctx.beginPath();
+      if (supportsEllipse) {
+        ctx.ellipse(ghost.x, ghost.y, radius, radius * 0.92, 0, 0, Math.PI * 2);
+      } else {
+        ctx.arc(ghost.x, ghost.y, radius, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore?.();
   }
 
   /**
@@ -507,6 +619,9 @@ export default class Player {
     this.stealthTimer = 0;
     this.stealthCooldown = 0;
     this.stunTimer = 0;
+    this.trail = [];
+    this._trailAccum = 0;
+    this._trailTime = null;
   }
 
   /** 악당에게 잡혔을 때 */

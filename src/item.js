@@ -121,11 +121,14 @@ export class Item {
     // 어둠 속에서도 반짝이며 보이도록 발광 후광
     if (options.dark) {
       const pulse = 0.18 + Math.abs(Math.sin(timeMs / 360 + this.row * 0.8)) * 0.16;
+      // 시인성 강화: 후광/테두리 링이 천천히 커졌다 작아지는 맥동(Pulse)
+      const breath = 0.5 + 0.5 * Math.sin(timeMs / 300 + this.row * 0.8 + this.col * 0.6);
+      const ringScale = 0.86 + breath * 0.28; // 0.86 ~ 1.14 배
       ctx.fillStyle = isGolden
         ? `rgba(255, 215, 0, ${pulse + 0.12})`
         : `rgba(255, 236, 150, ${pulse})`;
       ctx.beginPath();
-      ctx.arc(cx, cy, TILE_SIZE * 0.8, 0, Math.PI * 2);
+      ctx.arc(cx, cy, TILE_SIZE * 0.8 * ringScale, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.strokeStyle = isGolden
@@ -133,7 +136,7 @@ export class Item {
         : 'rgba(255, 248, 190, 0.75)';
       ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.arc(cx, cy, TILE_SIZE * 0.62, 0, Math.PI * 2);
+      ctx.arc(cx, cy, TILE_SIZE * 0.62 * ringScale, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -272,13 +275,17 @@ export class Trap {
 
     // 어둠 속에서도 트랩이 빛나 보이도록 색색의 발광 링
     if (options.dark) {
+      // 시인성 강화: 웅덩이 테두리가 천천히 커졌다 작아지는 맥동(Pulse)
+      const breath = 0.5 + 0.5 * Math.sin(timeMs / 300 + this.row * 1.1 + this.col * 0.7);
+      const glowScale = 0.85 + breath * 0.3; // 0.85 ~ 1.15 배
+
       ctx.globalAlpha = fade * 0.5;
       ctx.fillStyle = color;
       ctx.beginPath();
       if (supportsEllipse) {
-        ctx.ellipse(cx, cy, rx + 5, ry + 5, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, cy, (rx + 5) * glowScale, (ry + 5) * glowScale, 0, 0, Math.PI * 2);
       } else {
-        ctx.arc(cx, cy, Math.min(rx, ry) + 4, 0, Math.PI * 2);
+        ctx.arc(cx, cy, (Math.min(rx, ry) + 4) * glowScale, 0, Math.PI * 2);
       }
       ctx.fill();
 
@@ -287,9 +294,9 @@ export class Trap {
       ctx.lineWidth = 1.6;
       ctx.beginPath();
       if (supportsEllipse) {
-        ctx.ellipse(cx, cy, rx + 6, ry + 6, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, cy, (rx + 6) * glowScale, (ry + 6) * glowScale, 0, 0, Math.PI * 2);
       } else {
-        ctx.arc(cx, cy, Math.min(rx, ry) + 5, 0, Math.PI * 2);
+        ctx.arc(cx, cy, (Math.min(rx, ry) + 5) * glowScale, 0, Math.PI * 2);
       }
       ctx.stroke();
       ctx.globalAlpha = fade;

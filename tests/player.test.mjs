@@ -223,3 +223,66 @@ test('렌더링은 tick 사이를 보간한다', () => {
   player.render(ctxMid, 0.5);
   assert.equal(ctxMid.arcs[0].x, (SPAWN.col + 1) * TILE_SIZE);
 });
+
+test('파워업 중 이동 경로에 잔상이 남고, 끝나면 사라진다', () => {
+  const player = new Player(SPAWN);
+
+  // 황금 보행기 중 타일을 하나씩 옮겨가며 프레임(16ms)마다 갱신
+  let now = 0;
+  for (let tile = 0; tile < 6; tile++) {
+    player.prevCol = player.col;
+    player.prevRow = player.row;
+    player.col += 1;
+    player.x = player.col * TILE_SIZE;
+
+    for (let frame = 0; frame < 4; frame++) {
+      now += 16;
+      player.updateTrail(now, 1, { goldenWalker: true });
+    }
+  }
+
+  assert.ok(player.trail.length > 1, '이동 경로를 따라 잔상이 생성된다');
+  assert.ok(
+    player.trail.every(ghost => ghost.life > 0 && ghost.life <= ghost.maxLife),
+    '잔상은 수명을 가진다',
+  );
+
+  // ellipse 가 없는 스텁에서도 arc 폴백으로 안전하게 그려져야 한다
+  const ctx = createStubCtx();
+  assert.doesNotThrow(() => player.renderTrail(ctx));
+  assert.equal(ctx.arcs.length, player.trail.length, '잔상마다 하나씩 그린다');
+
+  // 파워업 종료 후 잔상은 수명이 다해 사라진다
+  for (let frame = 0; frame < 40; frame++) {
+    now += 16;
+    player.updateTrail(now, 1, {});
+  }
+  assert.equal(player.trail.length, 0);
+  assert.equal(player._trailAccum, 0);
+});
+
+test('파워업 상태가 아니면 잔상이 생기지 않고, reset 이 잔상을 지운다', () => {
+  const player = new Player(SPAWN);
+
+  let now = 0;
+  for (let frame = 0; frame < 10; frame++) {
+    now += 16;
+    player.prevCol = player.col;
+    player.col += 1;
+    player.updateTrail(now, 1, {});
+  }
+  assert.equal(player.trail.length, 0, '일반 상태에서는 잔상 없음');
+
+  for (let frame = 0; frame < 3; frame++) {
+    now += 16;
+    player.prevCol = player.col;
+    player.col += 1;
+    player.updateTrail(now, 1, { sugarRush: true });
+  }
+  assert.ok(player.trail.length > 0, '슈가 러시 중에는 잔상이 남는다');
+
+  player.reset(SPAWN);
+  assert.equal(player.trail.length, 0);
+  assert.equal(player._trailAccum, 0);
+  assert.equal(player._trailTime, null);
+});

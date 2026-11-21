@@ -118,6 +118,7 @@ export const EXTRA_ENEMY_SPAWNS = {
 // ===== 고라운드 난이도: 철창문 =====
 export const GATE_OPEN_MS = 3000;   // 열려 있는 시간
 export const GATE_CLOSED_MS = 3000; // 닫혀 있는 시간
+export const GATE_WARN_MS = 700;    // 닫힘/열림 직전 경고 깜빡임 구간
 export const GATE_MAX = 4;          // 최대 철창문 수
 // 6라운드에 1개, 이후 2라운드마다 1개씩 추가된다.
 export const GATE_POSITIONS = [
@@ -131,6 +132,8 @@ export const GATE_POSITIONS = [
 export const VISION_START_ROUND = 8;  // 8라운드부터 어둠 시작
 export const VISION_START_TILES = 8;  // 8라운드 시야 반경(타일)
 export const VISION_MIN_TILES = 3;    // 최소 시야 반경(타일)
+// 어둠 속 근접 경고: 시야 반경 + 이 여유 안으로 보모가 들어오면 심장박동이 시작된다
+export const DARK_HEARTBEAT_WARN_TILES = 1.5;
 
 // ===== 터치 조작 보정 =====
 export const TOUCH_TAP_MEMORY_MS = 260;   // 짧은 탭도 다음 tick 이 인식하도록 방향을 잠깐 기억

@@ -28,6 +28,10 @@ const BGM_MELODY = [
 /** 4분음표마다 깔리는 베이스 (4개) */
 const BGM_BASS = ['C3', 'A3', 'F3', 'G3'];
 
+// ===== 어둠 모드 근접 경고 (심장박동) =====
+const HEARTBEAT_MAX_MS = 1100; // 시야 경계에 막 들어왔을 때의 박동 간격(ms)
+const HEARTBEAT_MIN_MS = 430;  // 바로 옆에 붙었을 때의 박동 간격(ms)
+
 export default class SoundFX {
   constructor() {
     this.enabled = true;   // 음향 on/off
@@ -35,11 +39,16 @@ export default class SoundFX {
     this.master = null;
     this.stepToggle = false; // 발걸음 소리 음높이 번갈아 재생
     this._noiseBuffer = null; // 효과음용 노이즈 원본 (한 번만 생성)
+    this._lastUiClickAt = 0;  // UI 클릭음 연타 제한용 타임스탬프(ms)
 
     // BGM 루프 상태
     this.bgmRunning = false;
     this.bgmStep = 0;
     this.bgmNextTime = 0;
+
+    // 어둠 모드 근접 경고(심장박동) 상태
+    this.heartbeatTimer = 0;  // 다음 박동까지 남은 시간(ms)
+    this.heartbeatLevel = 0;  // 0(안전) ~ 1(바로 옆)
   }
 
   /** 음향 켜기/끄기 토글 후 현재 상태 반환 (BGM 도 함께) */
@@ -306,40 +315,70 @@ export default class SoundFX {
    * 한 타일 이동: 아기 운동화 삑삑 소리
    * - 살짝 위로 미끄러지는 triangle 파형(고무 마찰) + 짧은 고역 노이즈(바닥 스침)
    * - 음높이를 번갈아 재생해 걸음걸이 리듬을 만든다.
+   * - 슈가 러시 중에는 피치를 올리고 길이/노이즈 대역을 더 밝고 짧게 만들어
+   *   "경쾌하게 튀는" 발걸음으로 바꾼다.
+   * @param {{sugarRush?: boolean}|boolean} [state] 베이비 상태 (true 만 넘겨도 동작)
    */
-  playStep() {
+  playStep(state = {}) {
+    // 호환: playStep(true) 로도 슈가 러시 상태를 전달할 수 있다
+    const sugarRush = typeof state === 'boolean'
+      ? state
+      : !!(state && state.sugarRush);
+
     this.stepToggle = !this.stepToggle;
     const base = this.stepToggle ? 1568 : 1397; // G6 / F6
+    const pitch = sugarRush ? 1.35 : 1;         // 슈가 러시: 약 5반음 위로
+    const duration = sugarRush ? 0.032 : 0.05;  // 더 짧게 톡톡 튀는 느낌
 
     // 1) "삑-" 고무가 미끄러지는 주음
     this._beep({
-      freq: base,
-      toFreq: base * 1.3,
-      duration: 0.05,
+      freq: base * pitch,
+      toFreq: base * pitch * 1.3,
+      duration,
       type: 'triangle',
-      volume: 0.5,
+      volume: sugarRush ? 0.44 : 0.5,
       filterType: 'highpass',
-      filterFreq: 900,
+      filterFreq: sugarRush ? 1200 : 900,
     });
 
     // 2) 살짝 낮은 화음 — 소리가 얇지 않게 두께를 준다
     this._beep({
-      freq: base * 0.5,
-      toFreq: base * 0.6,
-      duration: 0.06,
+      freq: base * pitch * 0.5,
+      toFreq: base * pitch * 0.6,
+      duration: duration + 0.01,
       type: 'sine',
-      volume: 0.16,
+      volume: sugarRush ? 0.14 : 0.16,
       delay: 0.004,
     });
 
-    // 3) 바닥을 스치는 짧은 '사각' 노이즈 (고역만 남겨 바람 소리 억제)
+    // 3) 바닥을 스치는 짧은 '사각' 노이즈 (슈가 러시는 더 높은 대역)
     this._noise({
-      duration: 0.03,
-      volume: 0.09,
+      duration: sugarRush ? 0.02 : 0.03,
+      volume: sugarRush ? 0.07 : 0.09,
       delay: 0.002,
       filterType: 'highpass',
-      filterFreq: 2600,
+      filterFreq: sugarRush ? 4200 : 2600,
     });
+  }
+
+  /**
+   * UI 클릭/터치: 짧고 가벼운 '톡-삑' 팝
+   * - D-패드/시작/일시정지/모달 버튼 등에 손끝 반응을 주는 아주 짧은 소리.
+   * - 연타로 소리가 겹쳐 시끄러워지지 않도록 30ms 이내 재호출은 무시한다.
+   */
+  playUiClick() {
+    if (!this.enabled) return;
+
+    const now = Date.now();
+    if (now - (this._lastUiClickAt || 0) < 30) return;
+    this._lastUiClickAt = now;
+
+    // 1) 짧게 튀는 고음 블립
+    this._beep({ freq: 1320, toFreq: 1760, duration: 0.026, type: 'sine', volume: 0.38 });
+    // 2) 살짝 낮은 삼각파 — '톡' 하는 몸통
+    this._beep({ freq: 660, toFreq: 520, duration: 0.034, type: 'triangle', volume: 0.18, delay: 0.004 });
+    // 3) 손끝이 닿는 아주 짧은 고역 틱 노이즈
+    this._noise({ duration: 0.01, volume: 0.045, filterType: 'highpass', filterFreq: 3800 });
   }
 
   /** 체포: 하강하는 경고음 + 둔탁한 충격 노이즈 */
@@ -551,5 +590,73 @@ export default class SoundFX {
   playTrapHit() {
     this._beep({ freq: 150, toFreq: 520, duration: 0.22, type: 'sawtooth', volume: 0.85 });
     this._beep({ freq: 90, toFreq: 60, duration: 0.18, type: 'square', volume: 0.5, delay: 0.06 });
+  }
+
+  // ===== 어둠 모드 근접 경고: 심장박동 =====
+
+  /**
+   * 어둠 모드에서 보모가 가까워질수록 빨라지는 심장박동을 재생한다.
+   * 게임 루프에서 매 tick 호출하면 내부 타이머가 박동 간격을 조절한다.
+   * @param {number} intensity 0(안전) ~ 1(바로 옆)
+   * @param {number} dt 경과 시간(ms)
+   * @returns {boolean} 이번 호출에서 박동을 냈는지
+   */
+  updateHeartbeat(intensity = 0, dt = 0) {
+    const level = Number.isFinite(intensity) ? Math.min(1, Math.max(0, intensity)) : 0;
+    this.heartbeatLevel = level;
+
+    // 위협이 사라지면 즉시 멈추고, 다시 가까워지면 곧바로 박동을 시작한다
+    if (level <= 0.02) {
+      this.heartbeatTimer = 0;
+      return false;
+    }
+
+    const interval = HEARTBEAT_MAX_MS - (HEARTBEAT_MAX_MS - HEARTBEAT_MIN_MS) * level;
+    this.heartbeatTimer -= Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    if (this.heartbeatTimer > 0) return false;
+
+    this.heartbeatTimer = interval;
+    this.playHeartbeat(level);
+    return true;
+  }
+
+  /** 심장박동 상태 초기화 (일시정지/라운드 전환/게임 오버) */
+  resetHeartbeat() {
+    this.heartbeatTimer = 0;
+    this.heartbeatLevel = 0;
+  }
+
+  /**
+   * "쿵-덥" 두 박자 저음 심장박동.
+   * - 가까울수록 조금 더 높고 크게 울려 심리적 압박감을 준다.
+   * - 저역 필터(lowpass)로 가슴을 울리는 둔탁한 느낌을 만든다.
+   * @param {number} intensity 0(안전) ~ 1(바로 옆)
+   */
+  playHeartbeat(intensity = 0.5) {
+    const level = Number.isFinite(intensity) ? Math.min(1, Math.max(0, intensity)) : 0.5;
+    const volume = 0.18 + 0.34 * level;
+
+    // "쿵" — 첫 박동
+    this._beep({
+      freq: 96 + 28 * level,
+      toFreq: 46,
+      duration: 0.16 + 0.05 * level,
+      type: 'sine',
+      volume,
+      filterType: 'lowpass',
+      filterFreq: 240 + 120 * level,
+    });
+
+    // "덥" — 살짝 약한 두 번째 박동 (심장의 이중 박동)
+    this._beep({
+      freq: 78 + 18 * level,
+      toFreq: 40,
+      duration: 0.2 + 0.05 * level,
+      type: 'sine',
+      volume: volume * 0.62,
+      delay: 0.16,
+      filterType: 'lowpass',
+      filterFreq: 220 + 90 * level,
+    });
   }
 }
