@@ -13,7 +13,7 @@ import {
   RESPAWN_GRACE_MS,
   TRAP_MAX_ACTIVE, TRAP_HIT_SCORE, TRAP_FREEZE_MS, TRAP_COLORS,
   STEALTH_DURATION_MS, ENEMY_CONFUSE_MS,
-  READY_COUNTDOWN_MS, SCORE_POPUP_MS, DEMO_IDLE_MS,
+  READY_COUNTDOWN_MS, SCORE_POPUP_MS, DEMO_IDLE_MS, CAUGHT_STUN_MS, getRoundTitle,
   PLAYER_LIVES, ROUND_CLEAR_MODE, ROUND_TARGET_SCORE, ROUND_SPEED_STEP, HISCORE_KEY,
   SKILL_CRY, PENALTY,
   MAX_DEVICE_PIXEL_RATIO, BABY_LIGHT_RADIUS_TILES, BABY_LIGHT_FEATHER_TILES,
@@ -100,10 +100,12 @@ export default class Game {
     // 시작 위치가 침대이므로 "이미 침대 위" 상태로 시작 (자동 발동 방지)
     this._wasOnBed = this.map.map[this.map.babySpawn.row][this.map.babySpawn.col] === 2;
 
-    // 게임 상태 (7단계 UI)
-    this.state = 'READY';          // READY | PLAYING | PAUSED
+    // 게임 상태 (READY | PLAYING | PAUSED | CAUGHT | STAGE_CLEAR | GAME_OVER)
+    this.state = 'READY';
     this.helpOpen = false;         // 사용 설명서(도움말) 열림 여부 — 열려 있으면 로직/입력 정지
     this.readyTimer = READY_COUNTDOWN_MS;
+    this.caughtTimer = 0;          // 체포 연출(Oh! No~) 남은 시간 — 동안 베이비/보모 정지
+    this._inRealtimeTick = false;  // 실시간 루프가 _update 를 돌리는 중인지 (연출 조건)
     this.scorePopups = [];         // { row, col, text, color, life, maxLife }
     this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
     this.tester = null;            // 테스터 모드 연결 지점 (src/tester.js)
@@ -696,6 +698,14 @@ export default class Game {
       return;
     }
 
+    // 체포 연출(Oh! No~): 베이비·보모 모두 굳은 채 연출 시간만 흐른다
+    if (this.state === 'CAUGHT') {
+      this._updateCaught(dt);
+      this._render(this.tickMs > 0 ? this.tickAccumulator / this.tickMs : 0);
+      this.input.clearJustPressed();
+      return;
+    }
+
     // 무입력 5초 → DEMO PLAY (READY/PLAYING 에서만)
     this._updateDemoTimer(dt);
 
@@ -713,10 +723,23 @@ export default class Game {
       }
 
       // Tick 단위 업데이트
+      let stateChanged = false;
       while (this.tickAccumulator >= tickMs) {
-        this._update(tickMs);
+        this._inRealtimeTick = true;
+        try {
+          this._update(tickMs);
+        } finally {
+          this._inRealtimeTick = false;
+        }
         this.tickAccumulator -= tickMs;
+
+        // 체포 연출/라운드 클리어로 상태가 바뀌면 남은 tick 을 몰아서 처리하지 않는다
+        if (this.state !== 'PLAYING') {
+          stateChanged = true;
+          break;
+        }
       }
+      if (stateChanged) this.tickAccumulator = 0;
     }
 
     // 렌더링 (매 프레임)
@@ -880,7 +903,7 @@ export default class Game {
       && !this.player.isStealthed
       && !this.tester?.flags?.invincible
       && this._isCaught()) {
-      this._catchPlayer();
+      this._beginCaught();
     }
 
     // 점수 팝업 수명
@@ -1164,6 +1187,58 @@ export default class Game {
     return this.items.filter(item => !item.collected).length;
   }
 
+  /**
+   * 체포 연출 시작: 베이비가 그 자리에 굳고 "Oh! No~" 가 울린다.
+   * 실제 페널티(목숨 -1 / 게임 오버)는 CAUGHT_STUN_MS 뒤 `_finishCaught()` 에서 적용한다.
+   *
+   * 실시간 루프(_loop → _tick)가 돌리는 중일 때만 연출을 재생하고,
+   * 단위 테스트/테스터 스텝처럼 _update 를 직접 호출하는 경우에는 기존처럼 즉시 체포 처리한다.
+   */
+  _beginCaught() {
+    if (!this._inRealtimeTick) {
+      this._catchPlayer();
+      return;
+    }
+
+    this.state = 'CAUGHT';
+    this.caughtTimer = CAUGHT_STUN_MS;
+    this.player.stun(CAUGHT_STUN_MS); // 그 자리에 멈춰 굳는다 (입력 무시)
+
+    this._addPopup(this.player.row, this.player.col, 'Oh! No~', '#ef5350');
+    this.tester?.log?.('catch', `체포! Oh! No~ @ (${this.player.row},${this.player.col})`);
+    this.sound.playOhNo();                                  // 낮고 서글픈 "Oh! No~"
+    this.effects.burstTears(this.player.row, this.player.col);
+    this.effects.flashScreen('#ef5350', 0.32, 0.5);          // 붉은 섬광
+    this.effects.shake(0.4, 12);                             // 카메라 셰이크
+  }
+
+  /**
+   * 체포 연출 진행 (CAUGHT 상태에서 프레임마다 호출)
+   * @param {number} dt 프레임 경과(ms)
+   * @returns {boolean} 연출이 끝나 페널티가 적용되었는지
+   */
+  _updateCaught(dt) {
+    this.caughtTimer = Math.max(0, this.caughtTimer - dt);
+    this.player.stunTimer = this.caughtTimer;
+
+    // 연출 동안은 소화 타이머도 멈춘다 (게임 루프 전체가 대기하는 느낌)
+    if (this.caughtTimer > 0) return false;
+
+    this._finishCaught();
+    return true;
+  }
+
+  /** 연출 종료 → 목숨 차감/침대 귀환, 목숨이 남아 있으면 곧바로 플레이 재개 */
+  _finishCaught() {
+    this.player.stunTimer = 0;
+    this._catchPlayer(); // -200점 · 침대 귀환 · 악당 대기실 복귀 · 목숨 -1
+
+    if (this.state === 'CAUGHT') {
+      this.state = 'PLAYING';
+      this.tickAccumulator = 0;
+    }
+  }
+
   /** 체포 처리: -200점, 침대 귀환, 악당은 대기실로 복귀, 잠깐 무적 */
   _catchPlayer() {
     const caughtAt = { row: this.player.row, col: this.player.col };
@@ -1404,6 +1479,7 @@ export default class Game {
 
     this.cryCooldown = 0;
     this.tickAccumulator = 0;
+    this.caughtTimer = 0;
     this.state = 'READY';
     this.readyTimer = READY_COUNTDOWN_MS;
 
@@ -1531,6 +1607,7 @@ export default class Game {
 
     // 상태 오버레이
     if (this.state === 'READY') this._renderReadyOverlay(ctx);
+    else if (this.state === 'CAUGHT') this._renderCaughtOverlay(ctx);
     else if (this.state === 'PAUSED') this._renderPauseOverlay(ctx);
     else if (this.state === 'STAGE_CLEAR') this._renderStageClearOverlay(ctx);
     else if (this.state === 'GAME_OVER') this._renderGameOverOverlay(ctx);
@@ -1915,27 +1992,133 @@ export default class Game {
     ctx.globalAlpha = 1;
   }
 
-  /** READY 카운트다운 오버레이 */
+  /**
+   * READY 카운트다운 오버레이: 라운드별 네온 타이틀 + "3... 2... 1..."
+   * - 카운트다운 동안 베이비/보모는 READY 상태로 대기한다.
+   */
   _renderReadyOverlay(ctx) {
-    const remaining = Math.max(1, Math.ceil(this.readyTimer / 1000));
+    const t = this.animTime;
+    const remain = Math.max(0, this.readyTimer);
+    const count = Math.max(1, Math.ceil(remain / 1000));   // 3 → 2 → 1
+    const withinSecond = 1 - (remain % 1000) / 1000;       // 0 → 1 (숫자 바뀐 뒤 흐른 정도)
+    const pop = 1.3 - withinSecond * 0.24;                 // 막 바뀔 때 크게, 곧 정착
+    const title = getRoundTitle(this.round);
+    const cx = CANVAS_WIDTH / 2;
+    const cy = CANVAS_HEIGHT / 2;
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    // 배경 (살짝 푸른 어둠)
+    ctx.fillStyle = 'rgba(2, 6, 20, 0.62)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // 스캔라인 — 네온 아케이드 느낌
+    ctx.fillStyle = 'rgba(79, 195, 247, 0.06)';
+    for (let y = (t / 26) % 24; y < CANVAS_HEIGHT; y += 24) {
+      ctx.fillRect(0, y, CANVAS_WIDTH, 2);
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // ROUND 배지
+    ctx.font = 'bold 17px "Segoe UI", sans-serif';
+    ctx.fillStyle = '#4fc3f7';
+    ctx.shadowColor = '#4fc3f7';
+    ctx.shadowBlur = 18;
+    ctx.fillText(`ROUND ${this.round}`, cx, cy - 132);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    // 라운드 타이틀 — 위에서 떠오르며 숨쉬는 네온 글로우
+    const intro = Math.min(1, (READY_COUNTDOWN_MS - remain) / 400); // 0 → 1 (등장)
+    const neon = 0.55 + Math.abs(Math.sin(t / 320)) * 0.45;
+    ctx.globalAlpha = 0.15 + intro * 0.85;
+    ctx.font = 'bold 30px "Segoe UI", sans-serif';
+    ctx.fillStyle = '#ffe082';
+    ctx.shadowColor = `rgba(255, 213, 79, ${neon})`;
+    ctx.shadowBlur = 16 + neon * 16;
+    ctx.fillText(title, cx, cy - 70 + (1 - intro) * 20);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+    ctx.globalAlpha = 1;
+
+    // 3 · 2 · 1 카운트다운 (터질 듯 커졌다가 정착)
+    ctx.save?.();
+    if (typeof ctx.translate === 'function') ctx.translate(cx, cy + 22);
+    if (typeof ctx.scale === 'function') ctx.scale(pop, pop);
+    ctx.font = 'bold 96px "Segoe UI", sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = count === 1 ? '#8bc34a' : '#4fc3f7';
+    ctx.shadowBlur = 30;
+    ctx.fillText(`${count}`, 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+    ctx.restore?.();
+
+    // 3... 2... 1... 진행 점
+    for (let i = 0; i < 3; i++) {
+      const lit = (3 - i) >= count;
+      ctx.fillStyle = lit ? '#4fc3f7' : 'rgba(255, 255, 255, 0.22)';
+      ctx.beginPath();
+      ctx.arc(cx - 28 + i * 28, cy + 84, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 안내문
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.font = '14px "Segoe UI", sans-serif';
+    ctx.fillText('침대로 들어가면 10초 스텔스!', cx, cy + 118);
+  }
+
+  /**
+   * 체포 연출 오버레이: 굳은 베이비 위로 떨리는 "Oh! No~"
+   * (CAUGHT_STUN_MS 동안 표시된 뒤 목숨 차감/게임 오버로 전환)
+   */
+  _renderCaughtOverlay(ctx) {
+    const progress = 1 - Math.max(0, this.caughtTimer) / CAUGHT_STUN_MS; // 0 → 1
+    const cx = CANVAS_WIDTH / 2;
+    const cy = CANVAS_HEIGHT / 2;
+
+    // 붉은 비네트 (심장 박동처럼 옅게 강해졌다 약해짐)
+    const vignette = 0.18 + Math.sin(progress * Math.PI) * 0.16;
+    ctx.fillStyle = `rgba(120, 0, 16, ${vignette})`;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
+    // 떨리는 "Oh! No~"
+    const tremble = Math.sin(this.animTime / 38) * 3;
+    const scale = 1 + Math.sin(progress * Math.PI) * 0.14;
+
+    ctx.save?.();
+    if (typeof ctx.translate === 'function') ctx.translate(cx + tremble, cy - 40);
+    if (typeof ctx.scale === 'function') ctx.scale(scale, scale);
+    ctx.globalAlpha = Math.min(1, progress * 4);
+    ctx.font = 'bold 62px "Segoe UI", sans-serif';
     ctx.fillStyle = '#ffe082';
-    ctx.font = 'bold 52px "Segoe UI", sans-serif';
-    ctx.fillText('READY', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 48);
+    ctx.shadowColor = '#ef5350';
+    ctx.shadowBlur = 26;
+    ctx.fillText('Oh! No~', 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+    ctx.globalAlpha = 1;
+    ctx.restore?.();
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 70px "Segoe UI", sans-serif';
-    ctx.fillText(`${remaining}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    // 깜빡이는 경고 문구
+    ctx.globalAlpha = 0.65 + Math.sin(this.animTime / 130) * 0.35;
+    ctx.font = 'bold 20px "Segoe UI", sans-serif';
+    ctx.fillStyle = '#ff8a80';
+    ctx.fillText('베이비가 보모에게 잡혔다!', cx, cy + 34);
+    ctx.globalAlpha = 1;
 
+    // 남은 목숨 (연출이 끝나면 1개 줄어든다)
+    const willRemain = Math.max(0, this.lives - 1);
+    ctx.font = '16px "Segoe UI", sans-serif';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.font = '14px "Segoe UI", sans-serif';
-    ctx.fillText('침대로 들어가면 10초 스텔스!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 104);
+    ctx.fillText(
+      willRemain > 0 ? `남은 목숨 ${willRemain}  ·  곧 다시 달려요!` : '목숨을 모두 잃었어요...',
+      cx, cy + 70,
+    );
   }
 
   /** 일시정지 오버레이 (현재 점수 요약 포함) */

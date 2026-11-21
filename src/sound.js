@@ -34,6 +34,7 @@ export default class SoundFX {
     this.ctx = null;
     this.master = null;
     this.stepToggle = false; // 발걸음 소리 음높이 번갈아 재생
+    this._noiseBuffer = null; // 효과음용 노이즈 원본 (한 번만 생성)
 
     // BGM 루프 상태
     this.bgmRunning = false;
@@ -170,8 +171,15 @@ export default class SoundFX {
    * @param {OscillatorType} options.type 파형
    * @param {number} options.volume 0~1
    * @param {number} options.delay 시작 지연(초)
+   * @param {string|null} options.filterType 'lowpass' | 'bandpass' | 'highpass' (있으면 포먼트/톤 보정)
+   * @param {number} options.filterFreq 필터 컷오프/중심 주파수(Hz)
+   * @param {number} options.filterQ 필터 Q (포먼트 날카로움)
+   * @param {{hz: number, depth: number}|null} options.vibrato 비브라토(떨림) — 아기 목소리 느낌
    */
-  _beep({ freq = 440, toFreq = null, duration = 0.12, type = 'square', volume = 1, delay = 0 }) {
+  _beep({
+    freq = 440, toFreq = null, duration = 0.12, type = 'square', volume = 1, delay = 0,
+    filterType = null, filterFreq = 0, filterQ = 1, vibrato = null,
+  }) {
     const ctx = this._ensure();
     if (!ctx) return;
 
@@ -185,14 +193,107 @@ export default class SoundFX {
       osc.frequency.exponentialRampToValueAtTime(Math.max(1, toFreq), start + duration);
     }
 
+    // 비브라토: 목표 주파수 곡선 위에 사인파만큼 미세하게 흔든다 (8비트 '울먹임')
+    if (vibrato && vibrato.depth > 0 && vibrato.hz > 0) {
+      const steps = Math.max(2, Math.round(duration * 60));
+      const stepSec = duration / steps;
+      for (let i = 1; i < steps; i++) {
+        const ratio = i / steps;
+        const base = toFreq !== null ? freq + (toFreq - freq) * ratio : freq;
+        const wobble = 1 + Math.sin(i * Math.PI * 2 * vibrato.hz * stepSec) * vibrato.depth;
+        osc.frequency.setValueAtTime(Math.max(1, base * wobble), start + i * stepSec);
+      }
+    }
+
+    // 필터(포먼트) — 지원하지 않는 환경(테스트 스텁 등)에서는 조용히 건너뛴다
+    let filter = null;
+    if (filterType && filterFreq > 0 && typeof ctx.createBiquadFilter === 'function') {
+      filter = ctx.createBiquadFilter();
+      filter.type = filterType;
+      filter.frequency.setValueAtTime(Math.max(20, filterFreq), start);
+      if (filter.Q && typeof filter.Q.setValueAtTime === 'function') {
+        filter.Q.setValueAtTime(Math.max(0.0001, filterQ), start);
+      }
+    }
+
+    // 빠른 어택 → 지수 감쇠: 짧아도 '톡' 하고 때리는 느낌을 만든다
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(volume, start + 0.012);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + 0.012);
+    if (duration > 0.16) {
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume * 0.62), start + duration * 0.55);
+    }
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
 
-    osc.connect(gain);
+    if (filter) {
+      osc.connect(filter);
+      filter.connect(gain);
+    } else {
+      osc.connect(gain);
+    }
     gain.connect(this.master);
     osc.start(start);
     osc.stop(start + duration + 0.03);
+  }
+
+  /**
+   * 짧은 노이즈(숨소리/발자국/타격) 재생 — BufferSource + 필터
+   * - 브라우저가 지원하지 않거나 테스트 스텁이면 조용히 무시한다.
+   * @param {object} options
+   * @param {number} options.duration 초
+   * @param {number} options.volume 0~1
+   * @param {number} options.delay 시작 지연(초)
+   * @param {string} options.filterType
+   * @param {number} options.filterFreq
+   * @param {number} options.Q
+   */
+  _noise({
+    duration = 0.08, volume = 0.2, delay = 0, filterType = 'bandpass', filterFreq = 1200, Q = 1,
+  }) {
+    const ctx = this._ensure();
+    if (!ctx) return;
+    if (typeof ctx.createBuffer !== 'function' || typeof ctx.createBufferSource !== 'function') return;
+
+    if (!this._noiseBuffer) {
+      try {
+        const rate = ctx.sampleRate || 44100;
+        const buffer = ctx.createBuffer(1, rate, rate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        this._noiseBuffer = buffer;
+      } catch (err) {
+        return; // 노이즈를 만들 수 없는 환경
+      }
+    }
+
+    const start = ctx.currentTime + delay;
+    const src = ctx.createBufferSource();
+    src.buffer = this._noiseBuffer;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+
+    let filter = null;
+    if (filterType && filterFreq > 0 && typeof ctx.createBiquadFilter === 'function') {
+      filter = ctx.createBiquadFilter();
+      filter.type = filterType;
+      filter.frequency.setValueAtTime(Math.max(20, filterFreq), start);
+      if (filter.Q && typeof filter.Q.setValueAtTime === 'function') {
+        filter.Q.setValueAtTime(Math.max(0.0001, Q), start);
+      }
+    }
+
+    if (filter) {
+      src.connect(filter);
+      filter.connect(gain);
+    } else {
+      src.connect(gain);
+    }
+    gain.connect(this.master);
+
+    src.start(start);
+    if (typeof src.stop === 'function') src.stop(start + duration + 0.02);
   }
 
   /** 게임 시작: 두 음 상승 차임 */
@@ -202,27 +303,120 @@ export default class SoundFX {
   }
 
   /**
-   * 한 타일 이동: 아기 운동화 삑삑 소리 (짧은 고음 두 번, 음높이 교대)
-   * - 살짝 위로 미끄러지는 triangle 파형이라 "삑-" 하는 신발 소리가 난다.
+   * 한 타일 이동: 아기 운동화 삑삑 소리
+   * - 살짝 위로 미끄러지는 triangle 파형(고무 마찰) + 짧은 고역 노이즈(바닥 스침)
+   * - 음높이를 번갈아 재생해 걸음걸이 리듬을 만든다.
    */
   playStep() {
     this.stepToggle = !this.stepToggle;
     const base = this.stepToggle ? 1568 : 1397; // G6 / F6
-    this._beep({ freq: base, toFreq: base * 1.32, duration: 0.05, type: 'triangle', volume: 0.5 });
+
+    // 1) "삑-" 고무가 미끄러지는 주음
     this._beep({
-      freq: base * 1.12,
-      toFreq: base * 1.45,
-      duration: 0.055,
+      freq: base,
+      toFreq: base * 1.3,
+      duration: 0.05,
       type: 'triangle',
-      volume: 0.4,
-      delay: 0.055,
+      volume: 0.5,
+      filterType: 'highpass',
+      filterFreq: 900,
+    });
+
+    // 2) 살짝 낮은 화음 — 소리가 얇지 않게 두께를 준다
+    this._beep({
+      freq: base * 0.5,
+      toFreq: base * 0.6,
+      duration: 0.06,
+      type: 'sine',
+      volume: 0.16,
+      delay: 0.004,
+    });
+
+    // 3) 바닥을 스치는 짧은 '사각' 노이즈 (고역만 남겨 바람 소리 억제)
+    this._noise({
+      duration: 0.03,
+      volume: 0.09,
+      delay: 0.002,
+      filterType: 'highpass',
+      filterFreq: 2600,
     });
   }
 
-  /** 체포: 하강하는 경고음 */
+  /** 체포: 하강하는 경고음 + 둔탁한 충격 노이즈 */
   playCaught() {
-    this._beep({ freq: 420, toFreq: 90, duration: 0.5, type: 'sawtooth', volume: 0.9 });
+    this._beep({
+      freq: 420,
+      toFreq: 90,
+      duration: 0.5,
+      type: 'sawtooth',
+      volume: 0.9,
+      filterType: 'lowpass',
+      filterFreq: 1600,
+      vibrato: { hz: 7, depth: 0.03 },
+    });
     this._beep({ freq: 210, toFreq: 70, duration: 0.5, type: 'square', volume: 0.5, delay: 0.05 });
+    this._noise({ duration: 0.18, volume: 0.16, filterType: 'lowpass', filterFreq: 700 });
+  }
+
+  /**
+   * 체포 순간의 "Oh! No~" — 낮고 서글픈 레트로 칩튠 음성
+   * - 톱니파 + 밴드패스 포먼트로 '오' / '노' 음절을 흉내 낸다.
+   * - 'No~' 는 긴 하강 글라이드 + 비브라토로 한숨처럼 처진다.
+   * - 마지막에 낮은 사인/삼각파가 '흐엥...' 하고 남아 여운을 준다.
+   */
+  playOhNo() {
+    // "Oh" — 턱 떨어지는 짧은 감탄 (포먼트 600Hz)
+    this._beep({
+      freq: 196,
+      toFreq: 147,
+      duration: 0.26,
+      type: 'sawtooth',
+      volume: 0.5,
+      filterType: 'bandpass',
+      filterFreq: 620,
+      filterQ: 4,
+      vibrato: { hz: 9, depth: 0.02 },
+    });
+    // "Oh" 의 낮은 배음 — 목소리 두께
+    this._beep({ freq: 98, toFreq: 73, duration: 0.26, type: 'square', volume: 0.16, delay: 0.006 });
+
+    // "No~" — 한숨 섞인 긴 하강 (포먼트를 조금 더 밝게)
+    this._beep({
+      freq: 233,
+      toFreq: 110,
+      duration: 0.62,
+      type: 'sawtooth',
+      volume: 0.46,
+      delay: 0.3,
+      filterType: 'bandpass',
+      filterFreq: 720,
+      filterQ: 3,
+      vibrato: { hz: 6.5, depth: 0.035 },
+    });
+    // 살짝 어긋난 2번째 성대(디튠) → 칩튠 특유의 두께
+    this._beep({
+      freq: 236,
+      toFreq: 112,
+      duration: 0.6,
+      type: 'square',
+      volume: 0.14,
+      delay: 0.305,
+      filterType: 'lowpass',
+      filterFreq: 1800,
+    });
+    // 숨 들이키는 소리
+    this._noise({ duration: 0.16, volume: 0.055, delay: 0.3, filterType: 'bandpass', filterFreq: 900, Q: 1.2 });
+
+    // 마지막 "흐엥..." — 낙담한 저음 여운
+    this._beep({
+      freq: 147,
+      toFreq: 82,
+      duration: 0.5,
+      type: 'triangle',
+      volume: 0.22,
+      delay: 0.88,
+      vibrato: { hz: 5, depth: 0.03 },
+    });
   }
 
   /** 속도 단계 변경: 짧은 블립 */
@@ -238,6 +432,7 @@ export default class SoundFX {
   /** 오디오 장치 정리 (페이지 종료/테스트 종료 시) */
   destroy() {
     this.stopBgm();
+    this._noiseBuffer = null;
     if (!this.ctx) return;
     try {
       if (typeof this.ctx.close === 'function') this.ctx.close();
@@ -252,13 +447,61 @@ export default class SoundFX {
   }
 
   /**
-   * 아기 울음소리 (Space 울기): "앙~ 앙~" 흐느끼는 두 마디
-   * - 톱니파를 상승 → 하강으로 휘어 아기자기한 울음 느낌을 만든다.
+   * 아기 울음소리 (Space 울기): "앙~ 앙~ 흐에엥..." 세 마디
+   * - 톱니파를 포먼트 필터로 다듬어 사람 목소리에 가깝게 만들고,
+   * - 비브라토(울먹임) + 들이키는 숨소리로 리얼한 아기 울음을 만든다.
    */
   playCry() {
-    this._beep({ freq: 720, toFreq: 1180, duration: 0.22, type: 'sawtooth', volume: 0.45 });
-    this._beep({ freq: 1180, toFreq: 640, duration: 0.28, type: 'sawtooth', volume: 0.42, delay: 0.18 });
-    this._beep({ freq: 600, toFreq: 940, duration: 0.2, type: 'triangle', volume: 0.32, delay: 0.48 });
+    // 1) "앙-" 첫 울음: 상승 글라이드 + 떨림
+    this._beep({
+      freq: 640,
+      toFreq: 1180,
+      duration: 0.26,
+      type: 'sawtooth',
+      volume: 0.42,
+      filterType: 'bandpass',
+      filterFreq: 1100,
+      filterQ: 2.5,
+      vibrato: { hz: 11, depth: 0.04 },
+    });
+    this._noise({ duration: 0.1, volume: 0.05, filterType: 'bandpass', filterFreq: 1600, Q: 1.5 });
+
+    // 2) "앙-" 두 번째: 숨을 들이쉬며 조금 더 높게
+    this._beep({
+      freq: 700,
+      toFreq: 1240,
+      duration: 0.3,
+      type: 'sawtooth',
+      volume: 0.4,
+      delay: 0.34,
+      filterType: 'bandpass',
+      filterFreq: 1250,
+      filterQ: 2.5,
+      vibrato: { hz: 9, depth: 0.05 },
+    });
+    this._noise({
+      duration: 0.09,
+      volume: 0.045,
+      delay: 0.34,
+      filterType: 'bandpass',
+      filterFreq: 1500,
+      Q: 1.2,
+    });
+
+    // 3) "흐에엥..." 끝이 처지는 긴 울음 (배음 + 저음 화음)
+    this._beep({
+      freq: 1180,
+      toFreq: 560,
+      duration: 0.44,
+      type: 'sawtooth',
+      volume: 0.34,
+      delay: 0.72,
+      filterType: 'lowpass',
+      filterFreq: 2200,
+      vibrato: { hz: 7, depth: 0.05 },
+    });
+    this._beep({ freq: 590, toFreq: 280, duration: 0.42, type: 'triangle', volume: 0.18, delay: 0.73 });
+    this._noise({ duration: 0.08, volume: 0.04, delay: 0.72, filterType: 'bandpass', filterFreq: 800 });
   }
 
   /** 울기 스킬: 아기 울음 + 얼음 결정이 맺히는 소리 */

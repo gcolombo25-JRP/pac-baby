@@ -34,11 +34,31 @@ export default class Player {
     // 침대 스텔스 (6단계 부가 기능)
     this.stealthTimer = 0;      // 남은 스텔스 시간
     this.stealthCooldown = 0;   // 재사용 대기 시간
+
+    // 체포 연출: 잡힌 자리에서 굳어버린 상태 (이 동안 이동/입력 무시)
+    this.stunTimer = 0;
   }
 
   /** 현재 스텔스 중인지 */
   get isStealthed() {
     return this.stealthTimer > 0;
+  }
+
+  /** 현재 체포 연출로 굳어 있는지 */
+  get isStunned() {
+    return this.stunTimer > 0;
+  }
+
+  /**
+   * 체포 연출: 그 자리에 굳는다 (이동/방향 입력 정지)
+   * @param {number} duration 굳어 있는 시간(ms)
+   */
+  stun(duration) {
+    this.stunTimer = Math.max(0, duration);
+    this.isMoving = false;
+    this.direction = null;
+    this.nextDirection = null;
+    this.nextDirectionTimer = 0;
   }
 
   /**
@@ -156,6 +176,15 @@ export default class Player {
     this.prevRow = this.row;
     this.prevCol = this.col;
 
+    // 체포 연출(굳은 상태) 중: 이동/입력은 멈추고 타이머만 흐른다
+    if (this.stunTimer > 0) {
+      this.stunTimer = Math.max(0, this.stunTimer - dt);
+      this._updateDigestion(dt);
+      this._updateStealth(dt);
+      this.isMoving = false;
+      return;
+    }
+
     // 소화 진행 (완료되면 트랩 배출 예약)
     this._updateDigestion(dt);
 
@@ -236,6 +265,7 @@ export default class Player {
     const stealth = this.stealthTimer > 0;
     const sugarRush = options.sugarRush === true;
     const goldenWalker = options.goldenWalker === true;
+    const scared = this.stunTimer > 0; // 체포 연출: 깜짝 놀라 굳은 표정
 
     // 파워업 색상: 황금 보행기 > 슈가 러시(무지개) > 기본
     let bodyColor = COLORS.BABY;
@@ -251,6 +281,12 @@ export default class Player {
       glowColor = 'rgba(244, 143, 177, 0.9)';
     }
 
+    // 체포 연출: 핏기 없는 창백한 얼굴 + 붉은 경고 글로우
+    if (scared) {
+      bodyColor = '#d8c9a3';
+      glowColor = 'rgba(239, 83, 80, 0.85)';
+    }
+
     // 스텔스 중에는 반투명하게 그린다
     if (stealth) ctx.globalAlpha = 0.32;
 
@@ -263,7 +299,7 @@ export default class Player {
     const squash = this.isMoving ? (1 - Math.abs(phase)) * 0.12 : 0;
     const breathe = 1 + Math.sin(timeMs / 520) * 0.02; // 숨쉬기
 
-    const cx = center.x;
+    const cx = center.x + (scared ? Math.sin(timeMs / 42) * 1.1 : 0); // 굳은 채 떨림
     const cy = center.y - bounce;
     const rx = radius * (1 + squash * 0.7);
     const ry = radius * (1 - squash * 0.4) * breathe;
@@ -359,11 +395,12 @@ export default class Player {
     ctx.fill();
 
     // 눈 (진행 방향을 바라보는 눈동자 + 주기적 깜빡임)
-    const look = this._lookVector();
+    // 체포 연출 중에는 눈을 크게 뜨고(휘둥그레) 깜빡이지 않는다
+    const look = scared ? { x: 0, y: 0 } : this._lookVector();
     const eyeY = cy - 3.2;
     const blink = (timeMs % 3400) > 3260 ? 0.2 : 1;
-    const eyeRx = 3.0;
-    const eyeRy = 3.5 * blink;
+    const eyeRx = scared ? 3.7 : 3.0;
+    const eyeRy = scared ? 4.3 : 3.5 * blink;
 
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
@@ -376,13 +413,14 @@ export default class Player {
     }
     ctx.fill();
 
-    // 눈동자 (방향에 따라 이동)
+    // 눈동자 (방향에 따라 이동) — 굳은 표정이면 작게(겁먹은 눈)
     const pupilX = look.x * 1.25;
     const pupilY = look.y * 1.25;
+    const pupilR = scared ? 1.2 : 1.6;
     ctx.fillStyle = '#2b2b33';
     ctx.beginPath();
-    ctx.arc(cx - 3.9 + pupilX, eyeY + pupilY, 1.6, 0, Math.PI * 2);
-    ctx.arc(cx + 3.9 + pupilX, eyeY + pupilY, 1.6, 0, Math.PI * 2);
+    ctx.arc(cx - 3.9 + pupilX, eyeY + pupilY, pupilR, 0, Math.PI * 2);
+    ctx.arc(cx + 3.9 + pupilX, eyeY + pupilY, pupilR, 0, Math.PI * 2);
     ctx.fill();
 
     // 눈동자 반짝임
@@ -392,13 +430,30 @@ export default class Player {
     ctx.arc(cx + 3.4 + pupilX, eyeY - 0.6 + pupilY, 0.62, 0, Math.PI * 2);
     ctx.fill();
 
-    // 미소
+    // 입: 평소엔 미소, 체포 연출 중에는 "Oh!" 하고 벌어진 입
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 1.5;
     ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.arc(cx, cy + 2.4, 3.8, 0.15 * Math.PI, 0.85 * Math.PI);
-    ctx.stroke();
+    if (scared) {
+      ctx.fillStyle = '#4e342e';
+      ctx.beginPath();
+      ctx.arc(cx, cy + 3.1, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 식은땀 한 방울 — 얼어붙은 표정 강조
+      ctx.fillStyle = 'rgba(129, 212, 250, 0.92)';
+      ctx.beginPath();
+      ctx.arc(
+        cx + rx * 0.78,
+        cy - ry * 0.86 + Math.sin(timeMs / 260) * 2.2,
+        1.6, 0, Math.PI * 2,
+      );
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx, cy + 2.4, 3.8, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+    }
 
     // 머리카락 한 가닥 (아호게)
     ctx.strokeStyle = '#d4a017';
@@ -451,6 +506,7 @@ export default class Player {
     this.expelledTraps = [];
     this.stealthTimer = 0;
     this.stealthCooldown = 0;
+    this.stunTimer = 0;
   }
 
   /** 악당에게 잡혔을 때 */

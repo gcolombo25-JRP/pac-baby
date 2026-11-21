@@ -168,6 +168,38 @@ export const READY_COUNTDOWN_MS = 3000; // 시작 전 준비(카운트다운) �
 export const SCORE_POPUP_MS = 900;      // 점수 팝업이 떠 있는 시간
 export const DEMO_IDLE_MS = 5000;       // 무입력 시 데모 플레이 자동 시작 시간
 
+// ===== 체포 연출 (Oh! No~) =====
+/** 잡힌 순간 베이비가 굳어 "Oh! No~" 를 듣는 시간 (이후 목숨 차감/게임 오버) */
+export const CAUGHT_STUN_MS = 2400;
+
+// ===== 라운드 시작 타이틀 =====
+/** READY 카운트다운과 함께 네온으로 표시되는 라운드별 플레이버 문구 */
+export const ROUND_TITLES = [
+  '베이비 탈출 ^^',                 // 1
+  '조금 빠르게~',                   // 2
+  '더 빨리 !',                      // 3
+  '추적 보모 한 명 더 왔다 *',       // 4
+  '순찰 보모도 한명 더 왔네 **',     // 5
+  '길이 막히기도 해 @',             // 6
+  '정전인가 !!!',                   // 7
+  '깜깜해~ 손 잡아줘',              // 8 (시야 제한 시작)
+  '새벽 수유 타임',                 // 9
+  '울음소리도 안 들려',             // 10
+  '보모들이 미쳐 날뛰어',           // 11
+  '갈수록 태산이다',                // 12
+];
+
+/**
+ * 라운드 번호에 맞는 타이틀 문구를 돌려준다.
+ * @param {number} round 1부터 시작하는 라운드
+ * @returns {string}
+ */
+export function getRoundTitle(round) {
+  const value = Number.isFinite(round) ? Math.floor(round) : 1;
+  if (value < 1) return ROUND_TITLES[0];
+  return ROUND_TITLES[value - 1] || `ROUND ${value} — 끝없는 밤`;
+}
+
 // ===== 목숨 / 라운드 / 하이스코어 (9단계) =====
 export const PLAYER_LIVES = 3;              // 기본 목숨(하트)
 export const ROUND_CLEAR_MODE = 'ITEMS';    // 'ITEMS' | 'SCORE' | 'BOTH'
