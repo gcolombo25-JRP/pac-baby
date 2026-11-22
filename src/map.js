@@ -578,9 +578,15 @@ export default class MapRenderer {
       ((island.id + 1) * 2654435761) ^ ((roundNo * 2246822519) >>> 0),
     );
 
-    // 가장 넓은 내부 사각형을 찾아 그 정중앙에 큼직한 일러스트를 배치한다
-    island.innerRect = this._findIslandInnerRect(island);
-    island.centerpiece = this._assignIslandCenterpiece(island, roundNo);
+    // 넓은 내부 사각형부터 차례로 마킹(소비)하며, 남은 2x2 이상 구역마다 일러스트를 배치한다
+    // (외곽 테두리처럼 하나로 이어진 큰 덩어리도 오른쪽 가운데 위/아래 블록이 비지 않는다)
+    const artRects = this._collectIslandArtRects(island);
+    island.innerRect = artRects[0] || this._findIslandInnerRect(island);
+    island.artRects = artRects;
+    island.pieces = artRects
+      .map((rect, index) => this._assignIslandCenterpiece(island, roundNo, rect, index))
+      .filter(Boolean);
+    island.centerpiece = island.pieces[0] || null;
 
     const area = tiles.length;
     const width = island.maxCol - island.minCol + 1;
@@ -646,10 +652,12 @@ export default class MapRenderer {
    * Island 안에서 가장 넓은 축정렬 내부 사각형을 찾는다.
    * - 히스토그램 최대 사각형 알고리즘으로 O(행 x 열) 에 구한다.
    * - 한 칸 두께 막대(1xN)보다 2칸 이상 두께의 사각형을 우선해 일러스트가 놓일 자리를 고른다.
+   * - consumed(마킹된 타일 집합)를 넘기면 이미 그림이 들어간 영역을 제외하고 다시 찾는다.
    * @param {object} island
+   * @param {Set<number>|null} [consumed] 이미 소비한 타일 키(row * COLS + col) 집합
    * @returns {{minRow:number,maxRow:number,minCol:number,maxCol:number,width:number,height:number,area:number}|null}
    */
-  _findIslandInnerRect(island) {
+  _findIslandInnerRect(island, consumed = null) {
     const index = this._islandIndex;
     if (!index) return null;
 
@@ -681,7 +689,9 @@ export default class MapRenderer {
     for (let row = island.minRow; row <= island.maxRow; row++) {
       for (let i = 0; i < width; i++) {
         const col = island.minCol + i;
-        heights[i] = index[row]?.[col] === island.id ? heights[i] + 1 : 0;
+        const usable = index[row]?.[col] === island.id
+          && (!consumed || !consumed.has(row * COLS + col));
+        heights[i] = usable ? heights[i] + 1 : 0;
       }
 
       const stack = [];
@@ -702,22 +712,53 @@ export default class MapRenderer {
   }
 
   /**
+   * Island 안에서 그림을 넣을 수 있는 2x2 이상 내부 사각형을 모두 모은다.
+   * - 가장 넓은 사각형을 찾아 마킹(소비)하고, 남은 타일에서 다시 찾는 것을 반복한다.
+   * - 그래서 외곽 테두리와 하나로 이어진 큰 덩어리도 오른쪽 가운데 위/아래 블록처럼
+   *   아직 그림이 없는 2x2 이상 구역마다 일러스트가 추가로 들어간다.
+   * - 서로 겹치지 않으며, 넓은 순서(첫 항목이 가장 큼)로 돌려준다.
+   * @param {object} island
+   * @returns {Array<object>} 내부 사각형 목록
+   */
+  _collectIslandArtRects(island) {
+    const rects = [];
+    const consumed = new Set();
+    let rect = this._findIslandInnerRect(island);
+
+    while (rect && rect.width >= 2 && rect.height >= 2) {
+      rects.push(rect);
+      for (let row = rect.minRow; row <= rect.maxRow; row++) {
+        for (let col = rect.minCol; col <= rect.maxCol; col++) {
+          consumed.add(row * COLS + col);
+        }
+      }
+      rect = this._findIslandInnerRect(island, consumed);
+    }
+
+    return rects;
+  }
+
+  /**
    * Island 중앙 일러스트를 라운드 시드로 배정한다.
    * - 내부 사각형이 2x2 이상일 때만 일러스트를 놓는다 (긴 1칸 막대는 스티치 테두리로 대체).
    * - 블록 모양(가로형/세로형/정사각)에 맞는 일러스트 세트에서 하나를 고른다.
    * - 내부 사각형 폭·높이의 75~85% 를 꽉 채우도록 rx/ry 를 따로 잡는다 (기존 대비 약 2배).
    * - 볼록 양각 / 오목 음각 / 뾰족 스크래치 질감도 시드로 섞어 블록마다 다르게 새긴다.
+   * - 한 Island 안의 여러 구역은 pieceIndex 를 시드에 섞어 위치마다 종류·질감이 갈린다.
    * @param {object} island
    * @param {number} round
+   * @param {object|null} [rect] 그림을 놓을 내부 사각형 (기본: island.innerRect)
+   * @param {number} [pieceIndex] Island 안에서 몇 번째 그림인지
    * @returns {object|null}
    */
-  _assignIslandCenterpiece(island, round = 1) {
+  _assignIslandCenterpiece(island, round = 1, rect = island.innerRect, pieceIndex = 0) {
     const roundNo = normalizeRound(round);
-    const rect = island.innerRect;
     if (!rect || rect.width < 2 || rect.height < 2) return null;
 
     const rng = createSeededRandom(
-      ((island.id + 13) * 2654435761) ^ ((roundNo * 3266489917) >>> 0),
+      ((island.id + 13) * 2654435761)
+      ^ ((roundNo * 3266489917) >>> 0)
+      ^ Math.imul(pieceIndex + 1, 668265263),
     );
 
     // ① 블록 모양에 맞는 일러스트 세트 (가로로 긴 / 세로로 긴 / 정사각)
@@ -930,43 +971,50 @@ export default class MapRenderer {
    */
   _drawWallIllustrations(ctx, islands = this._getWallIslands()) {
     for (const island of islands) {
-      const piece = island.centerpiece;
-      if (!piece) continue;
+      const pieces = Array.isArray(island.pieces) && island.pieces.length > 0
+        ? island.pieces
+        : (island.centerpiece ? [island.centerpiece] : []);
+      if (pieces.length === 0) continue;
 
       const palette = island.palette || WALL_PALETTES[0];
-      const rx = piece.rx || piece.radius || TILE_SIZE * 0.4;
-      const ry = piece.ry || rx;
-      const art = piece.variant || piece.kind;
 
-      ctx.save?.();
+      for (const piece of pieces) {
+        if (!piece) continue;
 
-      if (piece.rotation !== 0
-        && typeof ctx.translate === 'function'
-        && typeof ctx.rotate === 'function') {
-        ctx.translate(piece.x, piece.y);
-        ctx.rotate(piece.rotation);
-        ctx.translate(-piece.x, -piece.y);
-      }
+        const rx = piece.rx || piece.radius || TILE_SIZE * 0.4;
+        const ry = piece.ry || rx;
+        const art = piece.variant || piece.kind;
 
-      ctx.globalAlpha = piece.alpha;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+        ctx.save?.();
 
-      if (piece.texture === 'scratch') {
-        // ③ 뾰족하게 긁은 낙서 — 연하게 칠한 그림 위로 빗금/겹선 윤곽을 긁어 덮는다
-        ctx.globalAlpha = piece.alpha * 0.55;
-        this._drawArtGlyph(ctx, art, piece.x, piece.y, rx, ry);
-        ctx.globalAlpha = piece.alpha * 0.9;
-        this._drawArtScratch(ctx, palette, piece);
-      } else {
-        // ① 볼록 양각 / ② 오목 음각 — 스티커 판을 깐 뒤 그림을 인쇄한다
-        this._drawArtTexture(ctx, palette, piece);
+        if (piece.rotation !== 0
+          && typeof ctx.translate === 'function'
+          && typeof ctx.rotate === 'function') {
+          ctx.translate(piece.x, piece.y);
+          ctx.rotate(piece.rotation);
+          ctx.translate(-piece.x, -piece.y);
+        }
+
         ctx.globalAlpha = piece.alpha;
-        this._drawArtGlyph(ctx, art, piece.x, piece.y, rx, ry);
-      }
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
 
-      ctx.globalAlpha = 1;
-      ctx.restore?.();
+        if (piece.texture === 'scratch') {
+          // ③ 뾰족하게 긁은 낙서 — 연하게 칠한 그림 위로 빗금/겹선 윤곽을 긁어 덮는다
+          ctx.globalAlpha = piece.alpha * 0.55;
+          this._drawArtGlyph(ctx, art, piece.x, piece.y, rx, ry);
+          ctx.globalAlpha = piece.alpha * 0.9;
+          this._drawArtScratch(ctx, palette, piece);
+        } else {
+          // ① 볼록 양각 / ② 오목 음각 — 스티커 판을 깐 뒤 그림을 인쇄한다
+          this._drawArtTexture(ctx, palette, piece);
+          ctx.globalAlpha = piece.alpha;
+          this._drawArtGlyph(ctx, art, piece.x, piece.y, rx, ry);
+        }
+
+        ctx.globalAlpha = 1;
+        ctx.restore?.();
+      }
     }
   }
 
