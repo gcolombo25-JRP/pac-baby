@@ -313,32 +313,44 @@ export default class SoundFX {
 
   /**
    * 한 타일 이동: 아기 운동화 삑삑 소리
-   * - 살짝 위로 미끄러지는 triangle 파형(고무 마찰) + 짧은 고역 노이즈(바닥 스침)
+   * - 일반: 낮고 부드러운 triangle '톡톡' (lowpass 로 고역을 눌러 폰 스피커에서도 편안하게)
+   * - 슈가 러시: 1.8배 높은 square '삑삑' — 일반보다 확실히 경쾌하고 짧다
+   * - 황금 보행기: 1.65배 높은 반짝이는 톤 (보행기 특유의 금속성 느낌)
    * - 음높이를 번갈아 재생해 걸음걸이 리듬을 만든다.
-   * - 슈가 러시 중에는 피치를 올리고 길이/노이즈 대역을 더 밝고 짧게 만들어
-   *   "경쾌하게 튀는" 발걸음으로 바꾼다.
-   * @param {{sugarRush?: boolean}|boolean} [state] 베이비 상태 (true 만 넘겨도 동작)
+   * @param {{sugarRush?: boolean, goldenWalker?: boolean, booster?: boolean}|boolean} [state]
+   *   베이비 상태 (true 만 넘기면 슈가 러시로 동작)
    */
   playStep(state = {}) {
     // 호환: playStep(true) 로도 슈가 러시 상태를 전달할 수 있다
     const sugarRush = typeof state === 'boolean'
       ? state
       : !!(state && state.sugarRush);
+    const goldenWalker = typeof state === 'object' && state !== null
+      ? !!(state.goldenWalker || state.booster)
+      : false;
+    const boosted = sugarRush || goldenWalker;
 
     this.stepToggle = !this.stepToggle;
-    const base = this.stepToggle ? 1568 : 1397; // G6 / F6
-    const pitch = sugarRush ? 1.35 : 1;         // 슈가 러시: 약 5반음 위로
-    const duration = sugarRush ? 0.032 : 0.05;  // 더 짧게 톡톡 튀는 느낌
+
+    // 일반은 낮고 둥근 C5/B4, 파워업은 확실히 높은 대역으로 튄다
+    const base = this.stepToggle ? 523.25 : 493.88;
+    let pitch = 1;
+    if (goldenWalker && sugarRush) pitch = 1.95;
+    else if (sugarRush) pitch = 1.8;
+    else if (goldenWalker) pitch = 1.65;
+
+    const duration = sugarRush ? 0.03 : (goldenWalker ? 0.036 : 0.06);
 
     // 1) "삑-" 고무가 미끄러지는 주음
     this._beep({
       freq: base * pitch,
-      toFreq: base * pitch * 1.3,
+      toFreq: base * pitch * (boosted ? 1.32 : 1.18),
       duration,
-      type: 'triangle',
-      volume: sugarRush ? 0.44 : 0.5,
-      filterType: 'highpass',
-      filterFreq: sugarRush ? 1200 : 900,
+      type: boosted ? 'square' : 'triangle',
+      volume: sugarRush ? 0.42 : (goldenWalker ? 0.46 : 0.34),
+      // 파워업은 저역만 살짝 덜어내고(고역 컷오프 아님) 기본음을 살려 폰 스피커에서도 또렷하게
+      filterType: boosted ? 'highpass' : 'lowpass',
+      filterFreq: sugarRush ? 650 : (goldenWalker ? 800 : 1800),
     });
 
     // 2) 살짝 낮은 화음 — 소리가 얇지 않게 두께를 준다
@@ -346,18 +358,18 @@ export default class SoundFX {
       freq: base * pitch * 0.5,
       toFreq: base * pitch * 0.6,
       duration: duration + 0.01,
-      type: 'sine',
-      volume: sugarRush ? 0.14 : 0.16,
+      type: boosted ? 'triangle' : 'sine',
+      volume: sugarRush ? 0.16 : (goldenWalker ? 0.18 : 0.13),
       delay: 0.004,
     });
 
-    // 3) 바닥을 스치는 짧은 '사각' 노이즈 (슈가 러시는 더 높은 대역)
+    // 3) 바닥을 스치는 짧은 '사각' 노이즈 (파워업은 더 높고 짧은 대역)
     this._noise({
-      duration: sugarRush ? 0.02 : 0.03,
-      volume: sugarRush ? 0.07 : 0.09,
+      duration: sugarRush ? 0.018 : (goldenWalker ? 0.022 : 0.03),
+      volume: sugarRush ? 0.075 : (goldenWalker ? 0.085 : 0.055),
       delay: 0.002,
       filterType: 'highpass',
-      filterFreq: sugarRush ? 4200 : 2600,
+      filterFreq: sugarRush ? 4800 : (goldenWalker ? 5600 : 2200),
     });
   }
 

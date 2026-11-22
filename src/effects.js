@@ -20,6 +20,10 @@ const PARTICLE_PRESETS = {
 /** 눈물 파티클 색 */
 const TEAR_COLORS = ['#81d4fa', '#4fc3f7', '#b3e5fc', '#e1f5fe'];
 
+/** 일반 이동 발자국/먼지 흔적 설정 (아이템을 먹기 전부터 이동감을 준다) */
+const FOOTSTEP_LIFE = 0.5;   // 0.5초 내외로 사라진다
+const FOOTSTEP_BASE = '#ffe2b8'; // 바닥(진한 블루) 위에서도 보이는 따뜻한 크림색
+
 export default class Effects {
   constructor() {
     this.particles = [];
@@ -99,6 +103,45 @@ export default class Effects {
   /** 울기 발동: 눈물 파티클 (푸른 물방울) */
   burstTears(row, col, count) {
     return this._emit('tear', row, col, TEAR_COLORS, count);
+  }
+
+  /**
+   * 일반 이동 발자국/먼지 흔적 — 베이비가 지나간 타일 중앙에 작은 먼지가 폴폴 남는다.
+   * - 아이템/파워업 없이도 이동감을 즉시 느낄 수 있게 0.5초 내외로 사라진다.
+   * @param {number} x 월드 좌표(px)
+   * @param {number} y 월드 좌표(px)
+   * @param {{color?: string, boost?: boolean}} [options] boost = 파워업 중이면 조금 더 크고 밝게
+   * @returns {number} 생성된 먼지 파티클 수
+   */
+  footstep(x, y, options = {}) {
+    const baseX = Number.isFinite(x) ? x : 0;
+    const baseY = Number.isFinite(y) ? y : 0;
+    const color = options.color || FOOTSTEP_BASE;
+    const boost = options.boost === true;
+    const count = boost ? 4 : 3;
+
+    for (let i = 0; i < count; i++) {
+      const angle = this.rng() * Math.PI * 2;
+      const speed = (boost ? 32 : 22) * (0.35 + this.rng());
+      const life = FOOTSTEP_LIFE * (0.8 + this.rng() * 0.4);
+
+      this.particles.push({
+        kind: 'dust',
+        x: baseX + (this.rng() * 2 - 1) * 3.2,
+        y: baseY + (this.rng() * 2 - 1) * 1.8 + 4, // 발밑(살짝 아래)에서 피어오른다
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.45 - 6,
+        gravity: 26,
+        size: (boost ? 3.2 : 2.7) * (0.75 + this.rng() * 0.7),
+        color,
+        rotation: 0,
+        spin: 0,
+        life,
+        maxLife: life,
+      });
+    }
+
+    return count;
   }
 
   /**
@@ -265,6 +308,28 @@ export default class Effects {
         ctx.lineWidth = 0.7;
         ctx.stroke();
         ctx.restore?.();
+      } else if (particle.kind === 'dust') {
+        // 발자국 먼지: 시간이 지나며 조금 퍼지고 옅어진다 (작은 화면에서도 보이게 발광)
+        const grow = 1 + (1 - alpha) * 0.9;
+        ctx.save?.();
+        ctx.shadowColor = particle.color;
+        ctx.shadowBlur = 7;
+        ctx.globalAlpha = alpha * 0.7;
+        if (typeof ctx.ellipse === 'function') {
+          ctx.beginPath();
+          ctx.ellipse(
+            particle.x, particle.y,
+            size * grow, size * grow * 0.62, 0, 0, Math.PI * 2,
+          );
+        } else {
+          ctx.beginPath();
+          ctx.arc(particle.x, particle.y, size * grow, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+        ctx.restore?.();
+        ctx.globalAlpha = 1;
       } else if (particle.kind === 'tear') {
         // 눈물 물방울 (세로로 긴 타원 + 하이라이트)
         if (typeof ctx.ellipse === 'function') {

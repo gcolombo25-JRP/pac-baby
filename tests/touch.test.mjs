@@ -109,6 +109,40 @@ test('D-패드를 누르면 UI 클릭음이 한 번 재생된다', () => {
   assert.doesNotThrow(() => new TouchControls(createFakeInput(), root));
 });
 
+test('D-패드 외 UI 버튼도 클릭음을 재생하고 destroy 시 해제한다', () => {
+  const listeners = [];
+  const root = {
+    querySelectorAll: () => [],
+    addEventListener(type, handler, capture) { listeners.push({ type, handler, capture }); },
+    removeEventListener(type, handler) {
+      const index = listeners.findIndex(item => item.type === type && item.handler === handler);
+      if (index >= 0) listeners.splice(index, 1);
+    },
+    dispatch(type, target) {
+      listeners.filter(item => item.type === type).forEach(item => item.handler({ target }));
+    },
+  };
+
+  const clicks = [];
+  const sound = { playUiClick: () => clicks.push('click') };
+  const touch = new TouchControls(createFakeInput(), root, sound);
+
+  const uiButton = { hasAttribute: () => false };
+  const uiChild = { closest: selector => (selector === 'button' ? uiButton : null) };
+  root.dispatch('pointerdown', uiChild);
+  assert.equal(clicks.length, 1, 'UI 버튼 터치 시 클릭음이 재생된다');
+
+  // D-패드([data-key])는 자체 pointerdown 에서 재생하므로 여기서는 건너뛴다
+  const padButton = { hasAttribute: name => name === 'data-key' };
+  const padChild = { closest: selector => (selector === 'button' ? padButton : null) };
+  root.dispatch('pointerdown', padChild);
+  assert.equal(clicks.length, 1, 'D-패드는 중복 재생하지 않는다');
+
+  touch.destroy();
+  root.dispatch('pointerdown', uiChild);
+  assert.equal(clicks.length, 1, '정리 후에는 리스너가 해제된다');
+});
+
 test('DOM 이 없는 환경에서도 생성이 실패하지 않는다', () => {
   const input = createFakeInput();
   assert.doesNotThrow(() => new TouchControls(input, null));

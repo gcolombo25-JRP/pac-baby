@@ -77,6 +77,26 @@ test('충격파 링은 시간이 지나면 퍼지고 사라진다', () => {
   assert.equal(fx.rings.length, 0);
 });
 
+test('일반 이동 발자국 먼지는 0.5초 내외로 사라진다', () => {
+  const fx = new Effects();
+  fx.rng = () => 0.5;
+
+  const count = fx.footstep(100, 120);
+  assert.equal(count, 3);
+  assert.equal(fx.particles.length, 3);
+  assert.ok(fx.particles.every(p => p.kind === 'dust'));
+  assert.ok(fx.particles.every(p => p.life > 0.35 && p.life <= 0.5));
+
+  const ctx = createStubCtx();
+  assert.doesNotThrow(() => fx.renderParticles(ctx));
+
+  fx.update(0.6);
+  assert.equal(fx.particles.length, 0);
+
+  // 파워업 중에는 조금 더 많은 먼지가 남는다
+  assert.equal(fx.footstep(0, 0, { boost: true }), 4);
+});
+
 test('파티클은 수명이 끝나면 사라진다', () => {
   const fx = new Effects();
   fx.burstSparkle(1, 1);

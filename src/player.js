@@ -10,10 +10,10 @@ import {
 } from './constants.js';
 
 /** 파워업(슈가 러시 / 황금 보행기) 잔상 트레일 설정 */
-const TRAIL_SAMPLE_MS = 36;   // 잔상 샘플 간격 (약 28fps 느낌)
-const TRAIL_LIFE_MS = 340;    // 잔상 하나가 사라지기까지
-const TRAIL_MAX = 24;         // 동시에 유지하는 최대 잔상 수
-const TRAIL_MIN_MOVE = 2.5;   // 이 거리(px) 이상 움직였을 때만 새 잔상
+const TRAIL_SAMPLE_MS = 28;   // 잔상 샘플 간격 (더 촘촘하게 남겨 모바일에서도 끊기지 않게)
+const TRAIL_LIFE_MS = 420;    // 잔상 하나가 사라지기까지 (0.42초 — 작은 화면에서도 충분히 보인다)
+const TRAIL_MAX = 36;         // 동시에 유지하는 최대 잔상 수
+const TRAIL_MIN_MOVE = 2;     // 이 거리(px) 이상 움직였을 때만 새 잔상
 
 export default class Player {
   constructor(spawnPos) {
@@ -312,20 +312,21 @@ export default class Player {
       y: center.y,
       life: TRAIL_LIFE_MS,
       maxLife: TRAIL_LIFE_MS,
-      radius: TILE_SIZE / 2 - 2,
+      radius: TILE_SIZE / 2 - 1,
       color: '#ffd54f',
-      alpha: 0.4,
+      alpha: 0.62,
     };
 
+    // 초기 투명도를 높여 작은 모바일 화면에서도 잔상이 또렷하게 보이게 한다
     if (goldenWalker && sugarRush) {
-      ghost.color = `hsl(${hue}, 100%, 72%)`;
-      ghost.alpha = 0.44;
+      ghost.color = `hsl(${hue}, 100%, 75%)`;
+      ghost.alpha = 0.72;
     } else if (goldenWalker) {
       ghost.color = hue % 40 < 20 ? '#ffd54f' : '#fff8dc';
-      ghost.alpha = 0.46;
+      ghost.alpha = 0.7;
     } else {
-      ghost.color = `hsl(${hue}, 100%, 70%)`;
-      ghost.alpha = 0.34;
+      ghost.color = `hsl(${hue}, 100%, 72%)`;
+      ghost.alpha = 0.58;
     }
 
     this.trail.push(ghost);
@@ -347,9 +348,13 @@ export default class Player {
     // 오래된 잔상부터 그려 최신 잔상이 위에 오게 한다
     for (const ghost of this.trail) {
       const ratio = Math.max(0, Math.min(1, ghost.life / ghost.maxLife));
-      const fade = ratio * ratio; // 끝에서 빠르게 사라진다
-      const radius = ghost.radius * (0.5 + 0.5 * ratio);
+      // 초반에는 오래 유지하고 끝에서 부드럽게 사라진다 (이전 ratio² 보다 훨씬 또렷)
+      const fade = ratio * (0.55 + 0.45 * ratio);
+      const radius = ghost.radius * (0.62 + 0.38 * ratio);
 
+      // 발광: 작은 화면에서도 잔상이 배경에 묻히지 않도록 색 번짐을 준다
+      ctx.shadowColor = ghost.color;
+      ctx.shadowBlur = 8 + 10 * ratio;
       ctx.globalAlpha = fade * ghost.alpha;
       ctx.fillStyle = ghost.color;
       ctx.beginPath();
@@ -361,6 +366,8 @@ export default class Player {
       ctx.fill();
     }
 
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
     ctx.globalAlpha = 1;
     ctx.restore?.();
   }

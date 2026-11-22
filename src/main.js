@@ -88,15 +88,8 @@ function init() {
   const touchControls = new TouchControls(input, null, sound);
   window.__TOUCH = touchControls;
 
-  // D-패드 외 UI 버튼(도움말/리더보드/종료/모달 등)도 가벼운 클릭음을 낸다.
-  // D-패드([data-key])는 TouchControls 가 pointerdown 에서 직접 재생하므로 제외한다.
-  document.addEventListener('pointerdown', (event) => {
-    const target = event && event.target;
-    if (!target || typeof target.closest !== 'function') return;
-    const button = target.closest('button');
-    if (!button || button.hasAttribute('data-key')) return;
-    sound.playUiClick();
-  }, true);
+  // D-패드와 UI 버튼(도움말/리더보드/종료/모달 등)의 클릭음은
+  // TouchControls 가 pointerdown 에서 직접 재생한다 (중복 리스너 없음).
 
   // 화면 스와이프/드래그로 방향 전환 (터치/펜 전용, 마우스는 무시)
   const touchSwipe = new TouchSwipe(input, canvas);

@@ -875,8 +875,22 @@ export default class Game {
     // 닫힌 철창문이 반영된 navMap 으로 이동한다
     this.player.update(this.navMap, dt);
     if (this.player.isMoving) {
-      // 슈가 러시 중에는 더 높고 짧은 발자국 소리로 바뀐다
-      this.sound.playStep({ sugarRush: this.sugarRushTimer > 0 });
+      const sugarRush = this.sugarRushTimer > 0;
+      const goldenWalker = this.goldenTimer > 0;
+
+      // 일반 / 슈가 러시 / 황금 보행기 상태를 모두 넘겨 발자국 소리를 구분한다
+      this.sound.playStep({ sugarRush, goldenWalker });
+
+      // 이동할 때마다 지나온 타일 발밑에 작은 먼지 흔적을 남긴다
+      // (아이템을 먹기 전 1라운드 시작 직후에도 바로 이동감이 느껴진다)
+      const foot = this.player.getRenderCenter(0);
+      let dustColor;
+      if (goldenWalker) dustColor = '#ffe082';
+      else if (sugarRush) dustColor = `hsl(${(this.animTime / 8) % 360}, 100%, 78%)`;
+      this.effects.footstep(foot.x, foot.y, {
+        color: dustColor,
+        boost: goldenWalker || sugarRush,
+      });
     }
 
     // 침대 진입 → 스텔스, 종료 시 침대 표시 해제

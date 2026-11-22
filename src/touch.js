@@ -34,6 +34,9 @@ export default class TouchControls {
     this._layoutPending = false;
     this._onLayout = () => this._scheduleLayout();
 
+    // D-패드 버튼이 없더라도 UI 버튼 클릭음은 연결한다
+    this._setupUiClickSound();
+
     if (!this.root || typeof this.root.querySelectorAll !== 'function') return;
 
     const buttons = Array.from(this.root.querySelectorAll('[data-key]'));
@@ -55,7 +58,7 @@ export default class TouchControls {
 
         if (this.held.has(code)) return;
         this.held.add(code);
-        this.sound?.playUiClick?.(); // 손끝 반응: 짧은 틱 사운드
+        this._playUiClick(); // 손끝 반응: 짧은 틱 사운드
         this.input.press(code, { touch: true });
       };
       const onUp = (event) => {
@@ -78,6 +81,36 @@ export default class TouchControls {
   /** 연결된 버튼 수 */
   get buttonCount() {
     return this.handlers.length;
+  }
+
+  /** SoundFX UI 클릭음을 안전하게 재생 (없는 환경/테스트 스텁에서도 무시) */
+  _playUiClick() {
+    const play = this.sound && this.sound.playUiClick;
+    if (typeof play !== 'function') return;
+    try {
+      play.call(this.sound);
+    } catch (err) {
+      /* 오디오 오류가 입력을 막지 않게 무시 */
+    }
+  }
+
+  /**
+   * D-패드 외 UI 버튼(도움말/리더보드/종료/모달 등)도 터치/클릭 시 클릭음을 낸다.
+   * - [data-key] 버튼은 위의 onDown 에서 이미 재생했으므로 제외한다.
+   * - pointerdown 은 터치·마우스 모두 즉시 반응해 모바일에서도 지연이 없다.
+   */
+  _setupUiClickSound() {
+    if (!this.root || typeof this.root.addEventListener !== 'function') return;
+
+    this._onUiPointerDown = (event) => {
+      const target = event && event.target;
+      if (!target || typeof target.closest !== 'function') return;
+      const button = target.closest('button');
+      if (!button || button.hasAttribute('data-key')) return;
+      this._playUiClick();
+    };
+
+    this.root.addEventListener('pointerdown', this._onUiPointerDown, true);
   }
 
   // ===== 게임 화면 최대화용 레이아웃 측정 =====
@@ -169,6 +202,11 @@ export default class TouchControls {
     }
     this.handlers = [];
     this.held.clear();
+
+    if (this._onUiPointerDown && this.root && typeof this.root.removeEventListener === 'function') {
+      this.root.removeEventListener('pointerdown', this._onUiPointerDown, true);
+    }
+    this._onUiPointerDown = null;
 
     if (typeof window !== 'undefined') {
       window.removeEventListener('resize', this._onLayout);

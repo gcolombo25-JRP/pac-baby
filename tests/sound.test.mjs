@@ -132,9 +132,18 @@ test('슈가 러시 발자국은 일반 발자국보다 높고 짧은 소리를 
     const rushFreq = rushOsc.frequency.calls[0][1];
     assert.ok(rushFreq > normalFreq, '슈가 러시 발자국은 더 높은 피치로 시작한다');
 
+    assert.ok(rushFreq / normalFreq >= 1.35, `슈가 러시는 1.35배 이상 높다 (${rushFreq / normalFreq})`);
+
     const normalDuration = normalOsc.stoppedAt - normalOsc.startedAt;
     const rushDuration = rushOsc.stoppedAt - rushOsc.startedAt;
     assert.ok(rushDuration < normalDuration, '슈가 러시 발자국은 더 짧게 끝난다');
+
+    // 황금 보행기(부스터) 상태도 별도로 전달되어 일반보다 확실히 높은 소리를 낸다
+    const golden = new SoundFX();
+    golden.playStep({ goldenWalker: true });
+    const goldenFreq = golden.ctx.oscillators[0].frequency.calls[0][1];
+    assert.ok(goldenFreq > normalFreq * 1.35, '보행기 발자국도 충분히 높다');
+    assert.ok(goldenFreq < rushFreq, '슈가 러시가 가장 경쾌하다');
   } finally {
     delete globalThis.window;
   }
