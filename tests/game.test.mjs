@@ -61,6 +61,28 @@ function createStubCanvas() {
   return { width: CANVAS_WIDTH, height: CANVAS_WIDTH, ctx, getContext: () => ctx };
 }
 
+/** 방사형 그라디언트의 색상 정지점(stop)을 기록하는 스텁 */
+function createGradientCtx() {
+  const gradients = [];
+  return {
+    gradients,
+    fillStyle: '',
+    globalCompositeOperation: 'source-over',
+    createRadialGradient(...args) {
+      const gradient = {
+        args,
+        stops: [],
+        addColorStop(offset, color) { this.stops.push([offset, color]); },
+      };
+      gradients.push(gradient);
+      return gradient;
+    },
+    fillRect() {},
+  };
+}
+
+const alphaOf = (rgba) => Number.parseFloat(String(rgba).split(',')[3]);
+
 /** 최소 InputManager 스텁 */
 function createStubInput(direction = null) {
   return {
@@ -148,6 +170,35 @@ test('보간 계수를 바꿔도 렌더링이 안전하다', () => {
   for (const alpha of [0, 0.25, 0.5, 0.75, 1]) {
     assert.doesNotThrow(() => game._render(alpha));
   }
+});
+
+test('일반 라운드 조명은 수유등처럼 은은하고, 어둠 모드 시야 가시성은 유지된다', () => {
+  const game = new Game(createStubCanvas(), createStubInput());
+
+  // 일반 라운드: 가산 합성 조명의 코어 알파가 낮아 아기 얼굴/벽 테두리가 날아가지 않는다
+  game.round = 1;
+  assert.equal(game.darkMode, false);
+  const softCtx = createGradientCtx();
+  game._renderLighting(softCtx, 0);
+
+  const softGlow = softCtx.gradients[softCtx.gradients.length - 1];
+  assert.ok(softGlow, '따뜻한 수유등 그라디언트를 그린다');
+  const softCore = alphaOf(softGlow.stops[0][1]);
+  assert.ok(softCore > 0, '조명은 완전히 사라지지 않는다');
+  assert.ok(softCore <= 0.12, `일반 라운드 조명이 은은해야 한다 (core=${softCore})`);
+  assert.equal(softCtx.globalCompositeOperation, 'source-over', '합성 모드를 원복한다');
+
+  // 8라운드 이후 어둠 모드: 시야 확보를 위해 기존 광량을 유지한다
+  game.round = 8;
+  assert.equal(game.darkMode, true);
+  const darkCtx = createGradientCtx();
+  game._renderLighting(darkCtx, 0);
+
+  const darkGlow = darkCtx.gradients[darkCtx.gradients.length - 1];
+  assert.ok(darkGlow, '어둠 모드에서도 조명을 그린다');
+  const darkCore = alphaOf(darkGlow.stops[0][1]);
+  assert.ok(darkCore >= 0.2, `어둠 모드 조명은 가시성을 유지해야 한다 (core=${darkCore})`);
+  assert.ok(darkCore > softCore * 1.5, '일반 라운드보다 밝아야 한다');
 });
 
 test('맵 렌더러는 모든 타일을 그린다', () => {

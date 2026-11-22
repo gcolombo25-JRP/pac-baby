@@ -2435,26 +2435,48 @@ export default class Game {
 
     const strength = this.player.isStealthed ? 0.45 : 1; // 숨는 중엔 빛을 줄인다
 
+    // 일반 라운드의 조명은 '따뜻한 수유등'처럼 은은하게 (아기 얼굴/벽 테두리가 하얗게 날아가지 않도록).
+    // 8라운드 이후 어둠 모드에서는 시야 가시성을 위해 기존 광량을 그대로 유지한다.
+    const softWarmLight = !this.darkMode;
+
     // 파워업 중에는 조명 색도 바뀐다 (황금 / 핑크)
     let glowStops;
     if (this.goldenTimer > 0) {
-      glowStops = [
-        `rgba(255, 235, 130, ${0.3 * strength})`,
-        `rgba(255, 215, 0, ${0.14 * strength})`,
-        'rgba(255, 200, 0, 0)',
-      ];
+      glowStops = softWarmLight
+        ? [
+          `rgba(255, 235, 130, ${0.16 * strength})`,
+          `rgba(255, 215, 0, ${0.07 * strength})`,
+          'rgba(255, 200, 0, 0)',
+        ]
+        : [
+          `rgba(255, 235, 130, ${0.3 * strength})`,
+          `rgba(255, 215, 0, ${0.14 * strength})`,
+          'rgba(255, 200, 0, 0)',
+        ];
     } else if (this.sugarRushTimer > 0) {
-      glowStops = [
-        `rgba(255, 180, 220, ${0.24 * strength})`,
-        `rgba(240, 98, 146, ${0.1 * strength})`,
-        'rgba(240, 98, 146, 0)',
-      ];
+      glowStops = softWarmLight
+        ? [
+          `rgba(255, 180, 220, ${0.13 * strength})`,
+          `rgba(240, 98, 146, ${0.05 * strength})`,
+          'rgba(240, 98, 146, 0)',
+        ]
+        : [
+          `rgba(255, 180, 220, ${0.24 * strength})`,
+          `rgba(240, 98, 146, ${0.1 * strength})`,
+          'rgba(240, 98, 146, 0)',
+        ];
     } else {
-      glowStops = [
-        `rgba(255, 234, 170, ${0.2 * strength})`,
-        `rgba(255, 214, 120, ${0.08 * strength})`,
-        'rgba(255, 200, 90, 0)',
-      ];
+      glowStops = softWarmLight
+        ? [
+          `rgba(255, 236, 186, ${0.1 * strength})`,
+          `rgba(255, 210, 130, ${0.04 * strength})`,
+          'rgba(255, 200, 90, 0)',
+        ]
+        : [
+          `rgba(255, 234, 170, ${0.2 * strength})`,
+          `rgba(255, 214, 120, ${0.08 * strength})`,
+          'rgba(255, 200, 90, 0)',
+        ];
     }
     glow.addColorStop(0, glowStops[0]);
     glow.addColorStop(0.45, glowStops[1]);
@@ -2568,6 +2590,7 @@ export default class Game {
    * 데모 안내 오버레이 — 캔버스 상단에 큰 `DEMO` + 기기별 안내 문구.
    * PC: "게임 하시려면 아무 키나 누르세요"
    * 모바일(터치): "게임 하시려면 터치 하세요"
+   * - 배경은 반투명(rgba 0.48)이라 뒤에서 아기/보모가 움직이는 플레이 화면이 자연스럽게 비친다.
    */
   _renderDemoOverlay(ctx) {
     if (!this.demoMode) return;
@@ -2583,10 +2606,11 @@ export default class Game {
 
     ctx.save?.();
 
-    ctx.fillStyle = 'rgba(3, 12, 26, 0.82)';
+    // 반투명 오버레이 — 박스 뒤로 실제 플레이 화면이 비쳐 보인다
+    ctx.fillStyle = 'rgba(3, 12, 26, 0.48)';
     ctx.fillRect(panelX, panelY, panelW, panelH);
-    ctx.strokeStyle = `rgba(41, 182, 246, ${(0.55 + 0.35 * pulse).toFixed(3)})`;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(41, 182, 246, ${(0.24 + 0.22 * pulse).toFixed(3)})`;
+    ctx.lineWidth = 1.5;
     ctx.strokeRect?.(panelX, panelY, panelW, panelH);
 
     ctx.textAlign = 'center';

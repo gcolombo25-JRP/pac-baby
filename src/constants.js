@@ -47,6 +47,101 @@ export const COLORS = {
   SUGAR:       '#f06292',   // 슈가 러시 (핑크)
 };
 
+/**
+ * 벽 블록(장난감 교구) 파스텔 팔레트.
+ * - 연결된 벽 덩어리(Island)마다 색을 비대칭으로 배분해 아기방 스펀지/원목 교구처럼 보이게 한다.
+ * - 모든 팔레트는 비슷한 명도(지각 밝기)를 유지해 어두운 라벤더 바닥 위에서
+ *   "벽 = 밝은 블록 / 바닥 = 어두운 매트" 판독성이 흔들리지 않는다.
+ * - top: 윗면 / front*: 정면 돌출면(아래로 갈수록 어두움) / rim*: 상단·좌측 하이라이트
+ *   seam: 앞벽 모서리 구분선 / sheen*: 윗면 빛 번짐 / emboss*: 블록 표면 도장(양각·음각)
+ */
+export const WALL_PALETTES = [
+  {
+    name: 'mint',
+    top: '#6ec6b8',
+    frontTop: '#4f9e90',
+    frontMid: '#438a7e',
+    frontBottom: '#38756b',
+    rim: 'rgba(232, 255, 250, 0.95)',
+    rimSoft: 'rgba(184, 242, 230, 0.58)',
+    rimGlow: 'rgba(184, 242, 230, 0.55)',
+    rimRight: 'rgba(120, 190, 175, 0.52)',
+    rimRightGlow: 'rgba(32, 86, 78, 0.4)',
+    seam: 'rgba(24, 58, 52, 0.8)',
+    bevel: 'rgba(184, 242, 230, 0.7)',
+    sheen: [
+      ['0', 'rgba(214, 255, 246, 0.3)'],
+      ['0.35', 'rgba(184, 242, 230, 0.12)'],
+      ['1', 'rgba(184, 242, 230, 0)'],
+    ],
+    emboss: 'rgba(232, 255, 250, 0.5)',
+    embossDark: 'rgba(24, 66, 58, 0.16)',
+  },
+  {
+    name: 'butter',
+    top: '#f0d98f',
+    frontTop: '#d8bd6b',
+    frontMid: '#c7a95a',
+    frontBottom: '#b0914a',
+    rim: 'rgba(255, 249, 220, 0.95)',
+    rimSoft: 'rgba(255, 235, 165, 0.58)',
+    rimGlow: 'rgba(255, 224, 130, 0.5)',
+    rimRight: 'rgba(190, 158, 80, 0.52)',
+    rimRightGlow: 'rgba(90, 70, 20, 0.4)',
+    seam: 'rgba(92, 72, 24, 0.75)',
+    bevel: 'rgba(255, 239, 180, 0.7)',
+    sheen: [
+      ['0', 'rgba(255, 252, 230, 0.32)'],
+      ['0.35', 'rgba(255, 235, 165, 0.13)'],
+      ['1', 'rgba(255, 235, 165, 0)'],
+    ],
+    emboss: 'rgba(255, 252, 225, 0.55)',
+    embossDark: 'rgba(110, 84, 30, 0.18)',
+  },
+  {
+    name: 'sky',
+    top: '#8fc9e8',
+    frontTop: '#6da9cd',
+    frontMid: '#5c96ba',
+    frontBottom: '#4d82a5',
+    rim: 'rgba(226, 246, 255, 0.95)',
+    rimSoft: 'rgba(174, 219, 245, 0.58)',
+    rimGlow: 'rgba(144, 202, 249, 0.5)',
+    rimRight: 'rgba(100, 150, 180, 0.52)',
+    rimRightGlow: 'rgba(24, 60, 88, 0.4)',
+    seam: 'rgba(28, 62, 88, 0.75)',
+    bevel: 'rgba(214, 240, 255, 0.72)',
+    sheen: [
+      ['0', 'rgba(238, 250, 255, 0.34)'],
+      ['0.35', 'rgba(174, 219, 245, 0.14)'],
+      ['1', 'rgba(174, 219, 245, 0)'],
+    ],
+    emboss: 'rgba(238, 250, 255, 0.5)',
+    embossDark: 'rgba(30, 70, 100, 0.18)',
+  },
+  {
+    name: 'peach',
+    top: '#f0b6a2',
+    frontTop: '#d5977f',
+    frontMid: '#c4856e',
+    frontBottom: '#ad715c',
+    rim: 'rgba(255, 235, 226, 0.95)',
+    rimSoft: 'rgba(255, 205, 185, 0.58)',
+    rimGlow: 'rgba(244, 170, 140, 0.5)',
+    rimRight: 'rgba(180, 120, 100, 0.52)',
+    rimRightGlow: 'rgba(90, 40, 30, 0.4)',
+    seam: 'rgba(90, 48, 36, 0.75)',
+    bevel: 'rgba(255, 214, 198, 0.72)',
+    sheen: [
+      ['0', 'rgba(255, 242, 236, 0.34)'],
+      ['0.35', 'rgba(255, 205, 185, 0.14)'],
+      ['1', 'rgba(255, 205, 185, 0)'],
+    ],
+    emboss: 'rgba(255, 242, 236, 0.52)',
+    embossDark: 'rgba(110, 60, 45, 0.18)',
+  },
+];
+
 // ===== 화질 / 조명 설정 =====
 export const MAX_DEVICE_PIXEL_RATIO = 3;      // 레티나 스케일 상한 (성능 보호)
 export const BABY_LIGHT_RADIUS_TILES = 3.6;   // 베이비 주변 조명 반경 (타일 단위)

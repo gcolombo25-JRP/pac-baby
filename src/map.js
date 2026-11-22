@@ -4,7 +4,7 @@
 
 import {
   COLS, ROWS, TILE_SIZE, CANVAS_WIDTH, CANVAS_HEIGHT,
-  COLORS, TILE_MAP, isWalkableTile,
+  COLORS, TILE_MAP, WALL_PALETTES, isWalkableTile,
   getBabySpawn, getEnemySpawns, getItemSpawns,
 } from './constants.js';
 
@@ -75,26 +75,24 @@ const CRIB_STEALTH = {
 
 /**
  * 벽 2.5D 블록 규격
- * - 윗면(Top face) = 벽 타일 자체. 바닥보다 살짝 밝은 짙은 슬레이트/인디고 블루로 채워
- *   "네온 테두리만 있는 구멍"이 아니라 "바닥 위로 솟아오른 블록"으로 보이게 한다.
- * - 앞벽(Front face) = 타일 아래로 돌출되는 면. 윗면보다 어둡고 좌우 끝단/하단이 또렷하다.
- * - 앞벽 높이는 타일 높이의 24%(≈5.5 논리 px) — DPR 1.5~2 화면에서는 8~11 물리 px 로
- *   블록 두께가 뚜렷이 보이면서도 아래 타일 중앙의 아이템/트랩을 크게 가리지 않는다.
+ * - 윗면(Top face) = 벽 타일 자체. 파스텔 팔레트로 채워 "바닥 위로 솟아오른 장난감 블록"으로 보이게 한다.
+ * - 앞벽(Front face) = 타일 아래로 돌출되는 면. 윗면보다 한 톤 진하고 좌우 모서리에 음영이 진다.
+ * - 앞벽 높이는 약 6.4 논리 px — DPR 1.5~2 화면에서 약 9~13 물리 px 로 두께가 뚜렷하면서도
+ *   아래 타일 중앙의 아이템/트랩을 크게 가리지 않는다.
  * - 그림자는 반투명 그라디언트라 바닥을 덮어도 아이템이 비쳐 보인다.
  */
-const WALL_DEPTH = TILE_SIZE * 0.24;                                        // 정면 돌출면
-const WALL_EDGE_LIGHT = Math.max(1, TILE_SIZE * 0.045);                     // 윗면↔앞벽 베벨 라인
-const WALL_SHADOW_DEPTH = TILE_SIZE * 0.16;                                 // 바닥 드롭 섀도우
+const WALL_DEPTH = TILE_SIZE * 0.28;                                        // 정면 돌출면
+const WALL_EDGE_LIGHT = Math.max(1, TILE_SIZE * 0.05);                      // 윗면↔앞벽 베벨 라인
+const WALL_SHADOW_DEPTH = TILE_SIZE * 0.17;                                 // 바닥 드롭 섀도우
 const WALL_TOP_LIGHT_DEPTH = TILE_SIZE * 0.5;                               // 윗면 하이라이트
+const WALL_SEAM_OVERLAP = 0.6;                                              // 인접 타일 안티앨리어싱 틈 제거
+const WALL_SIDE_SHADE = TILE_SIZE * 0.09;                                   // 앞벽 좌우 세로 음영 폭
 
-// 벽 윗면(파스텔 민트) / 앞벽(딥 민트 — 장난감 블록 측면) / 구분선 색
-const WALL_TOP_FACE = '#6ec6b8';
-const WALL_FRONT_TOP = '#4f9e90';
-const WALL_FRONT_MID = '#438a7e';
-const WALL_FRONT_BOTTOM = '#38756b';
-const WALL_FRONT_SEAM = 'rgba(24, 58, 52, 0.85)';
-const WALL_FRONT_BEVEL = 'rgba(184, 242, 230, 0.85)';
-const WALL_WOOD_TRIM = 'rgba(201, 138, 82, 0.55)'; // 장난감 블록의 따뜻한 우드 이음선
+const WALL_WOOD_TRIM = 'rgba(201, 138, 82, 0.45)'; // 장난감 블록의 따뜻한 우드 이음선
+
+/** 블록 윗면에 새기는 애기풍 도장 순서 (섬 인덱스로 비대칭 순환) */
+const WALL_STAMP_SYMBOLS = ['cloud', 'star', 'crescent', 'heart', 'bear'];
+
 
 /**
  * 같은 면(面)에 속한 사각형들을 path 로 모아 한 번의 fill 로 채운다.
@@ -161,6 +159,8 @@ export default class MapRenderer {
     this.highlightBed = null; // 스텔스로 사용 중인 침대 { row, col }
     this._cache = null;       // 정적 맵 오프스크린 캔버스
     this.pixelRatio = 1;      // 캐시 해상도 배율 (레티나 선명화)
+    this._islands = null;     // 연결된 벽 덩어리(Island) 메타데이터
+    this._islandIndex = null; // 타일별 소속 Island id (벽이 아니면 -1)
   }
 
   /**
@@ -241,13 +241,13 @@ export default class MapRenderer {
   /** 맵이 바뀌었을 때 캐시를 버린다 */
   invalidate() {
     this._cache = null;
+    this._islands = null;
+    this._islandIndex = null;
   }
 
   /** 타일 전체를 그린다 (캐시 생성과 폴백에서 공용) */
   _drawTiles(ctx) {
-    // 벽 윗면(Top face)은 바닥보다 살짝 밝은 짙은 인디고 블루.
-    // → 어두운 구멍처럼 보이지 않고 바닥 위로 솟아오른 블록으로 읽힌다.
-    const wallFill = WALL_TOP_FACE;
+    const islands = this._getWallIslands();
     const cribTiles = [];
 
     for (let row = 0; row < ROWS; row++) {
@@ -257,9 +257,7 @@ export default class MapRenderer {
         const y = row * TILE_SIZE;
 
         switch (tile) {
-          case 1: // 벽 — 윗면은 한 번만 채우고, 입체 디테일은 뒤에서 일괄 처리한다
-            ctx.fillStyle = wallFill;
-            ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+          case 1: // 벽 — 바닥/가구를 모두 깐 뒤 Island 단위로 한 덩어리 채운다
             break;
 
           case 2: // 베이비 스폰 (침대) — 바닥만 먼저 깔고 가구는 벽 위에 덧그린다
@@ -284,9 +282,11 @@ export default class MapRenderer {
       }
     }
 
-    // 벽을 2.5D 블록처럼 돌출시킨 뒤, 테두리를 따라 푸른 네온 글로우
-    this._drawWallExtrusion(ctx);
-    this._drawNeonWalls(ctx);
+    // 연결된 벽 덩어리별 파스텔 윗면 → 애기풍 도장 → 2.5D 앞벽/그림자 → 하이라이트 림
+    this._drawWallTops(ctx, islands);
+    this._drawWallStamps(ctx, islands);
+    this._drawWallExtrusion(ctx, islands);
+    this._drawNeonWalls(ctx, islands);
 
     // 침대 가구는 벽 앞벽/그림자보다 나중에 그린다.
     // → 위쪽 벽의 앞벽·드롭 섀도우가 침대 상단을 덮어 뭉개지 않는다.
@@ -294,6 +294,242 @@ export default class MapRenderer {
       this._drawCribFurniture(ctx, crib.x, crib.y, crib.cx, CRIB_WARM);
     }
   }
+
+  /**
+   * 연결된 벽 타일(4방향)을 Island 로 묶고 파스텔 팔레트를 배분한다.
+   * - 인접한 Island 끼리는 같은 색을 쓰지 않아 경계가 자연스럽게 드러난다.
+   * - 2x2 이상 넓은 Island 에는 아기방 도장(구름/별/초승달/하트/곰돌이)을 배정한다.
+   * - 맵은 정적이므로 최초 1회만 계산하고 캐시한다.
+   * @returns {Array<object>}
+   */
+  _getWallIslands() {
+    if (this._islands) return this._islands;
+
+    const index = Array.from({ length: ROWS }, () => new Array(COLS).fill(-1));
+    const islands = [];
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        if (this.map[row][col] !== 1 || index[row][col] !== -1) continue;
+
+        const id = islands.length;
+        const island = {
+          id,
+          tiles: [],
+          minRow: row,
+          maxRow: row,
+          minCol: col,
+          maxCol: col,
+          neighbors: [],
+          paletteIndex: -1,
+          palette: WALL_PALETTES[0],
+          stamp: null,
+        };
+        const queue = [[row, col]];
+        index[row][col] = id;
+
+        while (queue.length > 0) {
+          const [r, c] = queue.pop();
+          island.tiles.push({ row: r, col: c });
+          if (r < island.minRow) island.minRow = r;
+          if (r > island.maxRow) island.maxRow = r;
+          if (c < island.minCol) island.minCol = c;
+          if (c > island.maxCol) island.maxCol = c;
+
+          for (const [dr, dc] of dirs) {
+            const nr = r + dr;
+            const nc = c + dc;
+            if (!this._isWallTile(nr, nc) || index[nr][nc] !== -1) continue;
+            index[nr][nc] = id;
+            queue.push([nr, nc]);
+          }
+        }
+
+        islands.push(island);
+      }
+    }
+
+    // 인접 Island 수집 + 그리디 색 배분 (이미 배정된 이웃과 겹치지 않게)
+    const neighborSets = islands.map(() => new Set());
+    for (const island of islands) {
+      for (const { row, col } of island.tiles) {
+        for (const [dr, dc] of dirs) {
+          const other = index[row + dr]?.[col + dc];
+          if (other === undefined || other < 0 || other === island.id) continue;
+          neighborSets[island.id].add(other);
+        }
+      }
+    }
+
+    let usage = null;
+
+    for (const island of islands) {
+      island.neighbors = Array.from(neighborSets[island.id]);
+      const used = new Set();
+      for (const otherId of island.neighbors) {
+        if (otherId < island.id) used.add(islands[otherId].paletteIndex);
+      }
+
+      const width = island.maxCol - island.minCol + 1;
+      const height = island.maxRow - island.minRow + 1;
+      const paletteCount = WALL_PALETTES.length;
+      const start = (island.id * 3 + island.minRow + island.minCol * 2 + width * 5) % paletteCount;
+      if (!usage) usage = new Array(paletteCount).fill(0);
+
+      // 이웃 색을 피하면서, 전체적으로 색이 고르게 퍼지도록 가장 적게 쓴 팔레트를 고른다
+      let pick = -1;
+      for (let k = 0; k < paletteCount; k++) {
+        const candidate = (start + k) % paletteCount;
+        if (used.has(candidate)) continue;
+        if (pick < 0 || usage[candidate] < usage[pick]) pick = candidate;
+      }
+      if (pick < 0) pick = start;
+
+      usage[pick] += 1;
+      island.paletteIndex = pick;
+      island.palette = WALL_PALETTES[pick];
+
+      // 2x2 이상 + 중앙에 가까운 '안쪽' 타일을 골라 도장을 새긴다
+      if (width >= 2 && height >= 2) {
+        const centerX = (island.minCol + island.maxCol + 1) / 2;
+        const centerY = (island.minRow + island.maxRow + 1) / 2;
+        let best = island.tiles[0];
+        let bestScore = -Infinity;
+
+        for (const tile of island.tiles) {
+          let degree = 0;
+          for (const [dr, dc] of dirs) {
+            if (index[tile.row + dr]?.[tile.col + dc] === island.id) degree++;
+          }
+          const dist = Math.abs(tile.col + 0.5 - centerX) + Math.abs(tile.row + 0.5 - centerY);
+          const score = degree * 4 - dist;
+          if (score > bestScore) { bestScore = score; best = tile; }
+        }
+
+        island.stamp = {
+          x: (best.col + 0.5) * TILE_SIZE,
+          y: (best.row + 0.5) * TILE_SIZE,
+          radius: Math.min(
+            Math.min(width, height) * TILE_SIZE * 0.2,
+            TILE_SIZE * 0.9,
+          ),
+          symbol: WALL_STAMP_SYMBOLS[(island.id + width + height) % WALL_STAMP_SYMBOLS.length],
+        };
+      }
+    }
+
+    this._islandIndex = index;
+    this._islands = islands;
+    return islands;
+  }
+
+  /**
+   * 벽 윗면을 Island 색으로 채운다.
+   * - 타일마다 0.6px 씩 겹쳐 채워 인접 타일 사이로 바닥 격자선이 비치지 않는다.
+   * - fillRect 1회/타일 계약은 그대로 유지한다 (기존 캐시 테스트 호환).
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array<object>} islands
+   */
+  _drawWallTops(ctx, islands = this._getWallIslands()) {
+    for (const island of islands) {
+      ctx.fillStyle = island.palette.top;
+      for (const { row, col } of island.tiles) {
+        ctx.fillRect(
+          col * TILE_SIZE - WALL_SEAM_OVERLAP,
+          row * TILE_SIZE - WALL_SEAM_OVERLAP,
+          TILE_SIZE + WALL_SEAM_OVERLAP * 2,
+          TILE_SIZE + WALL_SEAM_OVERLAP * 2,
+        );
+      }
+    }
+  }
+
+
+  /**
+   * 넓은 벽 윗면 중앙에 아기방 도장(구름/별/초승달/하트/곰돌이)을 은은하게 새긴다.
+   * - 블록 색보다 살짝 밝은 양각 + 살짝 어두운 음각 그림자로 엠보싱 느낌을 준다.
+   * - roundRect/ellipse/bezierCurveTo 에 의존하지 않고 기본 경로(arc/lineTo)만 쓴다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array<object>} islands
+   */
+  _drawWallStamps(ctx, islands = this._getWallIslands()) {
+    for (const island of islands) {
+      const stamp = island.stamp;
+      if (!stamp) continue;
+
+      ctx.save?.();
+      ctx.globalAlpha = 0.9;
+
+      // 음각 그림자 (아래·오른쪽으로 살짝)
+      ctx.fillStyle = island.palette.embossDark;
+      this._traceStampPath(ctx, stamp.symbol, stamp.x + 0.7, stamp.y + 0.9, stamp.radius);
+      ctx.fill();
+
+      // 양각 하이라이트
+      ctx.fillStyle = island.palette.emboss;
+      this._traceStampPath(ctx, stamp.symbol, stamp.x, stamp.y, stamp.radius);
+      ctx.fill();
+
+      ctx.globalAlpha = 1;
+      ctx.restore?.();
+    }
+  }
+
+  /** 도장 실루엣 경로 (기본 Canvas 2D 도형만 사용) */
+  _traceStampPath(ctx, symbol, cx, cy, r) {
+    ctx.beginPath();
+
+    if (symbol === 'cloud') {
+      // 납작한 구름 밑판 + 세 개의 방울
+      ctx.moveTo(cx - r * 0.95, cy + r * 0.46);
+      ctx.lineTo(cx + r * 0.95, cy + r * 0.46);
+      ctx.lineTo(cx + r * 0.95, cy + r * 0.12);
+      ctx.lineTo(cx - r * 0.95, cy + r * 0.12);
+      ctx.closePath();
+      ctx.moveTo(cx - r * 0.2, cy + r * 0.08);
+      ctx.arc(cx - r * 0.56, cy + r * 0.08, r * 0.36, 0, Math.PI * 2);
+      ctx.moveTo(cx + r * 0.82, cy + r * 0.04);
+      ctx.arc(cx + r * 0.5, cy + r * 0.04, r * 0.32, 0, Math.PI * 2);
+      ctx.moveTo(cx + r * 0.53, cy - r * 0.22);
+      ctx.arc(cx + r * 0.05, cy - r * 0.22, r * 0.48, 0, Math.PI * 2);
+    } else if (symbol === 'star') {
+      for (let i = 0; i < 10; i++) {
+        const radius = i % 2 === 0 ? r : r * 0.46;
+        const angle = -Math.PI / 2 + (Math.PI / 5) * i;
+        const px = cx + Math.cos(angle) * radius;
+        const py = cy + Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    } else if (symbol === 'crescent') {
+      // 바깥 원 + 반대 방향 안쪽 원(구멍) → 초승달
+      ctx.moveTo(cx + r, cy);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.moveTo(cx + r * 1.2, cy - r * 0.12);
+      ctx.arc(cx + r * 0.38, cy - r * 0.12, r * 0.82, 0, Math.PI * 2, true);
+    } else if (symbol === 'heart') {
+      // 두 개의 동그란 볼 + 아래로 모이는 삼각형 (arc/lineTo 만 사용)
+      ctx.moveTo(cx - r * 0.95, cy - r * 0.3);
+      ctx.arc(cx - r * 0.45, cy - r * 0.3, r * 0.5, 0, Math.PI * 2);
+      ctx.moveTo(cx + r * 0.95, cy - r * 0.3);
+      ctx.arc(cx + r * 0.45, cy - r * 0.3, r * 0.5, 0, Math.PI * 2);
+      ctx.moveTo(cx - r * 0.92, cy - r * 0.18);
+      ctx.lineTo(cx, cy + r * 0.95);
+      ctx.lineTo(cx + r * 0.92, cy - r * 0.18);
+      ctx.closePath();
+    } else {
+      // 귀여운 곰돌이 실루엣 — 양쪽 귀 + 동글동글 머리
+      ctx.moveTo(cx - r * 0.28, cy - r * 0.52);
+      ctx.arc(cx - r * 0.62, cy - r * 0.52, r * 0.34, 0, Math.PI * 2);
+      ctx.moveTo(cx + r * 0.96, cy - r * 0.52);
+      ctx.arc(cx + r * 0.62, cy - r * 0.52, r * 0.34, 0, Math.PI * 2);
+      ctx.moveTo(cx + r * 0.8, cy + r * 0.14);
+      ctx.arc(cx, cy + r * 0.14, r * 0.8, 0, Math.PI * 2);
+    }
+  }
+
 
   /**
    * 벽 타일을 2.5D 블록처럼 보이게 하는 돌출 레이어.
@@ -307,106 +543,100 @@ export default class MapRenderer {
    * - 행(row)마다 면(面)을 묶어 fill 하므로 타일 수와 무관하게 채움 호출은 행당 최대 5회다.
    * @param {CanvasRenderingContext2D} ctx
    */
-  _drawWallExtrusion(ctx) {
-    const isWall = (row, col) => this._isWallTile(row, col);
+  /**
+   * 벽 Island 을 2.5D 장난감 블록처럼 돌출시킨다.
+   * ① 윗면 위쪽 모서리의 부드러운 빛 번짐(sheen)
+   * ② 윗면보다 한 톤 진한 정면 앞벽 + 양쪽 세로 모서리 음영 + 베벨/우드 이음선
+   * ③ 앞벽 아래 바닥으로 떨어지는 드롭 섀도우
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array<object>} islands
+   */
+  _drawWallExtrusion(ctx, islands = this._getWallIslands()) {
+    for (const island of islands) this._drawIslandExtrusion(ctx, island);
+  }
 
-    for (let row = 0; row < ROWS; row++) {
-      const lit = [];      // 위가 뚫린 벽 (윗면이 빛을 받는다)
-      const exposed = [];  // 아래가 뚫린 벽 (앞벽이 보인다)
-
-      for (let col = 0; col < COLS; col++) {
-        if (this.map[row][col] !== 1) continue;
-        if (!isWall(row - 1, col)) lit.push(col);
-        if (!isWall(row + 1, col)) exposed.push(col);
+  /** Island 안에서 조건을 만족하는 연속 가로 구간(run)을 순회한다 */
+  _forEachIslandRun(island, predicate, callback) {
+    for (let row = island.minRow; row <= island.maxRow; row++) {
+      let start = -1;
+      for (let col = island.minCol; col <= island.maxCol + 1; col++) {
+        const inside = col <= island.maxCol
+          && this._islandIndex?.[row]?.[col] === island.id
+          && predicate(row, col);
+        if (inside && start < 0) start = col;
+        else if (!inside && start >= 0) {
+          callback(row, start, col - 1);
+          start = -1;
+        }
       }
-
-      const y = row * TILE_SIZE;
-
-      // ① 윗면(Top face) — 위 모서리에서 아래로 갈수록 옅어지는 빛 (빛은 위에서 내려온다)
-      if (lit.length > 0) {
-        const topSheen = safeLinearGradient(ctx, 0, y, 0, y + WALL_TOP_LIGHT_DEPTH, [
-          [0, 'rgba(214, 255, 246, 0.34)'],
-          [0.35, 'rgba(184, 242, 230, 0.14)'],
-          [1, 'rgba(184, 242, 230, 0)'],
-        ]) || 'rgba(184, 242, 230, 0.14)';
-
-        fillRects(
-          ctx,
-          topSheen,
-          lit.map(col => [col * TILE_SIZE, y, TILE_SIZE, WALL_TOP_LIGHT_DEPTH]),
-        );
-      }
-
-      if (exposed.length === 0) continue;
-
-      const baseY = y + TILE_SIZE;        // 윗면과 앞벽의 경계
-      const bottomY = baseY + WALL_DEPTH; // 블록의 가장 아랫면
-
-      // ② 정면 앞벽 — 윗면보다 어둡고, 아래로 갈수록 더 가라앉는 중간 톤
-      const face = safeLinearGradient(ctx, 0, baseY, 0, bottomY, [
-        [0, WALL_FRONT_TOP],
-        [0.55, WALL_FRONT_MID],
-        [1, WALL_FRONT_BOTTOM],
-      ]) || WALL_FRONT_MID;
-
-      fillRects(
-        ctx,
-        face,
-        exposed.map(col => [col * TILE_SIZE, baseY, TILE_SIZE, WALL_DEPTH]),
-      );
-
-      // 윗면↔앞벽 경계의 얇고 선명한 베벨 라인 (블록이 꺾여 내려오는 모서리)
-      fillRects(
-        ctx,
-        WALL_FRONT_BEVEL,
-        exposed.map(col => [col * TILE_SIZE, baseY, TILE_SIZE, WALL_EDGE_LIGHT]),
-      );
-
-      // 파스텔 민트 림 바로 아래의 얇은 우드 이음선 — 원목 장난감 블록 느낌
-      fillRects(
-        ctx,
-        WALL_WOOD_TRIM,
-        exposed.map(col => [
-          col * TILE_SIZE,
-          baseY + WALL_EDGE_LIGHT,
-          TILE_SIZE,
-          Math.max(1, TILE_SIZE * 0.035),
-        ]),
-      );
-
-      // 연속된 앞벽 구간마다 좌·우 끝단 세로선 + 하단 가로선 (1px)
-      // → 블록의 두께와 실루엣이 작은 화면에서도 또렷해진다.
-      const seamRects = [];
-      let runStart = exposed[0];
-      for (let i = 0; i < exposed.length; i++) {
-        const isRunEnd = i === exposed.length - 1 || exposed[i + 1] !== exposed[i] + 1;
-        if (!isRunEnd) continue;
-
-        const runX = runStart * TILE_SIZE;
-        const runW = (exposed[i] + 1) * TILE_SIZE - runX;
-
-        seamRects.push([runX, baseY, 1, WALL_DEPTH]);
-        seamRects.push([runX + runW - 1, baseY, 1, WALL_DEPTH]);
-        seamRects.push([runX, bottomY - 1, runW, 1]);
-
-        runStart = exposed[i + 1];
-      }
-      fillRects(ctx, WALL_FRONT_SEAM, seamRects);
-
-      // ③ 바닥 드롭 섀도우 — 앞벽 밑면 바로 아래로 짧게 떨어진다
-      //    (아이템은 게임 루프에서 그 위에 그려지므로 가려지지 않는다)
-      const shadow = safeLinearGradient(ctx, 0, bottomY, 0, bottomY + WALL_SHADOW_DEPTH, [
-        [0, 'rgba(0, 0, 0, 0.46)'],
-        [0.5, 'rgba(0, 0, 0, 0.18)'],
-        [1, 'rgba(0, 0, 0, 0)'],
-      ]) || 'rgba(0, 0, 0, 0.22)';
-
-      fillRects(
-        ctx,
-        shadow,
-        exposed.map(col => [col * TILE_SIZE, bottomY, TILE_SIZE, WALL_SHADOW_DEPTH]),
-      );
     }
+  }
+
+  /** Island 하나의 앞벽/모서리 음영/드롭 섀도우 */
+  _drawIslandExtrusion(ctx, island) {
+    const palette = island.palette;
+    const trimH = Math.max(1, TILE_SIZE * 0.035);
+
+    // ① 윗면 상단에서 아래로 옅어지는 부드러운 빛 (위에서 빛이 내려온다)
+    this._forEachIslandRun(
+      island,
+      (row, col) => !this._isWallTile(row - 1, col),
+      (row, start, end) => {
+        const y = row * TILE_SIZE;
+        const sheen = safeLinearGradient(ctx, 0, y, 0, y + WALL_TOP_LIGHT_DEPTH, palette.sheen)
+          || 'rgba(255, 255, 255, 0.1)';
+        fillRects(ctx, sheen, [[
+          start * TILE_SIZE, y, (end - start + 1) * TILE_SIZE, WALL_TOP_LIGHT_DEPTH,
+        ]]);
+      },
+    );
+
+    // ② 아래가 뚫린 구간에 정면 앞벽을 세운다
+    this._forEachIslandRun(
+      island,
+      (row, col) => !this._isWallTile(row + 1, col),
+      (row, start, end) => {
+        const runX = start * TILE_SIZE;
+        const runW = (end - start + 1) * TILE_SIZE;
+        const baseY = (row + 1) * TILE_SIZE;
+        const bottomY = baseY + WALL_DEPTH;
+
+        const face = safeLinearGradient(ctx, 0, baseY, 0, bottomY, [
+          [0, palette.frontTop],
+          [0.55, palette.frontMid],
+          [1, palette.frontBottom],
+        ]) || palette.frontMid;
+        fillRects(ctx, face, [[runX, baseY, runW, WALL_DEPTH]]);
+
+        // 윗면↔앞벽 경계의 밝은 베벨 + 원목 이음선
+        fillRects(ctx, palette.bevel, [[runX, baseY, runW, WALL_EDGE_LIGHT]]);
+        fillRects(ctx, WALL_WOOD_TRIM, [[runX, baseY + WALL_EDGE_LIGHT, runW, trimH]]);
+
+        // 양쪽 세로 모서리 음영 + 왼쪽 빛 받는 모서리
+        const shadeTop = baseY + WALL_EDGE_LIGHT;
+        const shadeH = WALL_DEPTH - WALL_EDGE_LIGHT;
+        fillRects(ctx, 'rgba(0, 0, 0, 0.14)', [[runX, shadeTop, WALL_SIDE_SHADE, shadeH]]);
+        fillRects(ctx, 'rgba(0, 0, 0, 0.2)', [[
+          runX + runW - WALL_SIDE_SHADE, shadeTop, WALL_SIDE_SHADE, shadeH,
+        ]]);
+        fillRects(ctx, palette.rimSoft, [[runX + WALL_SIDE_SHADE * 0.45, shadeTop, 0.8, shadeH]]);
+
+        // 블록 실루엣을 또렷하게 잡는 1px 구분선
+        fillRects(ctx, palette.seam, [
+          [runX, baseY, 1, WALL_DEPTH],
+          [runX + runW - 1, baseY, 1, WALL_DEPTH],
+          [runX, bottomY - 1, runW, 1],
+        ]);
+
+        // ③ 앞벽 밑면 바로 아래로 짧게 떨어지는 드롭 섀도우
+        const shadow = safeLinearGradient(ctx, 0, bottomY, 0, bottomY + WALL_SHADOW_DEPTH, [
+          [0, 'rgba(0, 0, 0, 0.5)'],
+          [0.5, 'rgba(0, 0, 0, 0.2)'],
+          [1, 'rgba(0, 0, 0, 0)'],
+        ]) || 'rgba(0, 0, 0, 0.24)';
+        fillRects(ctx, shadow, [[runX, bottomY, runW, WALL_SHADOW_DEPTH]]);
+      },
+    );
   }
 
   /** 벽 타일 여부 (범위 밖은 벽으로 취급하지 않는다) */
@@ -415,14 +645,15 @@ export default class MapRenderer {
   }
 
   /**
-   * 벽 테두리 중 지정한 방향의 모서리만 하나의 path 로 만든다.
+   * Island 테두리 중 지정한 방향의 모서리만 하나의 path 로 만든다.
    * - 빛은 위에서 내려오므로 'top'(가장 밝음) / 'left'(밝음) / 'right'(어두움)을
    *   각각 따로 그려 방향성 있는 림 라이트를 만든다.
    * @param {CanvasRenderingContext2D} ctx
+   * @param {object} island
    * @param {'top'|'topLeft'|'right'} sides
    * @returns {boolean} 그린 선이 하나라도 있으면 true
    */
-  _traceWallEdges(ctx, sides) {
+  _traceIslandEdges(ctx, island, sides) {
     const isWall = (row, col) => this._isWallTile(row, col);
     const wantTop = sides === 'top' || sides === 'topLeft';
     const wantLeft = sides === 'left' || sides === 'topLeft';
@@ -431,28 +662,24 @@ export default class MapRenderer {
     let hasEdges = false;
     ctx.beginPath();
 
-    for (let row = 0; row < ROWS; row++) {
-      for (let col = 0; col < COLS; col++) {
-        if (this.map[row][col] !== 1) continue;
+    for (const { row, col } of island.tiles) {
+      const x = col * TILE_SIZE;
+      const y = row * TILE_SIZE;
 
-        const x = col * TILE_SIZE;
-        const y = row * TILE_SIZE;
-
-        if (wantTop && !isWall(row - 1, col)) {
-          ctx.moveTo(x, y + 0.6);
-          ctx.lineTo(x + TILE_SIZE, y + 0.6);
-          hasEdges = true;
-        }
-        if (wantLeft && !isWall(row, col - 1)) {
-          ctx.moveTo(x + 0.6, y);
-          ctx.lineTo(x + 0.6, y + TILE_SIZE);
-          hasEdges = true;
-        }
-        if (wantRight && !isWall(row, col + 1)) {
-          ctx.moveTo(x + TILE_SIZE - 0.6, y);
-          ctx.lineTo(x + TILE_SIZE - 0.6, y + TILE_SIZE);
-          hasEdges = true;
-        }
+      if (wantTop && !isWall(row - 1, col)) {
+        ctx.moveTo(x, y + 0.6);
+        ctx.lineTo(x + TILE_SIZE, y + 0.6);
+        hasEdges = true;
+      }
+      if (wantLeft && !isWall(row, col - 1)) {
+        ctx.moveTo(x + 0.6, y);
+        ctx.lineTo(x + 0.6, y + TILE_SIZE);
+        hasEdges = true;
+      }
+      if (wantRight && !isWall(row, col + 1)) {
+        ctx.moveTo(x + TILE_SIZE - 0.6, y);
+        ctx.lineTo(x + TILE_SIZE - 0.6, y + TILE_SIZE);
+        hasEdges = true;
       }
     }
 
@@ -460,55 +687,60 @@ export default class MapRenderer {
   }
 
   /**
-   * 통로와 맞닿은 벽 테두리에 방향성 있는 네온 림 라이트를 그린다.
-   * - 윗면 상단 + 좌측 모서리: 빛을 받는 면 → 가장 밝은 시안 네온
+   * 통로와 맞닿은 벽 테두리에 Island 색의 방향성 하이라이트 림을 그린다.
+   * - 윗면 상단 + 좌측 모서리: 빛을 받는 면 → 밝은 파스텔 림
    * - 우측 모서리: 빛을 등지는 면 → 낮은 광량의 얇은 라인
    * - 아랫면(앞벽 밑면)은 여기서 빛내지 않는다 → _drawWallExtrusion 의 어두운 1px 선이 담당
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array<object>} islands
    */
-  _drawNeonWalls(ctx) {
-    if (!this._traceWallEdges(ctx, 'topLeft')) return;
-
+  _drawNeonWalls(ctx, islands = this._getWallIslands()) {
     // shadowBlur 는 CTM 의 영향을 받지 않으므로 DPR 만큼 키워 논리 크기를 유지한다
     const blurScale = this.pixelRatio > 0 ? this.pixelRatio : 1;
 
-    ctx.save?.();
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    for (const island of islands) {
+      const p = island.palette;
 
-    // 1) 윗면 상단 + 좌측 모서리에만 넓고 은은한 민트 글로우
-    ctx.shadowColor = 'rgba(184, 242, 230, 0.9)';
-    ctx.shadowBlur = Math.max(6, TILE_SIZE * 0.45) * blurScale;
-    ctx.strokeStyle = 'rgba(184, 242, 230, 0.55)';
-    ctx.lineWidth = 2.8;
-    ctx.stroke();
+      ctx.save?.();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-    // 2) 면도칼처럼 선명한 민트 코어
-    ctx.shadowBlur = Math.max(2, TILE_SIZE * 0.18) * blurScale;
-    ctx.strokeStyle = 'rgba(244, 255, 251, 0.95)';
-    ctx.lineWidth = 1.3;
-    ctx.stroke();
+      // 1) 윗면 상단 + 좌측 모서리의 은은한 파스텔 글로우 + 선명한 코어
+      if (this._traceIslandEdges(ctx, island, 'topLeft')) {
+        ctx.shadowColor = p.rimGlow;
+        ctx.shadowBlur = Math.max(5, TILE_SIZE * 0.4) * blurScale;
+        ctx.strokeStyle = p.rimSoft;
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
 
-    // 3) 상단 모서리는 빛의 방향과 정면으로 만나므로 가장 밝게 한 번 더
-    if (this._traceWallEdges(ctx, 'top')) {
-      ctx.shadowColor = 'rgba(255, 252, 236, 0.9)';
-      ctx.shadowBlur = Math.max(4, TILE_SIZE * 0.3) * blurScale;
-      ctx.strokeStyle = 'rgba(255, 255, 250, 0.98)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+        ctx.shadowBlur = Math.max(2, TILE_SIZE * 0.16) * blurScale;
+        ctx.strokeStyle = p.rim;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+
+      // 2) 상단 모서리는 빛과 정면으로 만나므로 한 번 더 밝게
+      if (this._traceIslandEdges(ctx, island, 'top')) {
+        ctx.shadowColor = p.rimGlow;
+        ctx.shadowBlur = Math.max(3, TILE_SIZE * 0.26) * blurScale;
+        ctx.strokeStyle = p.rim;
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+      }
+
+      // 3) 우측 모서리는 빛을 등지므로 얇고 어둡게 (4면이 똑같이 빛나지 않게)
+      if (this._traceIslandEdges(ctx, island, 'right')) {
+        ctx.shadowColor = p.rimRightGlow;
+        ctx.shadowBlur = Math.max(1, TILE_SIZE * 0.08) * blurScale;
+        ctx.strokeStyle = p.rimRight;
+        ctx.lineWidth = 0.9;
+        ctx.stroke();
+      }
+
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = 'transparent';
+      ctx.restore?.();
     }
-
-    // 4) 우측 모서리는 빛을 등지므로 얇고 어둡게 (4면이 똑같이 빛나지 않게)
-    if (this._traceWallEdges(ctx, 'right')) {
-      ctx.shadowColor = 'rgba(32, 86, 78, 0.55)';
-      ctx.shadowBlur = Math.max(1, TILE_SIZE * 0.08) * blurScale;
-      ctx.strokeStyle = 'rgba(120, 190, 175, 0.62)';
-      ctx.lineWidth = 0.9;
-      ctx.stroke();
-    }
-
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
-    ctx.restore?.();
   }
 
   /** 아이템 스폰 타일 (바닥 + 은은한 금빛 패드) */

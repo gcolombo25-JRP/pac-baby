@@ -27,7 +27,11 @@ function createStubCtx() {
       if (prop in target) return target[prop];
       return (...args) => { calls.push({ name: prop, args }); };
     },
-    set(target, prop, value) { target[prop] = value; return true; },
+    set(target, prop, value) {
+      target[prop] = value;
+      calls.push({ name: `set:${String(prop)}`, args: [value] });
+      return true;
+    },
   });
 }
 
@@ -363,6 +367,45 @@ test('데모 오버레이는 큰 DEMO 와 기기별 안내 문구를 그린다',
   assert.ok(texts.some(text => String(text) === 'DEMO'), '큰 DEMO 표시');
   assert.ok(texts.includes(DEMO_HINT_TOUCH), '모바일 안내 문구');
   assert.ok(!texts.includes(DEMO_HINT_PC));
+});
+
+
+test('데모 안내창은 반투명 배경으로 뒤 플레이 화면이 비쳐 보인다', () => {
+  const canvas = createStubCanvas();
+  const game = new Game(canvas, createStubInput(), { demoTouch: false });
+  game.state = 'PLAYING';
+  game.demoMode = true;
+
+  game._render(0);
+
+  const calls = canvas.ctx.calls;
+  // 안내 패널: panelW=380, panelH=92
+  const panelIndex = calls.findIndex(
+    call => call.name === 'fillRect' && call.args[2] === 380 && call.args[3] === 92,
+  );
+  assert.ok(panelIndex > 0, '데모 안내 패널을 그려야 한다');
+
+  let bg = null;
+  for (let i = panelIndex - 1; i >= 0; i--) {
+    if (calls[i].name === 'set:fillStyle') { bg = String(calls[i].args[0]); break; }
+  }
+  assert.ok(bg, '패널 배경색을 설정해야 한다');
+  assert.match(bg, /^rgba\(3,\s*12,\s*26,/, `반투명 네이비 배경이어야 한다: ${bg}`);
+  const bgAlpha = Number.parseFloat(bg.split(',')[3]);
+  assert.ok(
+    bgAlpha >= 0.42 && bgAlpha <= 0.55,
+    `배경 불투명도가 반투명 범위(0.42~0.55)여야 한다: ${bgAlpha}`,
+  );
+
+  const borderIndex = calls.findIndex((call, index) => index > panelIndex && call.name === 'strokeRect');
+  assert.ok(borderIndex > panelIndex, '패널 테두리를 그려야 한다');
+  let border = null;
+  for (let i = borderIndex - 1; i >= panelIndex; i--) {
+    if (calls[i].name === 'set:strokeStyle') { border = String(calls[i].args[0]); break; }
+  }
+  assert.ok(border && border.startsWith('rgba(41, 182, 246'), `은은한 시안 테두리: ${border}`);
+  const borderAlpha = Number.parseFloat(border.split(',')[3]);
+  assert.ok(borderAlpha <= 0.5, `테두리도 은은해야 한다: ${borderAlpha}`);
 });
 
 

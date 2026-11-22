@@ -14,7 +14,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  COLS, ROWS, TILE_MAP, CANVAS_WIDTH, CANVAS_HEIGHT,
+  COLS, ROWS, TILE_MAP, TILE_SIZE, CANVAS_WIDTH, CANVAS_HEIGHT,
+  WALL_PALETTES,
   getBabySpawn, getEnemySpawns, getItemSpawns,
 } from '../src/constants.js';
 import MapRenderer from '../src/map.js';
@@ -208,4 +209,101 @@ test('스텔스 침대는 캐시 위에 파란색으로 덧그린다', () => {
   } finally {
     delete globalThis.document;
   }
+});
+
+test('연결된 벽 덩어리는 여러 파스텔 팔레트로 비대칭 배분된다', () => {
+  const map = new MapRenderer();
+  const islands = map._getWallIslands();
+
+  assert.ok(islands.length >= 4, `벽 Island 가 충분히 나뉘어야 한다 (${islands.length})`);
+
+  // 팔레트 필수 키 검증 (3D 입체 연출에 필요한 색상 세트)
+  for (const palette of WALL_PALETTES) {
+    for (const key of ['top', 'frontTop', 'frontMid', 'frontBottom', 'rim', 'seam', 'emboss']) {
+      assert.ok(palette[key], `${palette.name} 팔레트에 ${key} 색이 필요합니다`);
+    }
+  }
+
+  const usedColors = new Set(islands.map(island => island.palette.top));
+  assert.ok(usedColors.size >= 4, `최소 4가지 파스텔이 섞여야 한다 (${usedColors.size})`);
+
+  // 서로 맞닿은 Island 는 같은 색을 쓰지 않는다 → 벽 경계가 뭉개지지 않는다
+  for (const island of islands) {
+    for (const neighborId of island.neighbors) {
+      assert.notEqual(
+        islands[neighborId].palette.top,
+        island.palette.top,
+        `인접 Island ${island.id} / ${neighborId} 색이 같습니다`,
+      );
+    }
+  }
+
+  // 색이 한쪽으로 과도하게 몰리지 않는다 (조화로운 분배)
+  const counts = new Map();
+  for (const island of islands) {
+    counts.set(island.palette.top, (counts.get(island.palette.top) || 0) + 1);
+  }
+  const maxCount = Math.max(...counts.values());
+  assert.ok(
+    maxCount <= Math.ceil(islands.length / 2),
+    `한 팔레트가 과도하게 몰렸습니다 (${maxCount}/${islands.length})`,
+  );
+});
+
+test('벽 윗면은 인접 타일과 0.6px 겹쳐 채워 구분선이 비치지 않는다', () => {
+  const cacheCtx = createStubCtx();
+  const cacheCanvas = { width: 0, height: 0, getContext: () => cacheCtx };
+  globalThis.document = { createElement: () => cacheCanvas };
+
+  try {
+    const map = new MapRenderer();
+    map.render(createStubCtx());
+
+    const wallTiles = TILE_MAP.reduce(
+      (sum, row) => sum + row.filter(tile => tile === 1).length,
+      0,
+    );
+    const expanded = cacheCtx.calls.filter(
+      call => call.name === 'fillRect'
+        && call.args[2] > TILE_SIZE
+        && call.args[3] > TILE_SIZE,
+    );
+    assert.equal(expanded.length, wallTiles, '모든 벽 타일이 겹침 채움으로 그려져야 한다');
+    for (const call of expanded) {
+      assert.ok(call.args[2] >= TILE_SIZE + 1, '가로로 0.5px 이상 겹친다');
+      assert.ok(call.args[3] >= TILE_SIZE + 1, '세로로 0.5px 이상 겹친다');
+    }
+  } finally {
+    delete globalThis.document;
+  }
+});
+
+test('넓은 벽 블록에는 애기풍 엠보싱 도장을 save/restore 균형 속에 새긴다', () => {
+  const map = new MapRenderer();
+  const islands = map._getWallIslands();
+  const stamps = islands.filter(island => island.stamp);
+
+  assert.ok(stamps.length > 0, '2x2 이상 블록에 도장이 배정되어야 한다');
+  assert.ok(
+    new Set(stamps.map(island => island.stamp.symbol)).size >= 3,
+    '구름/별/초승달/하트/곰돌이 중 여러 도장이 섞여야 한다',
+  );
+
+  const ctx = createStubCtx();
+  assert.doesNotThrow(() => map._drawTiles(ctx));
+
+  const nameCount = name => ctx.calls.filter(call => call.name === name).length;
+  assert.equal(nameCount('save'), nameCount('restore'), 'save/restore 는 항상 균형을 이룬다');
+  assert.equal(nameCount('bezierCurveTo'), 0, '최소 스텁에 없는 bezierCurveTo 를 쓰지 않는다');
+
+  // 도장 경로 자체는 roundRect/ellipse 없이 arc/lineTo 만 사용한다 (최소 ctx 스텁 호환)
+  const stampCtx = createStubCtx();
+  assert.doesNotThrow(() => map._drawWallStamps(stampCtx, stamps));
+  const stampCount = name => stampCtx.calls.filter(call => call.name === name).length;
+  assert.equal(stampCount('roundRect'), 0, '도장은 roundRect 에 의존하지 않는다');
+  assert.equal(stampCount('ellipse'), 0, '도장은 ellipse 에 의존하지 않는다');
+  assert.equal(stampCount('bezierCurveTo'), 0, '도장은 bezierCurveTo 에 의존하지 않는다');
+  assert.ok(stampCount('arc') > 0, '도장은 arc 기반 기본 경로로 그린다');
+  assert.ok(stampCount('lineTo') > 0, '초승달/하트/별은 lineTo 경로를 쓴다');
+  assert.equal(stampCount('save'), stampCount('restore'), '도장 save/restore 균형');
 });
