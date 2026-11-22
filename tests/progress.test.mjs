@@ -450,7 +450,7 @@ test('STAGE CLEAR 오버레이가 다음 라운드 안내를 표시한다', () =
   assert.ok(texts.some(t => t.includes('다음 라운드')));
 });
 
-test('HUD 에 목숨 하트와 하이스코어가 표시된다', () => {
+test('HUD 에 목숨 하트(벡터)와 하이스코어가 표시된다', () => {
   const { game, canvas } = setup();
   game.lives = 2;
   game.hiScore = 777;
@@ -461,8 +461,19 @@ test('HUD 에 목숨 하트와 하이스코어가 표시된다', () => {
     .filter(call => call.name === 'fillText')
     .map(call => String(call.args[0]));
 
-  assert.ok(texts.some(t => t.includes('♥♥♡')), '하트 2개 + 빈 하트 1개');
   assert.ok(texts.some(t => t.includes('HI: 777')));
+  assert.ok(
+    texts.every(t => !t.includes('♥') && !t.includes('♡')),
+    'OS 하트 문자 대신 Canvas 벡터로 그린다',
+  );
+
+  // HUD 첫 줄(y=14)에 하트 아이콘의 둥근 볼 arc 가 그려진다
+  const heartLobeArcs = canvas.ctx.calls.filter(
+    call => call.name === 'arc'
+      && Math.abs(call.args[1] - 12.68) < 0.01
+      && Math.abs(call.args[2] - 2.97) < 0.01,
+  );
+  assert.ok(heartLobeArcs.length >= 4, '목숨 하트를 Canvas 2D 벡터로 그린다');
 });
 
 // ===== 시각 효과 연동 =====

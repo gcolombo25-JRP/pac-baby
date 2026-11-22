@@ -17,6 +17,7 @@ import {
   PLAYER_LIVES,
   TRAP_FREEZE_MS,
   READY_COUNTDOWN_MS, SCORE_POPUP_MS,
+  ITEMS,
   isWalkableTile,
   getBabySpawn, getEnemySpawns, getItemSpawns,
 } from '../src/constants.js';
@@ -144,6 +145,42 @@ test('렌더링 파이프라인이 예외 없이 실행되고 HUD 에 점수를 
     arcs.some(a => a.args[2] === TILE_SIZE / 2 - 2),
     '베이비/악당 원이 그려져야 한다',
   );
+});
+
+test('게임 캔버스의 HUD/오버레이는 OS 이모지 없이 벡터 아이콘만 쓴다', () => {
+  const canvas = createStubCanvas();
+  const game = new Game(canvas, createStubInput());
+
+  // 아이콘이 필요한 상태를 한 번에 켠다
+  game.lives = 2;
+  game.player.score = game.roundScoreCap;
+  game._refreshScoreCapState();
+  game.enemies.forEach(enemy => enemy.freeze(3000));
+  game.sugarRushTimer = 2000;
+  game.goldenTimer = 3000;
+  game.player.startDigestion(ITEMS.MILK);
+
+  // OS 이모지/픽토그램 영역 (하트 ♥♡ 포함)
+  const osEmoji = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
+
+  for (const state of ['PLAYING', 'READY', 'CAUGHT', 'PAUSED', 'STAGE_CLEAR', 'GAME_OVER']) {
+    game.state = state;
+    canvas.ctx.calls.length = 0;
+
+    assert.doesNotThrow(() => game._render(0), `${state} 렌더 예외 없음`);
+
+    const texts = canvas.ctx.calls
+      .filter(call => call.name === 'fillText')
+      .map(call => String(call.args[0]));
+
+    for (const text of texts) {
+      assert.equal(
+        osEmoji.test(text),
+        false,
+        `${state} 상태 HUD 에 OS 이모지가 남아 있습니다: ${text}`,
+      );
+    }
+  }
 });
 
 test('devicePixelRatio 만큼 캔버스 내부 해상도를 키운다 (레티나)', () => {

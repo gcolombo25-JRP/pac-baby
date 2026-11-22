@@ -494,6 +494,252 @@ export function drawItemIcon(ctx, type, cx, cy, size, timeMs = 0) {
 }
 
 /**
+ * HUD 목숨 하트 — Canvas 2D 벡터 (OS '♥/♡' 문자 대체).
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} size
+ * @param {boolean} [filled]
+ */
+export function drawHeartIcon(ctx, cx, cy, size, filled = true) {
+  const s = Math.max(2, size);
+  const r = s * 0.5;
+  const canSave = typeof ctx.save === 'function';
+  if (canSave) ctx.save();
+
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + r * 0.92);
+  ctx.lineTo(cx - r * 0.93, cy);
+  ctx.arc(cx - r * 0.44, cy - r * 0.24, r * 0.54, 2.72, 5.72);
+  ctx.arc(cx + r * 0.44, cy - r * 0.24, r * 0.54, -2.58, 0.42);
+  ctx.lineTo(cx, cy + r * 0.92);
+  ctx.closePath();
+
+  if (filled) {
+    ctx.fillStyle = '#ef5350';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 205, 210, 0.85)';
+    ctx.lineWidth = Math.max(0.6, s * 0.07);
+    ctx.stroke();
+    // 왼쪽 볼의 작은 유광 하이라이트
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.beginPath();
+    ctx.arc(cx - r * 0.42, cy - r * 0.34, Math.max(0.6, s * 0.09), 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(239, 83, 80, 0.55)';
+    ctx.lineWidth = Math.max(0.8, s * 0.10);
+    ctx.stroke();
+  }
+
+  if (canSave) ctx.restore();
+}
+
+/**
+ * 체크 배지 — 'Score Cleared' 앞의 OS '✅' 대체.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} size
+ * @param {string} [color]
+ */
+export function drawCheckIcon(ctx, cx, cy, size, color = '#8bc34a') {
+  const s = Math.max(2, size);
+  const canSave = typeof ctx.save === 'function';
+  if (canSave) ctx.save();
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, s * 0.46, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(27, 70, 16, 0.85)';
+  ctx.lineWidth = Math.max(0.6, s * 0.07);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+  ctx.lineWidth = Math.max(1, s * 0.15);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.22, cy + s * 0.02);
+  ctx.lineTo(cx - s * 0.05, cy + s * 0.18);
+  ctx.lineTo(cx + s * 0.24, cy - s * 0.17);
+  ctx.stroke();
+
+  if (canSave) ctx.restore();
+}
+
+/**
+ * 얼림 상태 아이콘 — OS '❄' 대체. 6갈래 눈결정을 선으로 그린다.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} size
+ * @param {string} [color]
+ */
+export function drawIceCrystalIcon(ctx, cx, cy, size, color = '#e3f2fd') {
+  const s = Math.max(2, size);
+  const radius = s * 0.46;
+  const canSave = typeof ctx.save === 'function';
+  if (canSave) ctx.save();
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(0.8, s * 0.09);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 2;
+    const tipX = cx + Math.cos(angle) * radius;
+    const tipY = cy + Math.sin(angle) * radius;
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(tipX, tipY);
+
+    const branchBaseX = cx + Math.cos(angle) * radius * 0.62;
+    const branchBaseY = cy + Math.sin(angle) * radius * 0.62;
+    for (const delta of [-0.55, 0.55]) {
+      ctx.moveTo(branchBaseX, branchBaseY);
+      ctx.lineTo(
+        branchBaseX + Math.cos(angle + delta) * radius * 0.34,
+        branchBaseY + Math.sin(angle + delta) * radius * 0.34,
+      );
+    }
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.max(0.7, s * 0.08), 0, Math.PI * 2);
+  ctx.fill();
+
+  if (canSave) ctx.restore();
+}
+
+/**
+ * 사운드 On/Off 스피커 — OS '🔊/🔇' 대체.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} size
+ * @param {boolean} enabled
+ */
+export function drawSpeakerIcon(ctx, cx, cy, size, enabled = true) {
+  const s = Math.max(2, size);
+  const canSave = typeof ctx.save === 'function';
+  if (canSave) ctx.save();
+
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.34, cy - s * 0.16);
+  ctx.lineTo(cx - s * 0.16, cy - s * 0.16);
+  ctx.lineTo(cx + s * 0.05, cy - s * 0.34);
+  ctx.lineTo(cx + s * 0.05, cy + s * 0.34);
+  ctx.lineTo(cx - s * 0.16, cy + s * 0.16);
+  ctx.lineTo(cx - s * 0.34, cy + s * 0.16);
+  ctx.closePath();
+  ctx.fillStyle = enabled ? '#e0f7fa' : 'rgba(224, 247, 250, 0.55)';
+  ctx.fill();
+  ctx.strokeStyle = '#006064';
+  ctx.lineWidth = Math.max(0.7, s * 0.07);
+  ctx.stroke();
+
+  if (enabled) {
+    ctx.strokeStyle = '#80deea';
+    ctx.lineWidth = Math.max(0.7, s * 0.07);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx + s * 0.10, cy, s * 0.20, -0.7, 0.7);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx + s * 0.10, cy, s * 0.34, -0.7, 0.7);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = '#ef5350';
+    ctx.lineWidth = Math.max(1, s * 0.12);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx + s * 0.16, cy - s * 0.26);
+    ctx.lineTo(cx + s * 0.42, cy + s * 0.26);
+    ctx.stroke();
+  }
+
+  if (canSave) ctx.restore();
+}
+
+/**
+ * 봇 모드 아이콘 — OS '🤖' 대체.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} size
+ * @param {string} [color]
+ */
+export function drawRobotIcon(ctx, cx, cy, size, color = '#ffe082') {
+  const s = Math.max(2, size);
+  const canSave = typeof ctx.save === 'function';
+  if (canSave) ctx.save();
+
+  // 안테나
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(0.7, s * 0.06);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - s * 0.26);
+  ctx.lineTo(cx, cy - s * 0.44);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy - s * 0.46, Math.max(0.7, s * 0.07), 0, Math.PI * 2);
+  ctx.fill();
+
+  // 옆 귀
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - s * 0.44, cy - s * 0.06, s * 0.10, s * 0.18);
+  ctx.fillRect(cx + s * 0.34, cy - s * 0.06, s * 0.10, s * 0.18);
+
+  // 머리 (모서리를 살짝 깎은 사각형)
+  const left = cx - s * 0.34;
+  const right = cx + s * 0.34;
+  const top = cy - s * 0.22;
+  const bottom = cy + s * 0.30;
+  const cut = s * 0.10;
+  ctx.beginPath();
+  ctx.moveTo(left + cut, top);
+  ctx.lineTo(right - cut, top);
+  ctx.lineTo(right, top + cut);
+  ctx.lineTo(right, bottom - cut);
+  ctx.lineTo(right - cut, bottom);
+  ctx.lineTo(left + cut, bottom);
+  ctx.lineTo(left, bottom - cut);
+  ctx.lineTo(left, top + cut);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(94, 66, 0, 0.85)';
+  ctx.lineWidth = Math.max(0.7, s * 0.06);
+  ctx.stroke();
+
+  // 눈
+  ctx.fillStyle = '#3e2723';
+  ctx.beginPath();
+  ctx.arc(cx - s * 0.15, cy + s * 0.02, Math.max(0.7, s * 0.065), 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + s * 0.15, cy + s * 0.02, Math.max(0.7, s * 0.065), 0, Math.PI * 2);
+  ctx.fill();
+
+  // 입
+  ctx.strokeStyle = '#3e2723';
+  ctx.lineWidth = Math.max(0.6, s * 0.055);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.10, cy + s * 0.16);
+  ctx.lineTo(cx + s * 0.10, cy + s * 0.16);
+  ctx.stroke();
+
+  if (canSave) ctx.restore();
+}
+
+/**
  * 아이템 (맵에 놓여있는 상태)
  */
 export class Item {

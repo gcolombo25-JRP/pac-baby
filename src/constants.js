@@ -74,8 +74,9 @@ export const WALL_PALETTES = [
       ['0.35', 'rgba(184, 242, 230, 0.12)'],
       ['1', 'rgba(184, 242, 230, 0)'],
     ],
-    emboss: 'rgba(232, 255, 250, 0.5)',
-    embossDark: 'rgba(24, 66, 58, 0.16)',
+    emboss: 'rgba(244, 255, 252, 0.94)',
+    embossDark: 'rgba(10, 46, 39, 0.42)',
+    embossEdge: 'rgba(255, 255, 255, 0.92)',
   },
   {
     name: 'butter',
@@ -95,8 +96,9 @@ export const WALL_PALETTES = [
       ['0.35', 'rgba(255, 235, 165, 0.13)'],
       ['1', 'rgba(255, 235, 165, 0)'],
     ],
-    emboss: 'rgba(255, 252, 225, 0.55)',
-    embossDark: 'rgba(110, 84, 30, 0.18)',
+    emboss: 'rgba(255, 254, 238, 0.94)',
+    embossDark: 'rgba(88, 62, 10, 0.42)',
+    embossEdge: 'rgba(255, 255, 255, 0.92)',
   },
   {
     name: 'sky',
@@ -116,8 +118,9 @@ export const WALL_PALETTES = [
       ['0.35', 'rgba(174, 219, 245, 0.14)'],
       ['1', 'rgba(174, 219, 245, 0)'],
     ],
-    emboss: 'rgba(238, 250, 255, 0.5)',
-    embossDark: 'rgba(30, 70, 100, 0.18)',
+    emboss: 'rgba(246, 253, 255, 0.94)',
+    embossDark: 'rgba(12, 44, 72, 0.42)',
+    embossEdge: 'rgba(255, 255, 255, 0.92)',
   },
   {
     name: 'peach',
@@ -137,8 +140,9 @@ export const WALL_PALETTES = [
       ['0.35', 'rgba(255, 205, 185, 0.14)'],
       ['1', 'rgba(255, 205, 185, 0)'],
     ],
-    emboss: 'rgba(255, 242, 236, 0.52)',
-    embossDark: 'rgba(110, 60, 45, 0.18)',
+    emboss: 'rgba(255, 248, 244, 0.94)',
+    embossDark: 'rgba(92, 38, 26, 0.42)',
+    embossEdge: 'rgba(255, 255, 255, 0.92)',
   },
 ];
 

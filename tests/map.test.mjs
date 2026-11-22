@@ -307,3 +307,99 @@ test('넓은 벽 블록에는 애기풍 엠보싱 도장을 save/restore 균형 
   assert.ok(stampCount('lineTo') > 0, '초승달/하트/별은 lineTo 경로를 쓴다');
   assert.equal(stampCount('save'), stampCount('restore'), '도장 save/restore 균형');
 });
+
+test('모든 벽 블록은 도장이 1개 이상이고, 큰 블록은 2~3개 이상 새겨진다', () => {
+  const map = new MapRenderer();
+  const islands = map._getWallIslands();
+
+  assert.ok(islands.length > 0);
+
+  for (const island of islands) {
+    assert.ok(
+      Array.isArray(island.stamps) && island.stamps.length >= 1,
+      `Island ${island.id} 에 도장이 하나도 없다 (빈 블록)`,
+    );
+    // 도장은 해당 블록의 바운딩 박스 안에 머문다
+    const left = island.minCol * TILE_SIZE;
+    const right = (island.maxCol + 1) * TILE_SIZE;
+    const top = island.minRow * TILE_SIZE;
+    const bottom = (island.maxRow + 1) * TILE_SIZE;
+    for (const stamp of island.stamps) {
+      assert.ok(stamp.x >= left && stamp.x <= right, `Island ${island.id} 도장 x 범위`);
+      assert.ok(stamp.y >= top && stamp.y <= bottom, `Island ${island.id} 도장 y 범위`);
+      assert.ok(stamp.radius > 0 && stamp.radius <= TILE_SIZE * 0.36 + 1e-6);
+      assert.ok(Number.isFinite(stamp.rotation));
+    }
+  }
+
+  const large = islands.filter(island => island.tiles.length >= 4);
+  assert.ok(large.every(island => island.stamps.length >= 2), '큰 블록은 2개 이상');
+  assert.ok(islands.some(island => island.stamps.length >= 3), '아주 큰 블록은 3개 이상');
+});
+
+test('도장 실루엣은 moveTo 1회의 단일 폐곡선이며 내부 겹침 경로가 없다', () => {
+  const map = new MapRenderer();
+  const symbols = ['cloud', 'star', 'crescent', 'heart', 'bear'];
+
+  for (const symbol of symbols) {
+    const ctx = createStubCtx();
+    assert.doesNotThrow(() => map._traceStampPath(ctx, symbol, 100, 100, 10));
+
+    const names = ctx.calls.map(call => call.name);
+    assert.equal(
+      names.filter(name => name === 'moveTo').length,
+      1,
+      `${symbol}: moveTo 1회(단일 외곽선)`,
+    );
+    assert.equal(names[names.length - 1], 'closePath', `${symbol}: 폐곡선으로 닫는다`);
+    assert.equal(names.includes('ellipse'), false, `${symbol}: ellipse 미사용`);
+    assert.equal(names.includes('roundRect'), false, `${symbol}: roundRect 미사용`);
+    assert.equal(names.includes('bezierCurveTo'), false, `${symbol}: bezierCurveTo 미사용`);
+    assert.ok(
+      names.includes('arc') || names.includes('lineTo'),
+      `${symbol}: 기본 경로만 사용`,
+    );
+  }
+});
+
+test('라운드가 바뀌면 도장 위치/종류가 갱신되고 캐시는 라운드당 1회만 만든다', () => {
+  const cacheCtx = createStubCtx();
+  const cacheCanvas = { width: 0, height: 0, getContext: () => cacheCtx };
+  let created = 0;
+  globalThis.document = {
+    createElement: () => {
+      created++;
+      return cacheCanvas;
+    },
+  };
+
+  try {
+    const map = new MapRenderer();
+    const screenCtx = createStubCtx();
+    const snapshot = () => map._getWallIslands().map(island => island.stamps
+      .map(stamp => `${stamp.symbol}:${stamp.x.toFixed(2)}:${stamp.y.toFixed(2)}:${stamp.radius.toFixed(2)}`)
+      .join('|'))
+      .join(';');
+
+    map.render(screenCtx, 0, 1);
+    assert.equal(created, 1, '1라운드 캐시를 1회 생성한다');
+    const round1 = snapshot();
+
+    map.render(screenCtx, 16, 1);
+    assert.equal(created, 1, '같은 라운드는 캐시를 다시 만들지 않는다');
+    assert.equal(snapshot(), round1, '같은 라운드는 같은 도장 배치를 유지한다');
+
+    map.render(screenCtx, 32, 2);
+    assert.equal(created, 2, '라운드가 바뀌면 캐시를 새로 만든다');
+    assert.notEqual(snapshot(), round1, '2라운드는 도장 위치/종류가 갱신된다');
+
+    const blits = screenCtx.calls.filter(call => call.name === 'drawImage').length;
+    assert.equal(blits, 3, '그려진 캐시는 매 프레임 blit 한다');
+
+    // 이전 라운드로 돌아가도 캐시를 재사용하지 않고 새로 그린다
+    map.render(screenCtx, 48, 1);
+    assert.equal(created, 3);
+  } finally {
+    delete globalThis.document;
+  }
+});

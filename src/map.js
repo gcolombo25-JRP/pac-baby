@@ -93,6 +93,27 @@ const WALL_WOOD_TRIM = 'rgba(201, 138, 82, 0.45)'; // 장난감 블록의 따뜻
 /** 블록 윗면에 새기는 애기풍 도장 순서 (섬 인덱스로 비대칭 순환) */
 const WALL_STAMP_SYMBOLS = ['cloud', 'star', 'crescent', 'heart', 'bear'];
 
+/** 라운드 값을 1 이상의 정수로 정규화한다 (잘못된 값은 1라운드) */
+function normalizeRound(round) {
+  const value = Number(round);
+  if (!Number.isFinite(value) || value < 1) return 1;
+  return Math.floor(value);
+}
+
+/**
+ * 시드 기반 결정적 난수 (LCG).
+ * - 같은 라운드에서는 항상 같은 그림 배치가 나오고, 라운드가 바뀌면 새로 섞인다.
+ * @param {number} seed
+ * @returns {() => number} 0 이상 1 미만 난수
+ */
+function createSeededRandom(seed) {
+  let state = (Math.floor(seed) >>> 0) || 1;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
 
 /**
  * 같은 면(面)에 속한 사각형들을 path 로 모아 한 번의 fill 로 채운다.
@@ -158,9 +179,11 @@ export default class MapRenderer {
     this.itemSpawns = getItemSpawns(this.map);
     this.highlightBed = null; // 스텔스로 사용 중인 침대 { row, col }
     this._cache = null;       // 정적 맵 오프스크린 캔버스
+    this._cacheRound = null;  // 캐시가 만들어진 라운드 (라운드가 바뀌면 다시 그린다)
     this.pixelRatio = 1;      // 캐시 해상도 배율 (레티나 선명화)
     this._islands = null;     // 연결된 벽 덩어리(Island) 메타데이터
     this._islandIndex = null; // 타일별 소속 Island id (벽이 아니면 -1)
+    this._stampRound = 1;     // 현재 도장 배치가 만들어진 라운드
   }
 
   /**
@@ -190,13 +213,18 @@ export default class MapRenderer {
 
   /**
    * 타일맵을 캔버스에 렌더링
-   * - 브라우저: 정적 맵을 오프스크린 캔버스에 1회만 그려 두고 매 프레임 blit
+   * - 브라우저: 정적 맵을 오프스크린 캔버스에 라운드당 1회만 그려 두고 매 프레임 blit
+   * - 같은 라운드에서는 캐시를 그대로 쓰고, 라운드가 바뀔 때만 벽 그림을 새로 배치한다
    * - DOM 없음(테스트): 매번 직접 그린다
    * @param {CanvasRenderingContext2D} ctx
    * @param {number} [timeMs] 애니메이션 시간(ms) — 스텔스 침대 연출용
+   * @param {number} [round] 현재 라운드 (기본 1) — 블록 위 그림 배치 시드
    */
-  render(ctx, timeMs = 0) {
-    if (this._ensureCache()) {
+  render(ctx, timeMs = 0, round = 1) {
+    const roundNo = normalizeRound(round);
+    this._prepareStamps(roundNo);
+
+    if (this._ensureCache(roundNo)) {
       // 캐시는 devicePixelRatio 만큼 큰 해상도 → 논리 좌표(640x640)로 축소해 그린다
       ctx.drawImage(this._cache, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     } else {
@@ -212,9 +240,27 @@ export default class MapRenderer {
     }
   }
 
+  /**
+   * 라운드에 맞는 블록 도장 배치를 보장한다.
+   * - 라운드가 같으면 기존 배치를 그대로 재사용한다 (캐시 blit 유지)
+   * - 라운드가 바뀌면 시드 기반으로 위치·종류·크기·각도를 새로 뽑는다
+   * @param {number} round
+   * @returns {Array<object>} islands
+   */
+  _prepareStamps(round = 1) {
+    const roundNo = normalizeRound(round);
+    const islands = this._getWallIslands();
+    if (this._stampRound === roundNo) return islands;
+
+    for (const island of islands) this._assignIslandStamps(island, roundNo);
+    this._stampRound = roundNo;
+    return islands;
+  }
+
   /** 정적 맵 캐시 생성 (브라우저 전용, 실패하면 null) */
-  _ensureCache() {
-    if (this._cache) return this._cache;
+  _ensureCache(round = this._stampRound) {
+    const roundNo = normalizeRound(round);
+    if (this._cache && this._cacheRound === roundNo) return this._cache;
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
 
     try {
@@ -232,8 +278,10 @@ export default class MapRenderer {
 
       this._drawTiles(ctx);
       this._cache = canvas;
+      this._cacheRound = roundNo;
     } catch (err) {
       this._cache = null;
+      this._cacheRound = null;
     }
     return this._cache;
   }
@@ -241,6 +289,7 @@ export default class MapRenderer {
   /** 맵이 바뀌었을 때 캐시를 버린다 */
   invalidate() {
     this._cache = null;
+    this._cacheRound = null;
     this._islands = null;
     this._islandIndex = null;
   }
@@ -298,8 +347,9 @@ export default class MapRenderer {
   /**
    * 연결된 벽 타일(4방향)을 Island 로 묶고 파스텔 팔레트를 배분한다.
    * - 인접한 Island 끼리는 같은 색을 쓰지 않아 경계가 자연스럽게 드러난다.
-   * - 2x2 이상 넓은 Island 에는 아기방 도장(구름/별/초승달/하트/곰돌이)을 배정한다.
-   * - 맵은 정적이므로 최초 1회만 계산하고 캐시한다.
+   * - 모든 벽 Island 에 아기방 도장(구름/별/초승달/하트/곰돌이)을 배정한다.
+   * - 라운드가 바뀌면 시드 기반으로 위치/종류/크기/각도를 다시 뽑는다.
+   * - 맵 구조 자체는 정적이므로 Island 계산 결과만 캐시한다.
    * @returns {Array<object>}
    */
   _getWallIslands() {
@@ -325,6 +375,7 @@ export default class MapRenderer {
           paletteIndex: -1,
           palette: WALL_PALETTES[0],
           stamp: null,
+          stamps: [],
         };
         const queue = [[row, col]];
         index[row][col] = id;
@@ -389,39 +440,94 @@ export default class MapRenderer {
       usage[pick] += 1;
       island.paletteIndex = pick;
       island.palette = WALL_PALETTES[pick];
-
-      // 2x2 이상 + 중앙에 가까운 '안쪽' 타일을 골라 도장을 새긴다
-      if (width >= 2 && height >= 2) {
-        const centerX = (island.minCol + island.maxCol + 1) / 2;
-        const centerY = (island.minRow + island.maxRow + 1) / 2;
-        let best = island.tiles[0];
-        let bestScore = -Infinity;
-
-        for (const tile of island.tiles) {
-          let degree = 0;
-          for (const [dr, dc] of dirs) {
-            if (index[tile.row + dr]?.[tile.col + dc] === island.id) degree++;
-          }
-          const dist = Math.abs(tile.col + 0.5 - centerX) + Math.abs(tile.row + 0.5 - centerY);
-          const score = degree * 4 - dist;
-          if (score > bestScore) { bestScore = score; best = tile; }
-        }
-
-        island.stamp = {
-          x: (best.col + 0.5) * TILE_SIZE,
-          y: (best.row + 0.5) * TILE_SIZE,
-          radius: Math.min(
-            Math.min(width, height) * TILE_SIZE * 0.2,
-            TILE_SIZE * 0.9,
-          ),
-          symbol: WALL_STAMP_SYMBOLS[(island.id + width + height) % WALL_STAMP_SYMBOLS.length],
-        };
-      }
     }
+
+    // 라운드별 도장 배치 (크기/각도/종류를 달리해 블록을 촘촘히 채운다)
+    for (const island of islands) this._assignIslandStamps(island, this._stampRound);
 
     this._islandIndex = index;
     this._islands = islands;
     return islands;
+  }
+
+  /**
+   * 한 Island 에 애기풍 도장을 배정한다.
+   * - 모든 블록 덩어리에 최소 1개를 새겨 빈 블록이 남지 않게 한다.
+   * - 큰 블록(3x2, L/T, 긴 가장자리 블록)은 최원점 샘플링으로 2~6개를 고르게 배치한다.
+   * - 도장 크기·각도·종류는 라운드 시드로 달라져 라운드마다 새로 갱신된다.
+   * @param {object} island
+   * @param {number} round
+   */
+  _assignIslandStamps(island, round = 1) {
+    const roundNo = normalizeRound(round);
+    const tiles = island.tiles;
+    if (tiles.length === 0) {
+      island.stamps = [];
+      island.stamp = null;
+      return;
+    }
+
+    const rng = createSeededRandom(
+      ((island.id + 1) * 2654435761) ^ ((roundNo * 2246822519) >>> 0),
+    );
+    const area = tiles.length;
+    const width = island.maxCol - island.minCol + 1;
+    const height = island.maxRow - island.minRow + 1;
+
+    let count = 1;
+    if (area >= 4 || width >= 3 || height >= 3) count = 2;
+    if (area >= 8) count = 3;
+    if (area >= 30) count = 4;
+    if (area >= 60) count = 5;
+    if (area >= 100) count = 6;
+    count = Math.min(count, tiles.length);
+
+    // 시드로 첫 타일을 고르고, 이후에는 이미 뽑힌 도장과 가장 먼 타일을 고른다
+    const chosen = [];
+    let cursor = Math.floor(rng() * tiles.length);
+    for (let n = 0; n < count; n++) {
+      if (n > 0) {
+        let pick = 0;
+        let bestScore = -1;
+        for (let i = 0; i < tiles.length; i++) {
+          let minDist = Infinity;
+          for (const chosenTile of chosen) {
+            const dr = tiles[i].row - chosenTile.row;
+            const dc = tiles[i].col - chosenTile.col;
+            const dist = dr * dr + dc * dc;
+            if (dist < minDist) minDist = dist;
+          }
+          if (minDist > bestScore) {
+            bestScore = minDist;
+            pick = i;
+          }
+        }
+        cursor = pick;
+      }
+      chosen.push(tiles[cursor]);
+    }
+
+    island.stamps = chosen.map((tile, index) => {
+      // 도장이 타일 밖으로 넘치지 않도록 지터를 작게 유지한다
+      const jitterX = (rng() - 0.5) * TILE_SIZE * 0.18;
+      const jitterY = (rng() - 0.5) * TILE_SIZE * 0.18;
+      const radius = TILE_SIZE * (0.26 + rng() * 0.10);
+      const rotation = (rng() - 0.5) * 0.7;
+      const symbolOffset = Math.floor(rng() * WALL_STAMP_SYMBOLS.length);
+      const symbolIndex = (island.id + roundNo + index * 2 + symbolOffset)
+        % WALL_STAMP_SYMBOLS.length;
+
+      return {
+        x: (tile.col + 0.5) * TILE_SIZE + jitterX,
+        y: (tile.row + 0.5) * TILE_SIZE + jitterY,
+        radius,
+        rotation,
+        symbol: WALL_STAMP_SYMBOLS[symbolIndex],
+      };
+    });
+
+    // 기존 단일 도장 계약(island.stamp) 유지 — 첫 번째 도장을 가리킨다
+    island.stamp = island.stamps[0] || null;
   }
 
   /**
@@ -447,52 +553,82 @@ export default class MapRenderer {
 
 
   /**
-   * 넓은 벽 윗면 중앙에 아기방 도장(구름/별/초승달/하트/곰돌이)을 은은하게 새긴다.
-   * - 블록 색보다 살짝 밝은 양각 + 살짝 어두운 음각 그림자로 엠보싱 느낌을 준다.
+   * 벽 윗면에 아기방 도장(구름/별/초승달/하트/곰돌이)을 새긴다.
+   * - 모든 도장은 **하나의 닫힌 경로(single closed path)** 로만 그려 내부 겹침 음영이 없다.
+   * - 블록 색보다 확실히 밝은 양각 면 + 1px 어긋난 진한 음각 그림자 + 1px 하이라이트 림으로
+   *   어두운 라운드에서도 장난감 블록 음각 도장처럼 또렷하게 보인다.
    * - roundRect/ellipse/bezierCurveTo 에 의존하지 않고 기본 경로(arc/lineTo)만 쓴다.
    * @param {CanvasRenderingContext2D} ctx
    * @param {Array<object>} islands
    */
   _drawWallStamps(ctx, islands = this._getWallIslands()) {
     for (const island of islands) {
-      const stamp = island.stamp;
-      if (!stamp) continue;
+      const stamps = Array.isArray(island.stamps) && island.stamps.length > 0
+        ? island.stamps
+        : (island.stamp ? [island.stamp] : []);
+      if (stamps.length === 0) continue;
 
-      ctx.save?.();
-      ctx.globalAlpha = 0.9;
+      const palette = island.palette || WALL_PALETTES[0];
+      const shadowColor = palette.embossDark || 'rgba(0, 0, 0, 0.42)';
+      const rimColor = palette.embossEdge || 'rgba(255, 255, 255, 0.92)';
+      const faceColor = palette.emboss || 'rgba(255, 255, 255, 0.9)';
 
-      // 음각 그림자 (아래·오른쪽으로 살짝)
-      ctx.fillStyle = island.palette.embossDark;
-      this._traceStampPath(ctx, stamp.symbol, stamp.x + 0.7, stamp.y + 0.9, stamp.radius);
-      ctx.fill();
+      for (const stamp of stamps) {
+        const radius = Math.max(1.5, Number(stamp.radius) || TILE_SIZE * 0.3);
+        const rotation = Number.isFinite(stamp.rotation) ? stamp.rotation : 0;
 
-      // 양각 하이라이트
-      ctx.fillStyle = island.palette.emboss;
-      this._traceStampPath(ctx, stamp.symbol, stamp.x, stamp.y, stamp.radius);
-      ctx.fill();
+        ctx.save?.();
 
-      ctx.globalAlpha = 1;
-      ctx.restore?.();
+        // 도장마다 각도를 살짝 달리해 손으로 찍은 듯한 리듬을 준다
+        if (rotation !== 0
+          && typeof ctx.translate === 'function'
+          && typeof ctx.rotate === 'function') {
+          ctx.translate(stamp.x, stamp.y);
+          ctx.rotate(rotation);
+          ctx.translate(-stamp.x, -stamp.y);
+        }
+
+        // 1) 음각 그림자 — 오른쪽 아래로 1px 어긋나게
+        ctx.fillStyle = shadowColor;
+        this._traceStampPath(ctx, stamp.symbol, stamp.x + 0.9, stamp.y + 1.2, radius);
+        ctx.fill();
+
+        // 2) 하이라이트 림 — 왼쪽 위로 1px 어긋나 양각 테두리를 만든다
+        ctx.fillStyle = rimColor;
+        this._traceStampPath(ctx, stamp.symbol, stamp.x - 0.8, stamp.y - 1.0, radius);
+        ctx.fill();
+
+        // 3) 도장 면 — 불투명에 가까운 밝은 색으로 대비를 확실히 준다
+        ctx.fillStyle = faceColor;
+        this._traceStampPath(ctx, stamp.symbol, stamp.x, stamp.y, radius);
+        ctx.fill();
+
+        ctx.restore?.();
+      }
     }
   }
 
-  /** 도장 실루엣 경로 (기본 Canvas 2D 도형만 사용) */
+  /**
+   * 도장 실루엣 경로 (기본 Canvas 2D 도형만 사용).
+   * 각 심볼은 moveTo 1회로 시작하는 단일 폐곡선이며, 내부에 별도 sub-path 를 만들지 않는다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {string} symbol
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} r
+   */
   _traceStampPath(ctx, symbol, cx, cy, r) {
     ctx.beginPath();
 
     if (symbol === 'cloud') {
-      // 납작한 구름 밑판 + 세 개의 방울
-      ctx.moveTo(cx - r * 0.95, cy + r * 0.46);
-      ctx.lineTo(cx + r * 0.95, cy + r * 0.46);
-      ctx.lineTo(cx + r * 0.95, cy + r * 0.12);
-      ctx.lineTo(cx - r * 0.95, cy + r * 0.12);
+      // 납작한 밑면 + 세 개의 방울을 한 줄로 이은 단일 외곽선
+      ctx.moveTo(cx - r * 0.95, cy + r * 0.44);
+      ctx.lineTo(cx - r * 0.65, cy + r * 0.445);
+      ctx.arc(cx - r * 0.58, cy + r * 0.02, r * 0.43, Math.PI * 0.55, Math.PI * 1.45);
+      ctx.arc(cx, cy - r * 0.16, r * 0.50, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.arc(cx + r * 0.58, cy + r * 0.02, r * 0.43, Math.PI * 1.55, Math.PI * 2.45);
+      ctx.lineTo(cx + r * 0.95, cy + r * 0.44);
       ctx.closePath();
-      ctx.moveTo(cx - r * 0.2, cy + r * 0.08);
-      ctx.arc(cx - r * 0.56, cy + r * 0.08, r * 0.36, 0, Math.PI * 2);
-      ctx.moveTo(cx + r * 0.82, cy + r * 0.04);
-      ctx.arc(cx + r * 0.5, cy + r * 0.04, r * 0.32, 0, Math.PI * 2);
-      ctx.moveTo(cx + r * 0.53, cy - r * 0.22);
-      ctx.arc(cx + r * 0.05, cy - r * 0.22, r * 0.48, 0, Math.PI * 2);
     } else if (symbol === 'star') {
       for (let i = 0; i < 10; i++) {
         const radius = i % 2 === 0 ? r : r * 0.46;
@@ -504,29 +640,40 @@ export default class MapRenderer {
       }
       ctx.closePath();
     } else if (symbol === 'crescent') {
-      // 바깥 원 + 반대 방향 안쪽 원(구멍) → 초승달
-      ctx.moveTo(cx + r, cy);
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.moveTo(cx + r * 1.2, cy - r * 0.12);
-      ctx.arc(cx + r * 0.38, cy - r * 0.12, r * 0.82, 0, Math.PI * 2, true);
+      // 바깥 원(왼쪽 호) → 안쪽 원(왼쪽 호)을 한 폐곡선으로 이어 초승달을 만든다
+      const offset = 0.4;
+      const ratio = 0.85;
+      const a = (offset * offset + 1 - ratio * ratio) / (2 * offset);
+      const h = Math.sqrt(Math.max(0, 1 - a * a));
+      const outerBottom = Math.atan2(h, a);
+      const innerBottom = Math.atan2(h, a - offset);
+
+      ctx.moveTo(cx + r * a, cy + r * h);
+      ctx.arc(cx, cy, r, outerBottom, Math.PI * 2 - outerBottom);
+      ctx.arc(cx + r * offset, cy, r * ratio, -innerBottom, innerBottom, true);
+      ctx.closePath();
     } else if (symbol === 'heart') {
-      // 두 개의 동그란 볼 + 아래로 모이는 삼각형 (arc/lineTo 만 사용)
-      ctx.moveTo(cx - r * 0.95, cy - r * 0.3);
-      ctx.arc(cx - r * 0.45, cy - r * 0.3, r * 0.5, 0, Math.PI * 2);
-      ctx.moveTo(cx + r * 0.95, cy - r * 0.3);
-      ctx.arc(cx + r * 0.45, cy - r * 0.3, r * 0.5, 0, Math.PI * 2);
-      ctx.moveTo(cx - r * 0.92, cy - r * 0.18);
+      // 아래 꼭짓점 → 왼쪽 볼 → 가운데 홈 → 오른쪽 볼 → 꼭짓점 (단일 경로)
+      ctx.moveTo(cx, cy + r * 0.95);
+      ctx.lineTo(cx - r * 0.93, cy);
+      ctx.arc(cx - r * 0.44, cy - r * 0.24, r * 0.54, 2.72, 5.72);
+      ctx.arc(cx + r * 0.44, cy - r * 0.24, r * 0.54, -2.58, 0.42);
       ctx.lineTo(cx, cy + r * 0.95);
-      ctx.lineTo(cx + r * 0.92, cy - r * 0.18);
       ctx.closePath();
     } else {
-      // 귀여운 곰돌이 실루엣 — 양쪽 귀 + 동글동글 머리
-      ctx.moveTo(cx - r * 0.28, cy - r * 0.52);
-      ctx.arc(cx - r * 0.62, cy - r * 0.52, r * 0.34, 0, Math.PI * 2);
-      ctx.moveTo(cx + r * 0.96, cy - r * 0.52);
-      ctx.arc(cx + r * 0.62, cy - r * 0.52, r * 0.34, 0, Math.PI * 2);
-      ctx.moveTo(cx + r * 0.8, cy + r * 0.14);
-      ctx.arc(cx, cy + r * 0.14, r * 0.8, 0, Math.PI * 2);
+      // 곰돌이 실루엣 — 머리 외곽선에 양쪽 귀를 이어 붙인 단일 폐곡선
+      const headY = cy + r * 0.08;
+      const headR = r * 0.72;
+      const earR = r * 0.30;
+
+      ctx.moveTo(cx, cy + r * 0.80);
+      ctx.arc(cx, headY, headR, Math.PI / 2, Math.PI * 7 / 6);
+      ctx.arc(cx - r * 0.56, cy - r * 0.52, earR, Math.PI * 7 / 12, Math.PI * 35 / 18);
+      ctx.lineTo(cx - headR * 0.174, headY - headR * 0.985);
+      ctx.arc(cx, headY, headR, Math.PI * 13 / 9, Math.PI * 11 / 6);
+      ctx.arc(cx + r * 0.56, cy - r * 0.52, earR, Math.PI * 5 / 12, -Math.PI * 37 / 36, true);
+      ctx.arc(cx, headY, headR, Math.PI * 5 / 3, Math.PI * 5 / 2);
+      ctx.closePath();
     }
   }
 

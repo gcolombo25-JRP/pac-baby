@@ -26,7 +26,10 @@ import MapRenderer from './map.js';
 import BotBrain from './bot.js';
 import Player from './player.js';
 import Enemy, { ENEMY_MODE, createEnemySpawnPlan } from './enemy.js';
-import { Item, Trap, drawItemIcon } from './item.js';
+import {
+  Item, Trap, drawItemIcon,
+  drawHeartIcon, drawCheckIcon, drawIceCrystalIcon, drawSpeakerIcon, drawRobotIcon,
+} from './item.js';
 import Effects from './effects.js';
 import SoundFX, { stereoPanFromTiles } from './sound.js';
 import { scoreCapForRound } from './validation.js';
@@ -2126,7 +2129,7 @@ export default class Game {
     }
 
     // 맵 렌더링
-    this.map.render(ctx, this.animTime);
+    this.map.render(ctx, this.animTime, this.round);
 
     // 철창문 (닫힌 문은 벽처럼 통행을 막는다)
     this._renderGates(ctx);
@@ -2506,7 +2509,8 @@ export default class Game {
       return metrics && typeof metrics.width === 'number' ? metrics.width : text.length * 7;
     };
 
-    const hearts = '♥'.repeat(this.lives) + '♡'.repeat(Math.max(0, PLAYER_LIVES - this.lives));
+    const heartsSize = 11;
+    const heartsGap = 4;
 
     let x = 10;
     const rightLimit = CANVAS_WIDTH - 150; // 우측 사운드/타이틀 영역 확보
@@ -2520,15 +2524,30 @@ export default class Game {
 
     drawItem(`SCORE: ${this.player.score}`);
     drawItem(`HI: ${this.hiScore}`, '#ffd54f');
-    drawItem(hearts, '#ef5350');
+
+    // 목숨 하트 — OS '♥/♡' 문자 대신 Canvas 2D 벡터로 그린다
+    const heartsWidth = PLAYER_LIVES * heartsSize + (PLAYER_LIVES - 1) * heartsGap;
+    if (x + heartsWidth <= rightLimit) {
+      for (let i = 0; i < PLAYER_LIVES; i++) {
+        const hx = x + heartsSize / 2 + i * (heartsSize + heartsGap);
+        drawHeartIcon(ctx, hx, 14, heartsSize, i < this.lives);
+      }
+      x += heartsWidth + 16;
+    }
+
     drawItem(`R${this.round}`, '#29b6f6');
 
+    // 우측: 사운드 스피커(벡터) + 브랜드 젖병(벡터) + 타이틀
     ctx.textAlign = 'right';
-    const title = `${this.sound.enabled ? '🔊' : '🔇'} Pac-Baby`;
+    const title = 'Pac-Baby';
+    const titleLeft = CANVAS_WIDTH - 10 - measure(title);
     ctx.fillText(title, CANVAS_WIDTH - 10, 14);
 
+    // OS '🔊/🔇' 대신 Canvas 2D 스피커 아이콘
+    drawSpeakerIcon(ctx, titleLeft - 10, 14, 13, this.sound.enabled);
+
     // 브랜드 젖병 아이콘 — OS 이모지 대신 Canvas 2D 벡터로 그린다
-    drawItemIcon(ctx, 'MILK', CANVAS_WIDTH - 10 - measure(title) - 11, 14, 13, this.animTime || 0);
+    drawItemIcon(ctx, 'MILK', titleLeft - 28, 14, 13, this.animTime || 0);
 
     // 소화 게이지 (트랩 배출까지)
     this._renderDigestionGauge(ctx);
@@ -2566,23 +2585,29 @@ export default class Game {
   _renderBotStatus(ctx) {
     if (!this.isBotActive || this.demoMode) return;
 
-    const text = '🤖 BOT MODE';
+    const text = 'BOT MODE';
+    const iconSize = 12;
     const metrics = typeof ctx.measureText === 'function' ? ctx.measureText(text) : null;
     const textWidth = metrics && typeof metrics.width === 'number'
       ? metrics.width
       : text.length * 7;
-    const width = textWidth + 20;
+    const contentWidth = iconSize + 5 + textWidth;
+    const width = contentWidth + 20;
     const centerX = CANVAS_WIDTH / 2;
     const y = 64;
+    const left = centerX - width / 2;
 
     ctx.fillStyle = 'rgba(255, 224, 130, 0.18)';
-    ctx.fillRect(centerX - width / 2, y - 9, width, 18);
+    ctx.fillRect(left, y - 9, width, 18);
+
+    // OS '🤖' 대신 Canvas 2D 로봇 아이콘
+    drawRobotIcon(ctx, left + 10 + iconSize / 2, y, iconSize, '#ffe082');
 
     ctx.fillStyle = '#ffe082';
     ctx.font = 'bold 11px "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, centerX, y);
+    ctx.fillText(text, left + 10 + iconSize + 5, y);
     ctx.textAlign = 'left';
   }
 
@@ -2641,17 +2666,21 @@ export default class Game {
 
     const progress = Math.min(1, Math.max(0, 1 - track.remaining / track.total));
     const label = { PEE: '오줌', VOMIT: '토사물', POOP: '똥' }[track.trapType] || '트랩';
+    const itemType = { PEE: 'MILK', VOMIT: 'CANDY', POOP: 'COOKIE' }[track.trapType] || 'MILK';
 
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(10, 32, 120, 8);
     ctx.fillStyle = '#ffd54f';
     ctx.fillRect(10, 32, 120 * progress, 8);
 
+    // 아이템 종류를 item.js 의 벡터 아이콘으로 표시 (OS 이모지 없음)
+    drawItemIcon(ctx, itemType, 138, 36, 12, this.animTime || 0);
+
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.font = '10px "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`소화중 → ${label}`, 138, 36);
+    ctx.fillText(`소화중 → ${label}`, 148, 36);
   }
 
   /** 스텔스 남은 시간 게이지 (소화 게이지와 고정 슬롯으로 분리) */
@@ -2683,12 +2712,29 @@ export default class Game {
     if (frozen.length === 0) return;
 
     const remain = Math.max(...frozen.map(e => e.frozenTimer));
+    const text = `얼림 ${(remain / 1000).toFixed(1)}초`;
+    const y = 40;
 
-    ctx.fillStyle = 'rgba(100,181,246,0.95)';
-    ctx.font = '12px "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
+    ctx.font = 'bold 12px "Segoe UI", sans-serif';
+    const metrics = typeof ctx.measureText === 'function' ? ctx.measureText(text) : null;
+    const textWidth = metrics && typeof metrics.width === 'number'
+      ? metrics.width
+      : text.length * 7;
+    const iconSize = 13;
+    const contentWidth = iconSize + 5 + textWidth;
+    const left = CANVAS_WIDTH / 2 - contentWidth / 2;
+
+    ctx.fillStyle = 'rgba(13, 71, 161, 0.55)';
+    ctx.fillRect(left - 8, y - 10, contentWidth + 16, 20);
+
+    // OS '❄' 대신 Canvas 2D 눈결정 아이콘
+    drawIceCrystalIcon(ctx, left + iconSize / 2, y, iconSize, '#e3f2fd');
+
+    ctx.fillStyle = '#bbdefb';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`얼림 ${(remain / 1000).toFixed(1)}초`, CANVAS_WIDTH / 2, 40);
+    ctx.fillText(text, left + iconSize + 5, y);
+    ctx.textAlign = 'left';
   }
 
   /** 슈가 러시 / 황금 보행기 남은 시간 배지 (우측 상단) */
@@ -2748,7 +2794,7 @@ export default class Game {
 
     const centerX = CANVAS_WIDTH / 2;
     const y = 92;
-    const title = `✅ Score Cleared · ${this.roundScoreCap}`;
+    const title = `Score Cleared · ${this.roundScoreCap}`;
     const guide = '남은 아이템을 모아 다음 라운드로 가세요!';
 
     const measure = (text, font) => {
@@ -2760,7 +2806,11 @@ export default class Game {
 
     const titleFont = 'bold 13px "Segoe UI", sans-serif';
     const guideFont = '11px "Segoe UI", sans-serif';
-    const width = Math.max(measure(title, titleFont), measure(guide, guideFont)) + 26;
+    const titleWidth = measure(title, titleFont);
+    const guideWidth = measure(guide, guideFont);
+    const checkSize = 12;
+    const titleGroupWidth = checkSize + 6 + titleWidth;
+    const width = Math.max(titleGroupWidth, guideWidth) + 24;
 
     // 배경/테두리 (얇은 금색 프레임)
     ctx.fillStyle = 'rgba(255, 213, 79, 0.18)';
@@ -2771,15 +2821,20 @@ export default class Game {
       ctx.strokeRect(centerX - width / 2 + 0.5, y - 16.5, width - 1, 35);
     }
 
-    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+
+    // OS '✅' 대신 Canvas 2D 체크 배지
+    const groupLeft = centerX - titleGroupWidth / 2;
+    drawCheckIcon(ctx, groupLeft + checkSize / 2, y - 4, checkSize, '#8bc34a');
 
     ctx.fillStyle = '#ffd54f';
     ctx.font = titleFont;
-    ctx.fillText(title, centerX, y - 4);
+    ctx.textAlign = 'left';
+    ctx.fillText(title, groupLeft + checkSize + 6, y - 4);
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
     ctx.font = guideFont;
+    ctx.textAlign = 'center';
     ctx.fillText(guide, centerX, y + 11);
 
     // 이후 HUD 텍스트가 좌측 정렬을 기대하므로 되돌린다
@@ -3009,11 +3064,29 @@ export default class Game {
 
     ctx.fillStyle = '#8bc34a';
     ctx.font = '14px "Segoe UI", sans-serif';
-    ctx.fillText(
-      `목숨 +1  (${'♥'.repeat(this.lives)})`,
-      CANVAS_WIDTH / 2,
-      CANVAS_HEIGHT / 2 + 38,
-    );
+    const lifeY = CANVAS_HEIGHT / 2 + 38;
+    const lifeText = '목숨 +1';
+    const lifeMetrics = typeof ctx.measureText === 'function' ? ctx.measureText(lifeText) : null;
+    const lifeTextWidth = lifeMetrics && typeof lifeMetrics.width === 'number'
+      ? lifeMetrics.width
+      : lifeText.length * 7;
+    const heartSize = 12;
+    const heartGap = 3;
+    const heartCount = Math.max(0, Math.min(this.lives, PLAYER_LIVES));
+    const heartsWidth = heartCount > 0
+      ? heartCount * heartSize + (heartCount - 1) * heartGap
+      : 0;
+    const lifeGroupWidth = lifeTextWidth + (heartCount > 0 ? 8 + heartsWidth : 0);
+    const lifeStartX = CANVAS_WIDTH / 2 - lifeGroupWidth / 2;
+
+    // OS '♥' 문자 대신 Canvas 2D 하트 아이콘
+    ctx.textAlign = 'left';
+    ctx.fillText(lifeText, lifeStartX, lifeY);
+    for (let i = 0; i < heartCount; i++) {
+      const hx = lifeStartX + lifeTextWidth + 8 + heartSize / 2 + i * (heartSize + heartGap);
+      drawHeartIcon(ctx, hx, lifeY, heartSize, true);
+    }
+    ctx.textAlign = 'center';
 
     ctx.fillStyle = '#ffe082';
     ctx.font = 'bold 18px "Segoe UI", sans-serif';
