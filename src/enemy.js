@@ -14,6 +14,26 @@ export const ENEMY_MODE = {
   FLEE: 'FLEE',     // 황금 젖병 보행기 모드: 겁에 질려 도망친다
 };
 
+/**
+ * 황금 보행기 넉백 연출: 맞은 지점에서 스폰 지점까지 포물선으로 날아가는 시간(ms).
+ * - 논리 위치(row/col)는 즉시 스폰으로 복귀하지만, 이 연출이 끝날 때까지
+ *   화면에서는 보모가 빙글빙글 돌며 아치를 그리며 날아간다.
+ */
+export const KNOCK_FLIGHT_MS = 650;
+
+/** 비행 꼬리(별가루) 발사 간격(ms) — 매 프레임 쏘면 너무 많아진다 */
+const KNOCK_TRAIL_INTERVAL_MS = 26;
+
+/** 포물선 최고 높이(타일 단위, 거리에 따라 보간) */
+const KNOCK_ARC_MIN_TILES = 1.2;
+const KNOCK_ARC_MAX_TILES = 3.2;
+
+/** 비행 총 회전량(바퀴 수) — 정점 전후로 빠르게 빙글빙글 돈다 */
+const KNOCK_FLIGHT_SPINS = 2.6;
+
+/** 포물선 정점에서의 몸집 확대 (원근감) — 1 + 0.4 = 1.4배 */
+const KNOCK_APEX_SCALE = 0.4;
+
 /** '#rrggbb' 두 색을 t(0~1) 비율로 섞는다 */
 function mixHexColor(from, to, t) {
   const parse = (hex) => [
@@ -348,6 +368,9 @@ export default class Enemy {
     this.slowTimer = 0;
     this.pinned = false;     // 테스터: 악당 전체 정지
     this.movedThisTick = false; // 이번 틱에 이동했는지 (교차 통과 판정용)
+
+    // 황금 보행기 넉백 비행 연출 (화면 전용 — 논리 위치와 분리)
+    this.knockFlight = null;
   }
 
   /** 감속이 반영된 1타일 이동 시간 */
@@ -468,6 +491,113 @@ export default class Enemy {
   }
 
   /**
+   * 황금 보행기 넉백 연출 시작: 맞은 지점 → 현재(스폰) 지점까지 포물선 비행.
+   * - 호출 전에 resetToSpawn() 으로 논리 위치를 이미 옮겨 둔 상태를 전제로 한다.
+   * - 이 상태는 화면 연출 전용이라 row/col·충돌 판정에는 영향을 주지 않는다.
+   * @param {number} fromRow 맞은 타일 행
+   * @param {number} fromCol 맞은 타일 열
+   * @param {number} [durationMs] 비행 시간 (기본 650ms)
+   * @returns {object|null} 생성된 비행 상태
+   */
+  startKnockFlight(fromRow, fromCol, durationMs = KNOCK_FLIGHT_MS) {
+    if (!Number.isFinite(fromRow) || !Number.isFinite(fromCol)) return null;
+
+    const fromX = (fromCol + 0.5) * TILE_SIZE;
+    const fromY = (fromRow + 0.5) * TILE_SIZE;
+    const toX = (this.col + 0.5) * TILE_SIZE;
+    const toY = (this.row + 0.5) * TILE_SIZE;
+
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const distance = Math.hypot(dx, dy);
+    const arcTiles = Math.max(
+      KNOCK_ARC_MIN_TILES,
+      Math.min(KNOCK_ARC_MAX_TILES, (distance / TILE_SIZE) * 0.55),
+    );
+
+    this.knockFlight = {
+      fromX,
+      fromY,
+      toX,
+      toY,
+      elapsed: 0,
+      duration: Math.max(160, Number.isFinite(durationMs) ? durationMs : KNOCK_FLIGHT_MS),
+      arcHeight: TILE_SIZE * arcTiles,
+      // 오른쪽으로 날아가면 시계 방향, 왼쪽이면 반시계 방향으로 빙글빙글
+      spinTotal: (dx >= 0 ? 1 : -1) * Math.PI * 2 * KNOCK_FLIGHT_SPINS,
+      trailAccum: 0,
+    };
+
+    return this.knockFlight;
+  }
+
+  /** 진행 중인 넉백 비행 연출 취소 (리스폰/라운드 초기화) */
+  clearKnockFlight() {
+    this.knockFlight = null;
+  }
+
+  /**
+   * 비행 연출을 진행하고 현재 자세를 돌려준다 (렌더 전용).
+   * @param {number} dt 프레임 경과(ms)
+   * @returns {object|null} { x, y, rotation, scale, arc, progress, emitTrail, landed }
+   */
+  advanceKnockFlight(dt) {
+    const flight = this.knockFlight;
+    if (!flight) return null;
+
+    const step = Math.max(0, Number.isFinite(dt) ? dt : 0);
+    flight.elapsed += step;
+    flight.trailAccum += step;
+
+    const emitTrail = flight.trailAccum >= KNOCK_TRAIL_INTERVAL_MS;
+    if (emitTrail) flight.trailAccum = 0;
+
+    const pose = this.getFlightPose();
+    const landed = flight.elapsed >= flight.duration;
+
+    if (pose) {
+      pose.emitTrail = emitTrail;
+      pose.landed = landed;
+    }
+    if (landed) this.knockFlight = null; // 착지하면 다음 프레임부터 정상 렌더
+
+    return pose;
+  }
+
+  /**
+   * 비행 궤적 위의 자세를 계산한다.
+   * @param {number} [offset] 진행률 오프셋 (음수 = 과거 시점 → 잔상 고스트)
+   * @returns {object|null}
+   */
+  getFlightPose(offset = 0) {
+    const flight = this.knockFlight;
+    if (!flight) return null;
+
+    const raw = flight.elapsed / flight.duration + (Number.isFinite(offset) ? offset : 0);
+    const t = Math.min(1, Math.max(0, raw));
+
+    // X 는 등속, Y 는 포물선(정점에서 솟아올랐다가 착지)
+    const groundX = flight.fromX + (flight.toX - flight.fromX) * t;
+    const groundY = flight.fromY + (flight.toY - flight.fromY) * t;
+    const arc = Math.sin(Math.PI * t); // 0 → 1 → 0
+    const y = groundY - flight.arcHeight * arc;
+
+    return {
+      x: groundX,
+      y,
+      groundX,
+      groundY,
+      arc,
+      progress: t,
+      // 정점에서 1.4배까지 커졌다가 원래 크기로 돌아오는 원근감
+      scale: 1 + KNOCK_APEX_SCALE * arc,
+      rotation: flight.spinTotal * t * t, // 처음엔 천천히, 정점 부근에서 빠르게
+      emitTrail: false,
+      landed: false,
+    };
+  }
+
+  /**
    * 베이비를 놓치고 잠시 경비(순찰) 모드로 변신한다.
    * duration 후에는 원래 모드(추격)로 복귀한다.
    * @param {number} duration 목표를 잃는 시간(ms)
@@ -512,6 +642,7 @@ export default class Enemy {
     this.prevCol = this.col;
     this.moveAccum = 0;
     this.direction = null;
+    this.knockFlight = null; // 이전 넉백 비행 연출은 리스폰과 함께 취소
     this.slowEffect = 0;
     this.slowTimer = 0;
     this.guardTarget = null;
@@ -736,11 +867,55 @@ export default class Enemy {
   }
 
   /**
+   * 넉백 비행 잔상(고스트): 현재 위치보다 살짝 뒤처진 궤적에 반투명 실루엣을 남긴다.
+   * - 별가루 파티클과 함께 "시원하게 날아갔다"는 꼬리 효과를 만든다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {{x: number, y: number, rotation: number, scale: number}} pose
+   */
+  _renderFlightGhosts(ctx, pose) {
+    const radius = TILE_SIZE / 2 - 2;
+
+    for (let i = 1; i <= 3; i++) {
+      const ghost = this.getFlightPose(-i * 0.06);
+      if (!ghost) continue;
+
+      const alpha = 0.34 - (i - 1) * 0.1;
+      ctx.save?.();
+      ctx.globalAlpha = Math.max(0.08, alpha);
+      ctx.translate(ghost.x, ghost.y);
+      ctx.rotate(ghost.rotation);
+      ctx.fillStyle = COLORS.ENEMY_SCARED;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * ghost.scale * (1 - i * 0.06), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore?.();
+    }
+
+    // 정점에서 살짝 번쩍이는 골든 링 (날아가는 힘을 강조)
+    if (pose && pose.arc > 0.2) {
+      ctx.save?.();
+      ctx.globalAlpha = Math.min(0.6, pose.arc * 0.7);
+      ctx.strokeStyle = COLORS.GOLDEN;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pose.x, pose.y, radius * pose.scale + 3.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore?.();
+    }
+  }
+
+  /**
    * 악당(보모) 렌더링
    * @param {CanvasRenderingContext2D} ctx
    * @param {number} timeMs 애니메이션 시간(ms)
    */
   render(ctx, timeMs = 0) {
+    // 황금 보행기로 맞아 날아가는 중이면 논리 위치 대신 포물선 궤적 위에 그린다
+    const flightPose = this.getFlightPose();
+    const flying = !!flightPose;
+
+    if (flying) this._renderFlightGhosts(ctx, flightPose);
+
     const progress = this.getMoveProgress();
 
     // 터널 통과(1칸 이상 점프) 시에는 보간하지 않는다
@@ -751,21 +926,21 @@ export default class Enemy {
       ? this.prevRow + (this.row - this.prevRow) * progress
       : this.row;
 
-    const baseCx = (drawCol + 0.5) * TILE_SIZE;
-    const cy = (drawRow + 0.5) * TILE_SIZE;
+    const baseCx = flying ? flightPose.x : (drawCol + 0.5) * TILE_SIZE;
+    const cy = flying ? flightPose.y : (drawRow + 0.5) * TILE_SIZE;
     const radius = TILE_SIZE / 2 - 2;
     const supportsEllipse = typeof ctx.ellipse === 'function';
 
     const frozen = this.isFrozen;
     const fleeing = !frozen && this.isFleeing;
     const slowed = !frozen && this.slowEffect > 0 && this.slowTimer > 0;
-    const bob = frozen ? 0 : Math.sin(timeMs / 260 + this.index * 1.7) * 0.6;
-    // 겁에 질린 악당은 부들부들 떤다
-    const jitter = fleeing ? Math.sin(timeMs / 45 + this.index * 1.3) * 1.1 : 0;
+    const bob = frozen || flying ? 0 : Math.sin(timeMs / 260 + this.index * 1.7) * 0.6;
+    // 겁에 질린 악당은 부들부들 떤다 (날아가는 중에는 이미 충분히 요란하다)
+    const jitter = fleeing && !flying ? Math.sin(timeMs / 45 + this.index * 1.3) * 1.1 : 0;
     const cx = baseCx + jitter;
 
-    // 감속 표시: 발밑에 보랏빛 링 조각
-    if (slowed) {
+    // 감속 표시: 발밑에 보랏빛 링 조각 (공중에서는 생략)
+    if (slowed && !flying) {
       ctx.strokeStyle = 'rgba(186, 104, 200, 0.75)';
       ctx.lineWidth = 1.4;
       ctx.beginPath();
@@ -776,8 +951,29 @@ export default class Enemy {
       ctx.stroke();
     }
 
-    // 그림자
-    if (supportsEllipse) {
+    if (flying) {
+      // 날아오르는 높이만큼 작고 옅어지는 바닥 그림자 → 원근감 강조
+      if (supportsEllipse) {
+        const shadowScale = 1 - 0.45 * flightPose.arc;
+        ctx.fillStyle = `rgba(0, 0, 0, ${0.3 - 0.16 * flightPose.arc})`;
+        ctx.beginPath();
+        ctx.ellipse(
+          flightPose.groundX,
+          flightPose.groundY + radius * 0.82,
+          radius * 0.8 * shadowScale,
+          radius * 0.3 * shadowScale,
+          0, 0, Math.PI * 2,
+        );
+        ctx.fill();
+      }
+
+      // 몸 전체를 중심 기준으로 회전 + 확대 (빙글빙글 포물선 비행)
+      ctx.save?.();
+      ctx.translate(cx, cy);
+      ctx.rotate(flightPose.rotation);
+      ctx.scale(flightPose.scale, flightPose.scale);
+      ctx.translate(-cx, -cy);
+    } else if (supportsEllipse) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
       ctx.beginPath();
       ctx.ellipse(cx, cy + radius * 0.82, radius * 0.8, radius * 0.3, 0, 0, Math.PI * 2);
@@ -901,5 +1097,8 @@ export default class Enemy {
     }
 
     ctx.restore?.();
+
+    // 비행 변환(회전/확대) 원복
+    if (flying) ctx.restore?.();
   }
 }

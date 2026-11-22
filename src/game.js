@@ -35,12 +35,13 @@ const MAX_FRAME_TICKS = 3;
 
 /**
  * 임팩트 연출: 히트스톱(프레임 정지) + 마이크로 줌
- * - 보모를 날려버릴 때/체포될 때 55~75ms 동안 화면을 멈춰 타격감을 준다.
- * - 멈춘 동안 베이비 중심으로 1.04~1.06배 줌인했다가 부드럽게 원복한다.
+ * - 보모를 날려버릴 때 75~90ms 동안 화면을 멈춰 타격감을 준다.
+ * - 체포될 때는 75ms 동안 멈춘다.
+ * - 멈춘 동안 베이비 중심으로 1.05~1.07배 줌인했다가 부드럽게 원복한다.
  */
-const HIT_STOP_KNOCK_MS = 60;
+const HIT_STOP_KNOCK_MS = 85;
 const HIT_STOP_CAUGHT_MS = 75;
-const IMPACT_ZOOM_KNOCK = 1.05;
+const IMPACT_ZOOM_KNOCK = 1.06;
 const IMPACT_ZOOM_CAUGHT = 1.06;
 const IMPACT_ZOOM_MS = 280;
 
@@ -116,7 +117,7 @@ export default class Game {
     this.hitStopMs = 0;     // 남은 프레임 정지 시간(ms) — 0 이면 정상 진행
     this.zoomTimer = 0;     // 남은 줌 펄스 시간(ms)
     this.zoomDuration = 0;  // 줌 펄스 총 길이(ms)
-    this.zoomPeak = 1;      // 줌 최대 배율 (1.04~1.06)
+    this.zoomPeak = 1;      // 줌 최대 배율 (1.05~1.07)
 
     // 침대 스텔스
     this.stealthBed = null; // 스텔스에 사용 중인 침대 { row, col }
@@ -708,7 +709,7 @@ export default class Game {
       return;
     }
 
-    // 히트스톱: 임팩트 순간(55~75ms) 로직·애니메이션 시간을 멈추고 같은 프레임을 유지한다.
+    // 히트스톱: 임팩트 순간(75~90ms) 로직·애니메이션 시간을 멈추고 같은 프레임을 유지한다.
     // - 파티클/셰이크(effects)는 그대로 흘려 타격 순간의 여운을 살린다.
     // - 입력은 clear 하지 않고 다음 프레임에서 처리되게 남겨 둔다.
     if (this.hitStopMs > 0) {
@@ -719,6 +720,9 @@ export default class Game {
 
     // 애니메이션 시간 (캐릭터 바운스/아이템 부유/트랩 흔들림) — 히트스톱 중에는 멈춘다
     if (dt > 0) this.animTime = (this.animTime + dt) % 600000;
+
+    // 황금 보행기 넉백: 보모가 포물선으로 날아가는 연출 (히트스톱 뒤부터 진행)
+    this._updateKnockFlights(dt);
 
     // 매 프레임 조작 확인 (속도/음향/스킬/일시정지/재시작·다음 라운드)
     this._handleSystemInput();
@@ -1233,6 +1237,9 @@ export default class Game {
     this._updateHiScore();
 
     this._respawnEnemy(enemy);
+    // 논리 위치는 스폰으로 복귀했지만, 화면에서는 맞은 지점 → 스폰까지
+    // 0.65초 동안 빙글빙글 포물선으로 날아가는 연출을 재생한다.
+    enemy.startKnockFlight(hitRow, hitCol);
     if (fleeRemaining > 0) enemy.startFlee(fleeRemaining);
 
     this._addPopup(hitRow, hitCol, `+${GOLDEN_BOTTLE.knockScore}`, COLORS.GOLDEN);
@@ -1242,13 +1249,37 @@ export default class Game {
     );
     // 날아가기 전 보모의 좌우 위치로 패닝해 타격이 들리는 방향을 알려준다
     this.sound.playTrapHit(stereoPanFromTiles(hitCol - this.player.col));
-    this.effects.burstSparkle(hitRow, hitCol, 16);
-    this.effects.shockwave(hitRow, hitCol, COLORS.GOLDEN, TILE_SIZE * 2.8, 0.45);
-    this.effects.flashScreen(COLORS.GOLDEN, 0.16, 0.2);
-    this.effects.shake(0.12, 4);
+    this.effects.burstSparkle(hitRow, hitCol, 18);
+    this.effects.shockwave(hitRow, hitCol, COLORS.GOLDEN, TILE_SIZE * 3.2, 0.5);
+    this.effects.flashScreen(COLORS.GOLDEN, 0.18, 0.22);
+    this.effects.shake(0.2, 6);
 
-    // 60ms 프레임 정지 + 1.05배 줌인으로 '쾅' 하고 날려버리는 손맛
+    // 85ms 프레임 정지 + 1.06배 줌인으로 '쾅' 하고 날려버리는 손맛
     this._startImpact({ holdMs: HIT_STOP_KNOCK_MS, zoom: IMPACT_ZOOM_KNOCK });
+  }
+
+  /**
+   * 황금 보행기 넉백 비행 연출 진행 (프레임 단위)
+   * - 날아가는 궤적 뒤로 별가루 꼬리를 뿌리고, 착지 순간 작은 충격파를 남긴다.
+   * - 히트스톱(프레임 정지) 중에는 호출되지 않아 비행도 함께 멈춘다.
+   * @param {number} dt 프레임 경과(ms)
+   */
+  _updateKnockFlights(dt) {
+    if (!(dt > 0)) return;
+
+    for (const enemy of this.enemies) {
+      if (!enemy.knockFlight) continue;
+
+      const pose = enemy.advanceKnockFlight(dt);
+      if (!pose) continue;
+
+      if (pose.emitTrail) this.effects.flightTrail?.(pose.x, pose.y);
+
+      if (pose.landed) {
+        this.effects.burstSparkle?.(enemy.row, enemy.col, 8);
+        this.effects.shockwave?.(enemy.row, enemy.col, COLORS.GOLDEN, TILE_SIZE * 1.5, 0.3);
+      }
+    }
   }
 
   /** 라운드/재시작 시 파워업 상태를 모두 해제 */
@@ -1352,7 +1383,7 @@ export default class Game {
   /**
    * 현재 마이크로 줌 배율 (1 = 원본)
    * - 22% 구간에서 빠르게 최대치까지 당긴 뒤 ease-out 으로 1.0 까지 복귀한다.
-   * @returns {number} 1.0 ~ 1.06
+   * @returns {number} 1.0 ~ 1.07
    */
   getZoomScale() {
     if (!(this.zoomTimer > 0) || !(this.zoomDuration > 0)) return 1;

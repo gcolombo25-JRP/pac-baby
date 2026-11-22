@@ -106,6 +106,44 @@ export default class Effects {
   }
 
   /**
+   * 황금 보행기 넉백 비행 꼬리 — 날아가는 보모 뒤로 별가루가 흩날린다.
+   * 파티클 좌표는 타일이 아닌 월드 픽셀 좌표를 받는다 (비행 궤적이 연속적이므로).
+   * @param {number} x 월드 좌표(px)
+   * @param {number} y 월드 좌표(px)
+   * @param {{colors?: string[], count?: number}} [options]
+   * @returns {number} 생성된 별 파티클 수
+   */
+  flightTrail(x, y, options = {}) {
+    const baseX = Number.isFinite(x) ? x : 0;
+    const baseY = Number.isFinite(y) ? y : 0;
+    const colors = options.colors || ['#ffe082', '#fff59d', '#ffd54f', '#ffffff'];
+    const count = options.count || 2;
+
+    for (let i = 0; i < count; i++) {
+      const angle = this.rng() * Math.PI * 2;
+      const speed = 16 + this.rng() * 34;
+      const life = 0.26 + this.rng() * 0.24;
+
+      this.particles.push({
+        kind: 'star',
+        x: baseX + (this.rng() * 2 - 1) * 4.5,
+        y: baseY + (this.rng() * 2 - 1) * 4.5,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.6 - 14, // 살짝 위로 떠오르며 흩어진다
+        gravity: 90,
+        size: 2.1 + this.rng() * 2.3,
+        color: colors[Math.floor(this.rng() * colors.length) % colors.length],
+        rotation: this.rng() * Math.PI * 2,
+        spin: (this.rng() * 2 - 1) * 11,
+        life,
+        maxLife: life,
+      });
+    }
+
+    return count;
+  }
+
+  /**
    * 일반 이동 발자국/먼지 흔적 — 베이비가 지나간 타일 중앙에 작은 먼지가 폴폴 남는다.
    * - 아이템/파워업 없이도 이동감을 즉시 느낄 수 있게 0.5초 내외로 사라진다.
    * @param {number} x 월드 좌표(px)
@@ -292,6 +330,24 @@ export default class Effects {
         ctx.moveTo(particle.x, particle.y - s * 0.9);
         ctx.lineTo(particle.x, particle.y + s * 0.9);
         ctx.stroke();
+      } else if (particle.kind === 'star') {
+        // 5꼭지 별가루 (넉백 비행 꼬리) — 회전하며 반짝인다
+        const s = size * 1.55;
+        ctx.save?.();
+        ctx.translate(particle.x, particle.y);
+        ctx.rotate(particle.rotation);
+        ctx.beginPath();
+        for (let i = 0; i < 10; i++) {
+          const r = i % 2 === 0 ? s : s * 0.45;
+          const angle = (Math.PI / 5) * i - Math.PI / 2;
+          const px = Math.cos(angle) * r;
+          const py = Math.sin(angle) * r;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore?.();
       } else if (particle.kind === 'ice') {
         // 회전하는 얼음 결정 (마름모)
         ctx.save?.();

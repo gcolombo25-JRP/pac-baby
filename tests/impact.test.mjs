@@ -1,7 +1,7 @@
 /**
  * Pac-Baby: 임팩트 연출(히트스톱 + 마이크로 줌) 회귀 테스트
- *  - 보모 날려버리기/체포 순간 55~75ms 프레임 정지
- *  - 베이비 중심 1.04~1.06배 줌인 후 원복
+ *  - 보모 날려버리기 75~90ms / 체포 55~75ms 프레임 정지
+ *  - 베이비 중심 1.05~1.07배 줌인 후 원복
  *  - 줌 변환이 월드 레이어 안에서만 적용되고 save/restore 짝이 맞는지
  */
 
@@ -44,12 +44,12 @@ function setup() {
   return { game, ctx };
 }
 
-test('보모를 날려버리면 55~75ms 히트스톱 + 1.04~1.06배 줌이 발동한다', () => {
+test('보모를 날려버리면 75~90ms 히트스톱 + 1.05~1.07배 줌이 발동한다', () => {
   const { game } = setup();
   game._knockEnemy(game.enemies[0]);
 
-  assert.ok(game.hitStopMs >= 55 && game.hitStopMs <= 75, `hitStopMs=${game.hitStopMs}`);
-  assert.ok(game.zoomPeak >= 1.04 && game.zoomPeak <= 1.06, `zoomPeak=${game.zoomPeak}`);
+  assert.ok(game.hitStopMs >= 75 && game.hitStopMs <= 90, `hitStopMs=${game.hitStopMs}`);
+  assert.ok(game.zoomPeak >= 1.05 && game.zoomPeak <= 1.07, `zoomPeak=${game.zoomPeak}`);
   assert.equal(game.getZoomScale(), 1, '펄스 시작 시점은 원본 배율');
 });
 
