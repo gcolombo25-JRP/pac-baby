@@ -78,10 +78,46 @@ export default class ProfileStore {
     } catch (err) { /* 무시 */ }
   }
 
+  /**
+   * 오프라인/일시 오류로 제출하지 못한 런.
+   * 다음 접속(init) 또는 신규 등록 직후 1회 재제출한다.
+   * @returns {{ runId: string, score: number, round: number, at: number }|null}
+   */
+  loadPendingSubmission() {
+    const value = this._read(PROFILE_STORAGE_KEYS.PENDING_RUN, null);
+    if (!value || typeof value !== 'object') return null;
+    const runId = typeof value.runId === 'string' ? value.runId.trim() : '';
+    if (!runId) return null;
+    return {
+      runId,
+      score: Math.max(0, Math.floor(Number(value.score) || 0)),
+      round: Math.max(1, Math.floor(Number(value.round) || 1)),
+      at: Math.max(0, Number(value.at) || 0),
+    };
+  }
+
+  savePendingSubmission(entry) {
+    if (!entry || typeof entry.runId !== 'string' || !entry.runId) return false;
+    this._write(PROFILE_STORAGE_KEYS.PENDING_RUN, {
+      runId: entry.runId,
+      score: Math.max(0, Math.floor(Number(entry.score) || 0)),
+      round: Math.max(1, Math.floor(Number(entry.round) || 1)),
+      at: Math.max(0, Number(entry.at) || 0),
+    });
+    return true;
+  }
+
+  clearPendingSubmission() {
+    try {
+      this.storage?.removeItem(PROFILE_STORAGE_KEYS.PENDING_RUN);
+    } catch (err) { /* 무시 */ }
+  }
+
   clearProfile() {
     try {
       this.storage?.removeItem(PROFILE_STORAGE_KEYS.PROFILE);
       this.storage?.removeItem(PROFILE_STORAGE_KEYS.PROMPT);
+      this.storage?.removeItem(PROFILE_STORAGE_KEYS.PENDING_RUN);
     } catch (err) { /* 무시 */ }
   }
 }

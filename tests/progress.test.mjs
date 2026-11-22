@@ -11,6 +11,7 @@ import {
   ITEMS, PLAYER_LIVES, READY_COUNTDOWN_MS, ROUND_TARGET_SCORE, HISCORE_KEY,
   TRAP_COLORS, COLORS, SKILL_CRY,
 } from '../src/constants.js';
+import { scoreCapForRound } from '../src/validation.js';
 
 /** 호출을 기록하는 최소 ctx 스텁 */
 function createStubCtx() {
@@ -177,6 +178,155 @@ test('ITEMS 클리어 모드에서는 점수만으로는 클리어되지 않는�
   game._checkRoundProgress();
 
   assert.equal(game.state, 'PLAYING');
+});
+
+// ===== 라운드별 점수 상한 (Score Cleared) =====
+
+test('점수 획득은 라운드 상한(scoreCapForRound)에서 멈춘다', () => {
+  const { game } = setup();
+  const cap = scoreCapForRound(1);
+
+  game.player.score = cap - 30;
+  assert.equal(game._addScore(100), 30, '상한까지만 반영');
+  assert.equal(game.player.score, cap);
+  assert.equal(game.scoreCapReached, true);
+
+  assert.equal(game._addScore(100), 0, '상한 상태에서는 더 오르지 않는다');
+  assert.equal(game.player.score, cap);
+});
+
+test('아이템 섭취는 라운드 상한에서 멈추지만 아이템은 정상적으로 섭취된다', () => {
+  const { game } = setup();
+  game.enemies = [];
+  const item = game.items.find(i => !i.collected);
+  const cap = scoreCapForRound(1);
+
+  game.player.row = item.row;
+  game.player.col = item.col;
+  game.player.score = cap - 10;
+
+  game._updateItems(game.tickMs);
+
+  assert.equal(game.player.score, cap);
+  assert.equal(item.collected, true);
+  assert.equal(game.roundItemsEaten, 1, '아이템 섭취 카운트는 그대로 진행');
+  assert.equal(game.scoreCapReached, true);
+});
+
+test('보행기 넉백(+300)도 라운드 상한에서 멈춘다', () => {
+  const { game } = setup();
+  game.player.score = scoreCapForRound(1) - 100;
+
+  game._knockEnemy(game.enemies[0]);
+
+  assert.equal(game.player.score, scoreCapForRound(1));
+  assert.equal(game.scoreCapReached, true);
+});
+
+test('트랩 적중(+100)도 라운드 상한에서 멈춘다', () => {
+  const { game } = setup();
+  const cap = scoreCapForRound(1);
+  game.player.score = cap - 40;
+
+  const enemy = game.enemies[0];
+  const trap = new Trap(enemy.row, enemy.col, 'POOP', 0.3, 10000);
+  game.traps.push(trap);
+
+  game._updateTraps(game.tickMs);
+
+  assert.equal(game.player.score, cap);
+  assert.equal(game.scoreCapReached, true);
+  assert.equal(game.stats.traps, 1);
+});
+
+test('울기(-100)·체포(-200) 감점은 상한에서도 적용되고 다시 상한까지 오른다', () => {
+  const { game, input } = setup();
+  const cap = scoreCapForRound(1);
+
+  game.state = 'PLAYING';
+  game.player.score = cap;
+  game._refreshScoreCapState();
+  assert.equal(game.scoreCapReached, true);
+
+  // 울기 -100 → 상한 아래로 내려가면 배지도 해제된다
+  input.pressed.add(SKILL_CRY.key);
+  game._handleSkillInput();
+  assert.equal(game.player.score, cap + SKILL_CRY.cost);
+  assert.equal(game.scoreCapReached, false);
+
+  // 다시 상한까지 획득 가능
+  game._addScore(1000);
+  assert.equal(game.player.score, cap);
+  assert.equal(game.scoreCapReached, true);
+
+  // 체포 -200 도 그대로 적용 (울기로 얼어붙은 악당과 무관하게 직접 체포 처리)
+  game._catchPlayer();
+  assert.equal(game.player.score, cap - 200);
+  assert.equal(game.scoreCapReached, false);
+});
+
+test('Score Cleared 배지와 남은 아이템 안내가 HUD 에 표시된다', () => {
+  const { game, canvas } = setup();
+  game.player.score = scoreCapForRound(1);
+  game._refreshScoreCapState();
+
+  game._render(0.5);
+
+  const texts = canvas.ctx.calls
+    .filter(call => call.name === 'fillText')
+    .map(call => String(call.args[0]));
+
+  assert.ok(texts.some(t => t.includes('Score Cleared')));
+  assert.ok(texts.some(t => t.includes('남은 아이템을 모아 다음 라운드로 가세요!')));
+});
+
+test('다음 라운드/새 게임에서는 Score Cleared 상태가 초기화된다', () => {
+  const { game } = setup();
+  const cap1 = scoreCapForRound(1);
+
+  game.player.score = cap1;
+  game._refreshScoreCapState();
+  assert.equal(game.scoreCapReached, true);
+
+  game._startRound(2);
+  assert.equal(game.scoreCapReached, false, '다음 라운드에서 초기화');
+  assert.equal(game.roundScoreCap, scoreCapForRound(2));
+
+  game._addScore(1000);
+  assert.equal(game.player.score, cap1 + 1000, '새 상한까지 다시 획득');
+  assert.equal(game.scoreCapReached, false);
+  assert.ok(game.player.score < scoreCapForRound(2));
+
+  game.player.score = scoreCapForRound(2);
+  game._refreshScoreCapState();
+  assert.equal(game.scoreCapReached, true);
+
+  game.resetAll();
+  assert.equal(game.scoreCapReached, false);
+  assert.equal(game.player.score, 0);
+});
+
+test('STAGE CLEAR 오버레이가 클리어 사유(Item Cleared / Score Cleared)를 표시한다', () => {
+  const { game, canvas } = setup();
+  game.state = 'STAGE_CLEAR';
+  game.roundItemsEaten = game.items.length;
+
+  game._render(0);
+  let texts = canvas.ctx.calls
+    .filter(call => call.name === 'fillText')
+    .map(call => String(call.args[0]));
+  assert.ok(texts.includes('Item Cleared'), '아이템 클리어 표시');
+
+  // 점수 상한까지 도달한 클리어는 두 사유를 함께 표시한다
+  canvas.ctx.calls.length = 0;
+  game.player.score = scoreCapForRound(1);
+  game._refreshScoreCapState();
+
+  game._render(0);
+  texts = canvas.ctx.calls
+    .filter(call => call.name === 'fillText')
+    .map(call => String(call.args[0]));
+  assert.ok(texts.includes('Item Cleared · Score Cleared'));
 });
 
 test('STAGE CLEAR 에서 Space 를 누르면 다음 라운드가 시작된다', () => {

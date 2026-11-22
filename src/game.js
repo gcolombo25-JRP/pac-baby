@@ -29,6 +29,7 @@ import Enemy, { ENEMY_MODE, createEnemySpawnPlan } from './enemy.js';
 import { Item, Trap } from './item.js';
 import Effects from './effects.js';
 import SoundFX, { stereoPanFromTiles } from './sound.js';
+import { scoreCapForRound } from './validation.js';
 
 /** 한 프레임에서 처리할 최대 tick 수 (탭 전환 후 폭주 방지) */
 const MAX_FRAME_TICKS = 3;
@@ -54,6 +55,48 @@ function safeStorage() {
     if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
   } catch (err) { /* 접근 차단 환경 */ }
   return null;
+}
+
+// ===== 데모 안내 문구 (PC / 터치 기기) =====
+// 기기별 문구는 순수 헬퍼로 분리해 단위 테스트에서 분기를 검증한다.
+export const DEMO_HINT_PC = '게임 하시려면 아무 키나 누르세요';
+export const DEMO_HINT_TOUCH = '게임 하시려면 터치 하세요';
+
+/**
+ * 데모 안내 문구 선택 (순수 함수)
+ * @param {boolean} isTouch 터치 지원 기기 여부
+ * @returns {string}
+ */
+export function demoHintFor(isTouch) {
+  return isTouch ? DEMO_HINT_TOUCH : DEMO_HINT_PC;
+}
+
+/**
+ * 터치 지원 기기(안드로이드/iOS 등) 판별.
+ * - `options.touch` 가 boolean 이면 그 값을 그대로 쓴다 (테스트용 오버라이드).
+ * - D-패드가 활성화된 `body.touch-active`, coarse pointer, maxTouchPoints 를 차례로 확인한다.
+ * @param {{touch?: boolean, window?: object, document?: object, navigator?: object}} [options]
+ * @returns {boolean}
+ */
+export function detectTouchDevice(options = {}) {
+  if (typeof options.touch === 'boolean') return options.touch;
+
+  const win = options.window || (typeof window !== 'undefined' ? window : null);
+  const doc = options.document || (typeof document !== 'undefined' ? document : null);
+  const nav = options.navigator || (typeof navigator !== 'undefined' ? navigator : null);
+
+  if (doc?.body?.classList?.contains?.('touch-active')) return true;
+
+  try {
+    if (win && typeof win.matchMedia === 'function') {
+      if (win.matchMedia('(pointer: coarse)')?.matches) return true;
+      if (win.matchMedia('(any-pointer: coarse)')?.matches) return true;
+    }
+  } catch (err) { /* matchMedia 미지원/차단 환경 무시 */ }
+
+  if (nav && Number(nav.maxTouchPoints) > 0) return true;
+  if (win && 'ontouchstart' in win) return true;
+  return false;
 }
 
 export default class Game {
@@ -137,10 +180,14 @@ export default class Game {
     // ===== 봇 / 데모 플레이 =====
     this.bot = new BotBrain();
     this.botMode = false;          // F2/모바일에서 명시적으로 켠 BOT
-    this.demoMode = false;         // 무입력 5초 후 자동 시작된 DEMO
+    this.demoMode = false;         // 무입력 5초 후 자동 / [데모 실행] 버튼으로 시작된 DEMO
     this.demoArmed = true;         // 최초 로딩 후 한 번만 자동 데모 허용
+    this.autoDemoConsumed = false; // 접속 세션 동안 자동 데모 사용/수동 시작 여부 (다시 무장하지 않는다)
     this.demoIdleMs = 0;
     this.demoDelayMs = options.demoDelayMs ?? DEMO_IDLE_MS;
+    // 테스트용 기기 판별 오버라이드 (true=터치 기기 / false=PC, undefined=자동 감지)
+    this.demoTouchOverride = typeof options.demoTouch === 'boolean' ? options.demoTouch : null;
+    this.demoTouchDetected = undefined; // 자동 감지 결과 캐시 (렌더마다 matchMedia 조회 방지)
     this.lastInputActivitySeq = Number.isFinite(this.input?.activitySeq)
       ? this.input.activitySeq
       : 0;
@@ -158,6 +205,8 @@ export default class Game {
     this.round = 1;
     this.roundStartScore = 0;
     this.roundItemsEaten = 0;
+    // 라운드별 점수 상한(서버 SCORE_EXCEEDS_CAP 미러) 도달 여부 — HUD 'Score Cleared' 표시
+    this.scoreCapReached = false;
     this.hiScore = this._loadHiScore();
     this.newRecord = false;
     this.baseSpeedLevel = this.speedLevel;
@@ -172,6 +221,20 @@ export default class Game {
   /** 현재 봇이 조작 중인지 (데모 / 명시적 BOT / 테스터 BOT) */
   get isBotActive() {
     return this.botMode || this.demoMode || this.tester?.mode === 'BOT';
+  }
+
+  /** 데모 안내 문구용 터치 기기 판별 (테스트 오버라이드 우선) */
+  isTouchDemoDevice() {
+    if (typeof this.demoTouchOverride === 'boolean') return this.demoTouchOverride;
+    if (typeof this.demoTouchDetected !== 'boolean') {
+      this.demoTouchDetected = detectTouchDevice();
+    }
+    return this.demoTouchDetected;
+  }
+
+  /** 현재 기기에 맞는 데모 안내 문구 (PC / 터치) */
+  get demoHint() {
+    return demoHintFor(this.isTouchDemoDevice());
   }
 
   /** 봇 상태 변경 리스너 (모바일 [🤖 BOT] 버튼 동기화용) */
@@ -193,19 +256,32 @@ export default class Game {
   /**
    * 키보드/터치 등 사용자 입력 감지.
    * - 자동 데모를 즉시 종료하고 수동 플레이(MANUAL)로 전환한다.
+   * - 데모 판을 이어받지 않고 1라운드·0점·목숨 3의 새 매뉴얼 런으로 재시작한다.
    * - 명시적으로 켠 BOT 모드는 유지한다 (버튼으로만 끈다).
+   * @param {{restart?: boolean}} [options] restart=false 면 데모 종료만 하고 재시작은 호출부가 맡는다
+   * @returns {boolean} 데모에서 매뉴얼로 전환했는지
    */
-  noteUserActivity() {
+  noteUserActivity(options = {}) {
     const seq = this.input?.activitySeq;
     if (Number.isFinite(seq)) this.lastInputActivitySeq = seq;
 
+    // 접속 세션 동안 자동 데모는 다시 무장하지 않는다
+    this.autoDemoConsumed = true;
     this.demoArmed = false;
     this.demoIdleMs = 0;
 
-    if (!this.demoMode) return;
+    if (!this.demoMode) return false;
+
     this.demoMode = false;
     this.tester?.log?.('demo', '사용자 입력 → MANUAL 전환');
-    this._notifyBotState();
+
+    if (options.restart !== false) {
+      // 데모 점수/라운드를 이어받지 않는다. resetAll 이 정식 런(onRunStart)을 새로 시작한다.
+      this.resetAll();
+    } else {
+      this._notifyBotState();
+    }
+    return true;
   }
 
   /**
@@ -215,12 +291,20 @@ export default class Game {
    */
   toggleBot() {
     if (this.isBotActive) {
+      const wasDemo = this.demoMode;
       this.botMode = false;
       this.demoMode = false;
       this.demoArmed = false;
+      this.autoDemoConsumed = true;
       this.demoIdleMs = 0;
       if (this.tester?.mode === 'BOT') this.tester.stopAll?.();
-      this._notifyBotState();
+
+      // 데모 판을 이어받지 않는다 — 끄는 순간 새 매뉴얼 런으로 재시작
+      if (wasDemo) {
+        this.resetAll();
+      } else {
+        this._notifyBotState();
+      }
       return false;
     }
 
@@ -230,6 +314,7 @@ export default class Game {
     this.botMode = true;
     this.demoMode = false;
     this.demoArmed = false;
+    this.autoDemoConsumed = true;
     this.demoIdleMs = 0;
 
     if (this.state === 'PAUSED' && !this.tester?.flags?.step) {
@@ -242,34 +327,27 @@ export default class Game {
     return true;
   }
 
-  /** 무입력 5초 자동 데모 시작 */
-  _startDemo() {
-    if (!this.demoArmed || this.demoMode || this.botMode) return false;
+  /**
+   * 무입력 5초 자동 데모 시작 (접속 세션당 1회).
+   * - 사용자가 한 번이라도 매뉴얼 플레이를 시작했으면(autoDemoConsumed) 다시 켜지 않는다.
+   * - 데모 판은 서버 런/하이스코어와 완전히 분리해 새로 구성한다.
+   */
+  _startAutoDemo() {
+    if (this.autoDemoConsumed || !this.demoArmed || this.demoMode || this.botMode) return false;
     if (this.tester && this.tester.mode !== 'MANUAL') {
       this.demoArmed = false;
       return false;
     }
     if (this.state !== 'READY' && this.state !== 'PLAYING') return false;
 
-    this.demoMode = true;
-    this.demoArmed = false;
-    this.demoIdleMs = 0;
-
-    // READY 카운트다운 중이면 바로 플레이로 전환해 데모가 움직이게 한다
-    if (this.state === 'READY') {
-      this.state = 'PLAYING';
-      this.readyTimer = 0;
-      this.tickAccumulator = 0;
-    }
-
+    this._resetDemoBoard();
     this.tester?.log?.('demo', `무입력 ${Math.round(this.demoDelayMs / 1000)}초 → DEMO PLAY 시작`);
-    this._notifyBotState();
     return true;
   }
 
   /** READY/PLAYING 중 사용자 입력 없이 흐른 시간을 누적한다 */
   _updateDemoTimer(dt) {
-    if (!this.demoArmed || this.demoMode || this.botMode) return;
+    if (this.autoDemoConsumed || !this.demoArmed || this.demoMode || this.botMode) return;
     if (this.state !== 'READY' && this.state !== 'PLAYING') return;
     if (this.tester && this.tester.mode !== 'MANUAL') {
       this.demoArmed = false;
@@ -277,7 +355,7 @@ export default class Game {
     }
 
     this.demoIdleMs += Math.max(0, dt);
-    if (this.demoIdleMs >= this.demoDelayMs) this._startDemo();
+    if (this.demoIdleMs >= this.demoDelayMs) this._startAutoDemo();
   }
 
   /** InputManager.activitySeq 변화 = 실제 사용자 입력 */
@@ -335,29 +413,57 @@ export default class Game {
 
   /** 도움말에서 데모 플레이 바로 시작 */
   startDemoFromHelp() {
-    this.noteUserActivity();
-    this.botMode = false;
-    if (this.tester && this.tester.mode !== 'MANUAL') this.tester.stopAll?.();
-
-    if (this.state === 'GAME_OVER') {
-      this.resetAll();
-    } else if (this.state === 'STAGE_CLEAR') {
-      this._startRound(this.round + 1);
-    }
-
-    if (this.state === 'READY' || this.state === 'PAUSED') {
-      this.state = 'PLAYING';
-      this.readyTimer = 0;
-      this.tickAccumulator = 0;
-      this.lastTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    }
-
-    this.demoMode = true;
-    this.demoArmed = false;
-    this.demoIdleMs = 0;
-    this._notifyBotState();
+    this.startDemo();
     this.tester?.log?.('demo', '도움말에서 DEMO PLAY 시작');
     return true;
+  }
+
+  /**
+   * 명시적 [데모 실행] — 접속 중 언제든 새 데모 판을 시작한다.
+   * - 서버 런 시작/점수 제출/하이스코어 저장과 완전히 분리한다.
+   * - 이미 데모 중이면 처음부터 다시 시작한다.
+   */
+  startDemo() {
+    // restart=false: 데모에서 빠져나올 때 매뉴얼 런을 새로 시작하지 않는다
+    this.noteUserActivity({ restart: false });
+    if (this.tester && this.tester.mode !== 'MANUAL') this.tester.stopAll?.();
+    this._resetDemoBoard();
+    this.tester?.log?.('demo', '명시적 DEMO PLAY 시작');
+    return true;
+  }
+
+  /**
+   * 데모 판을 1라운드 · 0점 · 목숨 3으로 새로 구성한다.
+   * - `_beginRun`(onRunStart) / `_updateHiScore`(localStorage) / `_endRun`(submit) 을 호출하지 않는다.
+   * - 데모 런은 항상 assisted 로 표시해 어떤 경로로도 제출되지 않게 한다.
+   */
+  _resetDemoBoard() {
+    this.runStartedAt = null;
+    this.runAssisted = true;
+
+    this.player.score = 0;
+    this.lives = PLAYER_LIVES;
+    this.round = 1;
+    this.catchCount = 0;
+    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
+    this.newRecord = false;
+    this.speedLevel = DEFAULT_SPEED_LEVEL;
+    this.baseSpeedLevel = DEFAULT_SPEED_LEVEL;
+    this._resetBoard();
+
+    this.demoMode = true;
+    this.botMode = false;
+    this.demoArmed = false;
+    this.autoDemoConsumed = true;
+    this.demoIdleMs = 0;
+
+    // 데모는 READY 카운트다운 없이 바로 움직인다
+    this.state = 'PLAYING';
+    this.readyTimer = 0;
+    this.tickAccumulator = 0;
+
+    this._notifyBotState();
+    return this;
   }
 
   /** 도움말에서 게임 종료(일시정지) */
@@ -835,6 +941,14 @@ export default class Game {
     }
 
     if (this.state === 'STAGE_CLEAR') {
+      // 데모(어트랙트 모드)는 버튼 입력 없이 다음 라운드로 계속 진행한다
+      if (this.demoMode) {
+        this._startRound(this.round + 1);
+        this.state = 'PLAYING';
+        this.readyTimer = 0;
+        this.tickAccumulator = 0;
+        return;
+      }
       if (confirm || retry) this._startRound(this.round + 1);
     }
   }
@@ -1096,11 +1210,12 @@ export default class Game {
 
       if (item.row === this.player.row && item.col === this.player.col) {
         const gained = item.collect();
-        this.player.score += gained;
+        // 라운드 상한에 닿으면 획득 점수는 상한에서 멈춘다 (아이템은 그대로 섭취 처리)
+        const applied = this._addScore(gained);
         this.player.startDigestion(item.config); // 소화 시작 → 나중에 트랩 배출
         this.stats.items += 1;
         this.roundItemsEaten += 1;
-        this._addPopup(item.row, item.col, `+${gained}`, '#8bc34a');
+        this._addPopup(item.row, item.col, applied > 0 ? `+${applied}` : 'MAX', '#8bc34a');
         this.tester?.log?.('item', `${item.config.name} +${gained}`);
         this.sound.playItem();
         this.effects.burstSparkle(item.row, item.col); // 노란 반짝이
@@ -1232,7 +1347,7 @@ export default class Game {
     const hitCol = enemy.col;
     const fleeRemaining = Math.max(0, this.goldenTimer);
 
-    this.player.score += GOLDEN_BOTTLE.knockScore;
+    const applied = this._addScore(GOLDEN_BOTTLE.knockScore);
     this.stats.knocks += 1;
     this._updateHiScore();
 
@@ -1242,10 +1357,10 @@ export default class Game {
     enemy.startKnockFlight(hitRow, hitCol);
     if (fleeRemaining > 0) enemy.startFlee(fleeRemaining);
 
-    this._addPopup(hitRow, hitCol, `+${GOLDEN_BOTTLE.knockScore}`, COLORS.GOLDEN);
+    this._addPopup(hitRow, hitCol, applied > 0 ? `+${applied}` : 'MAX', COLORS.GOLDEN);
     this.tester?.log?.(
       'knock',
-      `악당 날려버림 @ (${hitRow},${hitCol}) +${GOLDEN_BOTTLE.knockScore}`,
+      `악당 날려버림 @ (${hitRow},${hitCol}) +${applied}`,
     );
     // 날아가기 전 보모의 좌우 위치로 패닝해 타격이 들리는 방향을 알려준다
     this.sound.playTrapHit(stereoPanFromTiles(hitCol - this.player.col));
@@ -1327,9 +1442,9 @@ export default class Game {
       if (freezeMs > 0) victim.freeze(freezeMs);
 
       trap.consume();
-      this.player.score += TRAP_HIT_SCORE;
+      const applied = this._addScore(TRAP_HIT_SCORE);
       this.stats.traps += 1;
-      this._addPopup(trap.row, trap.col, `+${TRAP_HIT_SCORE}`, '#ffb74d');
+      this._addPopup(trap.row, trap.col, applied > 0 ? `+${applied}` : 'MAX', '#ffb74d');
       this.tester?.log?.('trap', `${trap.trapType} 적중 +${TRAP_HIT_SCORE} · ${freezeMs / 1000}s 얼림`);
       // 트랩을 밟은 보모의 좌우 위치에 맞춰 타격음을 패닝 (-0.8 ~ +0.8)
       this.sound.playTrapHit(stereoPanFromTiles(victim.col - this.player.col));
@@ -1456,6 +1571,8 @@ export default class Game {
     const caughtAt = { row: this.player.row, col: this.player.col };
 
     this.player.onCaught(this.map.babySpawn);
+    // 체포 -200점은 상한과 무관하게 적용 → Score Cleared 상태를 다시 계산한다
+    this._refreshScoreCapState();
     this.enemies.forEach(e => this._respawnEnemy(e));
     this.graceTimer = RESPAWN_GRACE_MS;
     this.catchCount += 1;
@@ -1529,7 +1646,8 @@ export default class Game {
     if (this.enemies.length === 0) return;
     if (this.cryCooldown > 0) return; // 연사 제한: 3초에 1회
 
-    this.player.score += SKILL_CRY.cost;
+    // 감점은 라운드 상한과 무관하게 적용된다 (다시 상한까지 오를 수 있음)
+    this._addScore(SKILL_CRY.cost);
     this.cryCooldown = SKILL_CRY.cooldown;
 
     // 비상 탈출용: 트랩으로 얼어 있는 악당에게도 사용 가능하며, 그 악당은 +3초 연장된다
@@ -1565,8 +1683,9 @@ export default class Game {
     }
   }
 
-  /** 현재 점수가 최고점이면 갱신 + 저장 */
+  /** 현재 점수가 최고점이면 갱신 + 저장 (데모 중에는 절대 저장하지 않는다) */
   _updateHiScore() {
+    if (this.demoMode) return;
     if (this.player.score <= this.hiScore) return;
 
     this.hiScore = this.player.score;
@@ -1579,7 +1698,49 @@ export default class Game {
 
   // ===== 라운드 진행 =====
 
-  /** 라운드 클리어 조건 검사 (PLAYING 에서만) */
+  /** 이번 라운드 점수 상한 — 서버 pacbaby_score_cap / validation.scoreCapForRound 미러 */
+  get roundScoreCap() {
+    return scoreCapForRound(this.round);
+  }
+
+  /**
+   * 점수 획득/차감 공통 처리 (아이템·트랩 적중·넉백·울기·체포).
+   * - 획득(+)은 라운드별 상한에서 멈춘다 (서버 SCORE_EXCEEDS_CAP 오인 방지).
+   * - 감점(-, 울기 -100 / 체포 -200)은 상한과 무관하게 그대로 적용되어
+   *   다시 상한까지 점수를 올릴 수 있다.
+   * @param {number} amount 가감할 점수 (음수 허용)
+   * @returns {number} 실제 반영된 점수 변화량
+   */
+  _addScore(amount) {
+    const delta = Number(amount);
+    if (!Number.isFinite(delta) || delta === 0) return 0;
+
+    const before = this.player.score;
+
+    if (delta > 0) {
+      // 이미 상한을 넘긴 상태(구버전 기록 등)는 깎지 않고 그대로 둔다
+      if (before < this.roundScoreCap) {
+        this.player.score = Math.min(this.roundScoreCap, before + delta);
+      }
+    } else {
+      this.player.score = before + delta;
+    }
+
+    this._refreshScoreCapState();
+    return this.player.score - before;
+  }
+
+  /** 라운드 상한 도달 여부 동기화 (HUD 'Score Cleared' 표시용) */
+  _refreshScoreCapState() {
+    this.scoreCapReached = this.player.score >= this.roundScoreCap;
+    return this.scoreCapReached;
+  }
+
+  /** 라운드 클리어 조건 검사 (PLAYING 에서만)
+   * - 기본 설정(ROUND_CLEAR_MODE='ITEMS')은 아이템을 모두 섭취하면 클리어된다.
+   * - 점수 상한(Score Cleared)은 클리어 조건이 아니라, 상한 도달 후에도 남은 아이템을
+   *   모아 다음 라운드로 가도록 HUD 에서 안내하는 용도다.
+   */
   _checkRoundProgress() {
     if (this.state !== 'PLAYING') return;
 
@@ -1606,9 +1767,17 @@ export default class Game {
   /** 게임 오버 (목숨 0) */
   _gameOver() {
     this.state = 'GAME_OVER';
-    this._updateHiScore();
+    this._updateHiScore(); // 데모 중이면 내부에서 무시
     this.tester?.log?.('gameover', `최종 점수 ${this.player.score}`);
     this.sound.playGameOver();
+
+    // 데모 런은 서버 제출/등록 안내(onRunEnd)를 절대 호출하지 않는다.
+    // 데모 모드는 유지해 아무 키/터치로 새 매뉴얼 게임을 시작할 수 있게 한다.
+    if (this.demoMode) {
+      this._notifyBotState();
+      return;
+    }
+
     this._endRun();
   }
 
@@ -1616,6 +1785,15 @@ export default class Game {
 
   /** 새 런 시작 (재도전 포함) — 상위 ProfileManager 가 run 토큰을 발급한다 */
   _beginRun() {
+    this.runEnded = false;
+
+    // 데모 중에는 서버 런을 시작하지 않는다 (데모/매뉴얼 완전 격리)
+    if (this.demoMode) {
+      this.runStartedAt = null;
+      this.runAssisted = true;
+      return;
+    }
+
     this.runStartedAt = Date.now();
     this.runAssisted = false;
     this._safeRunCallback(this.onRunStart, { startedAt: this.runStartedAt });
@@ -1623,6 +1801,8 @@ export default class Game {
 
   /** 게임 오버 시 런 요약을 상위로 전달 (UI 오류가 게임 루프를 죽이지 않게 격리) */
   _endRun() {
+    if (this.runEnded) return; // 같은 런을 두 번 제출하지 않는다 (게임 오버 + [게임 종료]/재시작)
+    this.runEnded = true;
     this._safeRunCallback(this.onRunEnd, this.getRunSummary());
   }
 
@@ -1683,6 +1863,7 @@ export default class Game {
 
     this.roundItemsEaten = 0;
     this.roundStartScore = this.player.score;
+    this.scoreCapReached = false; // 새 라운드/새 게임에서는 새 상한까지 다시 점수 획득 가능
     this.graceTimer = RESPAWN_GRACE_MS;
 
     this.stealthBed = null;
@@ -1724,6 +1905,14 @@ export default class Game {
 
   /** 새 게임 (GAME OVER → 재도전): 점수/목숨/라운드 초기화, 하이스코어는 유지 */
   resetAll() {
+    // 중도 재시작(R 등)으로 아직 제출되지 않은 정식 매뉴얼 런의 점수를 먼저 제출한다.
+    if (!this.demoMode && !this.runAssisted && !this.runEnded && this.player.score > 0) {
+      this._endRun();
+    }
+
+    // 데모 중이라도 새 게임은 매뉴얼 런이다 — 데모 플래그를 먼저 해제해야
+    // _beginRun 이 서버 런(onRunStart)과 runAssisted=false 를 정상 시작한다.
+    this.demoMode = false;
     this._beginRun();
 
     this.player.score = 0;
@@ -1741,6 +1930,7 @@ export default class Game {
     this.demoMode = false;
     this.demoIdleMs = 0;
     this.demoArmed = false;
+    this.autoDemoConsumed = true; // 접속 세션 동안 자동 데모 재무장 금지
     this._notifyBotState();
 
     return this;
@@ -1851,6 +2041,9 @@ export default class Game {
     else if (this.state === 'PAUSED') this._renderPauseOverlay(ctx);
     else if (this.state === 'STAGE_CLEAR') this._renderStageClearOverlay(ctx);
     else if (this.state === 'GAME_OVER') this._renderGameOverOverlay(ctx);
+
+    // 데모 안내 (큰 DEMO + PC/터치 기기별 문구)
+    this._renderDemoOverlay(ctx);
 
     // 화면 전체 플래시 (가장 위)
     this.effects.renderFlash(ctx);
@@ -2157,6 +2350,7 @@ export default class Game {
     this._renderStealthGauge(ctx);
     this._renderFreezeBadge(ctx);
     this._renderBoostBadges(ctx);
+    this._renderScoreCapBadge(ctx);
     this._renderBotStatus(ctx);
 
     // 하단 조작 안내
@@ -2181,12 +2375,11 @@ export default class Game {
     );
   }
 
-  /** 봇/데모 상태 배지 (상단 중앙) */
+  /** 봇 상태 배지 (상단 중앙) — 데모는 큰 DEMO 오버레이로 따로 표시한다 */
   _renderBotStatus(ctx) {
-    if (!this.isBotActive) return;
+    if (!this.isBotActive || this.demoMode) return;
 
-    const demo = this.demoMode;
-    const text = demo ? '🤖 DEMO PLAY · 입력하면 참가' : '🤖 BOT MODE';
+    const text = '🤖 BOT MODE';
     const metrics = typeof ctx.measureText === 'function' ? ctx.measureText(text) : null;
     const textWidth = metrics && typeof metrics.width === 'number'
       ? metrics.width
@@ -2195,15 +2388,61 @@ export default class Game {
     const centerX = CANVAS_WIDTH / 2;
     const y = 64;
 
-    ctx.fillStyle = demo ? 'rgba(41, 182, 246, 0.24)' : 'rgba(255, 224, 130, 0.18)';
+    ctx.fillStyle = 'rgba(255, 224, 130, 0.18)';
     ctx.fillRect(centerX - width / 2, y - 9, width, 18);
 
-    ctx.fillStyle = demo ? '#29b6f6' : '#ffe082';
+    ctx.fillStyle = '#ffe082';
     ctx.font = 'bold 11px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, centerX, y);
     ctx.textAlign = 'left';
+  }
+
+  /**
+   * 데모 안내 오버레이 — 캔버스 상단에 큰 `DEMO` + 기기별 안내 문구.
+   * PC: "게임 하시려면 아무 키나 누르세요"
+   * 모바일(터치): "게임 하시려면 터치 하세요"
+   */
+  _renderDemoOverlay(ctx) {
+    if (!this.demoMode) return;
+
+    const centerX = CANVAS_WIDTH / 2;
+    const panelW = Math.min(CANVAS_WIDTH - 80, 380);
+    const panelH = 92;
+    const panelX = centerX - panelW / 2;
+    const panelY = 46;
+
+    // 은은한 맥동으로 데모가 살아 있음을 보여 준다
+    const pulse = 0.65 + 0.35 * Math.abs(Math.sin((this.animTime || 0) / 380));
+
+    ctx.save?.();
+
+    ctx.fillStyle = 'rgba(3, 12, 26, 0.82)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = `rgba(41, 182, 246, ${(0.55 + 0.35 * pulse).toFixed(3)})`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect?.(panelX, panelY, panelW, panelH);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // 큰 DEMO
+    ctx.font = 'bold 44px "Segoe UI", sans-serif';
+    ctx.fillStyle = '#29b6f6';
+    ctx.shadowColor = 'rgba(41, 182, 246, 0.9)';
+    ctx.shadowBlur = 16;
+    ctx.fillText('DEMO', centerX, panelY + 34);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+
+    // PC/모바일 안내 문구
+    ctx.font = 'bold 15px "Segoe UI", sans-serif';
+    ctx.fillStyle = '#ffe082';
+    ctx.fillText(this.demoHint, centerX, panelY + 68);
+
+    ctx.textAlign = 'left';
+    ctx.restore?.();
   }
 
   /** 소화 진행 게이지 (트랩 배출까지 남은 시간) */
@@ -2295,6 +2534,54 @@ export default class Game {
       ctx.fillText(badge.text, CANVAS_WIDTH - 18, y);
       y += 24;
     }
+    ctx.textAlign = 'left';
+  }
+
+  /**
+   * 라운드 점수 상한 도달 배지 (`Score Cleared`)
+   * - 점수는 상한에서 멈추지만 라운드 클리어는 아이템 섭취로 이뤄지므로
+   *   남은 아이템을 모으도록 안내한다.
+   */
+  _renderScoreCapBadge(ctx) {
+    if (!this.scoreCapReached) return;
+
+    const centerX = CANVAS_WIDTH / 2;
+    const y = 92;
+    const title = `✅ Score Cleared · ${this.roundScoreCap}`;
+    const guide = '남은 아이템을 모아 다음 라운드로 가세요!';
+
+    const measure = (text, font) => {
+      if (font) ctx.font = font;
+      if (typeof ctx.measureText !== 'function') return text.length * 7;
+      const metrics = ctx.measureText(text);
+      return metrics && typeof metrics.width === 'number' ? metrics.width : text.length * 7;
+    };
+
+    const titleFont = 'bold 13px "Segoe UI", sans-serif';
+    const guideFont = '11px "Segoe UI", sans-serif';
+    const width = Math.max(measure(title, titleFont), measure(guide, guideFont)) + 26;
+
+    // 배경/테두리 (얇은 금색 프레임)
+    ctx.fillStyle = 'rgba(255, 213, 79, 0.18)';
+    ctx.fillRect(centerX - width / 2, y - 17, width, 36);
+    if (typeof ctx.strokeRect === 'function') {
+      ctx.strokeStyle = 'rgba(255, 213, 79, 0.65)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(centerX - width / 2 + 0.5, y - 16.5, width - 1, 35);
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.fillStyle = '#ffd54f';
+    ctx.font = titleFont;
+    ctx.fillText(title, centerX, y - 4);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.font = guideFont;
+    ctx.fillText(guide, centerX, y + 11);
+
+    // 이후 HUD 텍스트가 좌측 정렬을 기대하므로 되돌린다
     ctx.textAlign = 'left';
   }
 
@@ -2495,6 +2782,15 @@ export default class Game {
     ctx.font = 'bold 44px "Segoe UI", sans-serif';
     ctx.fillText('STAGE CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 84);
 
+    // 무엇으로 클리어했는지 표시 (아이템 섭취 / 점수 상한 달성)
+    const itemsCleared = this.roundItemsEaten >= this.items.length;
+    const clearLabel = itemsCleared
+      ? (this.scoreCapReached ? 'Item Cleared · Score Cleared' : 'Item Cleared')
+      : 'Score Cleared';
+    ctx.fillStyle = '#8bc34a';
+    ctx.font = 'bold 15px "Segoe UI", sans-serif';
+    ctx.fillText(clearLabel, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 58);
+
     ctx.fillStyle = '#ffffff';
     ctx.font = '16px "Segoe UI", sans-serif';
     ctx.fillText(
@@ -2577,6 +2873,11 @@ export default class Game {
    * 화면 안내 레이어는 main.js 가 담당한다.
    */
   exitGame() {
+    // [게임 종료] 로 나가더라도 진행 중인 정식 매뉴얼 런의 점수는 버리지 않는다.
+    if (!this.demoMode && !this.runAssisted && !this.runEnded && this.player.score > 0) {
+      this._endRun();
+    }
+
     this.running = false;
     this.loopToken = (this.loopToken || 0) + 1;
     this.tickAccumulator = 0;

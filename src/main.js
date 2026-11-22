@@ -9,11 +9,12 @@ import InputManager from './input.js';
 import SoundFX from './sound.js';
 import TouchControls, { TouchSwipe } from './touch.js';
 import HelpOverlay from './help.js';
-import ProfileManager from './profile.js';
+import ProfileManager, { describeSubmissionReason } from './profile.js';
 import ProfileStore from './profileStore.js';
 import RegisterModal from './registerModal.js';
 import LeaderboardModal from './leaderboardModal.js';
-import { detectCountryHint } from './supabaseClient.js';
+import { showToast } from './toast.js';
+import { detectCountryHint, isRemoteConfigured } from './supabaseClient.js';
 import { avatarEmoji } from './validation.js';
 import { HISCORE_KEY } from './constants.js';
 
@@ -44,11 +45,33 @@ function init() {
     // 설명서 모달을 읽고 닫는 동작은 게임 플레이 입력으로 치지 않는다.
     const helpOverlay = document.getElementById('help-overlay');
     if (helpOverlay && !helpOverlay.hidden) return;
+    // 등록/리더보드 모달이 게임을 막고 있는 동안의 조작도 게임 입력이 아니다.
+    if (game.helpOpen) return;
+
+    // UI 버튼(데모 실행/게임 종료/프로필/모달 등)의 포인터 조작은 제외한다.
+    // D-패드의 방향/울기 버튼은 게임 조작 입력이므로 그대로 통과시킨다.
+    if (event?.type === 'pointerdown') {
+      const button = event.target?.closest?.('button');
+      if (button) {
+        const code = button.dataset?.key || button.getAttribute?.('data-key');
+        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) {
+          return;
+        }
+      }
+    }
 
     game.noteUserActivity();
   };
   window.addEventListener('keydown', markUserActivity, true);
   window.addEventListener('pointerdown', markUserActivity, true);
+
+  // 메인 화면 [데모 실행]: 접속 중 언제든 새 데모 판을 시작한다.
+  // (데모는 서버 런 시작/점수 제출/하이스코어와 완전히 분리된다)
+  const demoButton = document.getElementById('demo-button');
+  demoButton?.addEventListener('click', () => {
+    demoButton.blur?.(); // 버튼 포커스로 Space/Enter 가 게임 입력을 가로채지 않게
+    game.startDemo();
+  });
 
   // 브라우저 자동재생 정책: 첫 사용자 입력에서 오디오를 깨운다
   const unlockAudio = () => game.sound.unlock();
@@ -132,11 +155,14 @@ function init() {
     }
 
     // 서버 최고점이 로컬(HUD)보다 높으면 표시용 하이스코어를 맞춘다.
+    // 단, 데모 중에는 localStorage 하이스코어를 저장하지 않는다 (데모/매뉴얼 완전 격리).
     if (snapshot.highScore > game.hiScore) {
       game.hiScore = snapshot.highScore;
-      try {
-        window.localStorage.setItem(HISCORE_KEY, String(game.hiScore));
-      } catch (err) { /* 저장 실패 무시 */ }
+      if (!game.demoMode) {
+        try {
+          window.localStorage.setItem(HISCORE_KEY, String(game.hiScore));
+        } catch (err) { /* 저장 실패 무시 */ }
+      }
     }
   };
   profile.subscribe(updateProfileBadge);
@@ -190,8 +216,30 @@ function init() {
   // 조건 충족 시 게임 오버에서 호출된다 (강제 가입 아님 — [나중에] 선택 가능)
   profile.onPrompt = (summary) => registerModal.open(summary);
 
+  // 조용한 실패 방지: 서버 반영에 실패/거절되면 이유를 화면에 알린다.
+  // - 데모/봇(ASSISTED_RUN)과 env 미설정 LOCAL 모드는 의도된 동작이라 알리지 않는다.
+  const notifySubmissionFailure = (summary, result) => {
+    if (!result || result.accepted) return;
+    if (!summary || summary.assisted) return;
+    if (Math.max(0, Math.floor(Number(summary.score) || 0)) <= 0) return;
+    if (result.reason === 'ASSISTED_RUN') return;
+    if (result.reason === 'REMOTE_DISABLED' && !isRemoteConfigured()) return;
+
+    const reason = describeSubmissionReason(result.reason);
+    showToast(
+      result.pending
+        ? `기록을 임시 보관했어요 — ${reason}. 다음 접속 때 다시 제출합니다.`
+        : `기록이 리더보드에 반영되지 않았어요 — ${reason}`,
+      { duration: 3600 },
+    );
+  };
+
   game.onRunStart = () => profile.beginRun();
-  game.onRunEnd = (summary) => profile.handleRunEnd(summary);
+  game.onRunEnd = async (summary) => {
+    const result = await profile.handleRunEnd(summary);
+    try { notifySubmissionFailure(summary, result); } catch (err) { /* 안내 실패는 무시 */ }
+    return result;
+  };
 
   // 원격 초기화는 비동기. env 가 없거나 네트워크가 실패해도 LOCAL 모드로 게임은 계속된다.
   profile.init();
@@ -210,8 +258,15 @@ function init() {
     game.handleVisibilityChange(document.hidden);
   });
 
-  // 페이지를 떠날 때 오디오 장치 정리
-  window.addEventListener('pagehide', () => sound.destroy());
+  // 페이지를 떠날 때 오디오 장치 정리 + 미제출 정식 런 보류 저장
+  window.addEventListener('pagehide', () => {
+    // pagehide 시점에 아직 서버에 제출되지 않은 정식 매뉴얼 런은
+    // 다음 접속(init)에서 1회 재제출할 수 있게 ProfileStore 에 남긴다.
+    try {
+      profile.capturePendingRun(game.getRunSummary(), { ended: !!game.runEnded });
+    } catch (err) { /* 무시 */ }
+    sound.destroy();
+  });
 
   let tester = null;
   let testerLoading = null;

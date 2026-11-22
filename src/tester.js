@@ -274,6 +274,7 @@ export default class Tester {
     this.game.botMode = false;
     this.game.demoMode = false;
     this.game.demoArmed = false;
+    this.game.autoDemoConsumed = true;
     this.game.notifyBotState?.();
   }
 

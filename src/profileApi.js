@@ -23,6 +23,8 @@ const ERROR_PATTERNS = [
   ['INVALID_AVATAR', /INVALID_AVATAR/i],
   ['AUTH_REQUIRED', /AUTH_REQUIRED/i],
   ['SESSION_REQUIRED', /SESSION_REQUIRED/i],
+  ['PROFILE_UNAVAILABLE', /PROFILE_UNAVAILABLE/i],
+  ['TIMEOUT', /TIMEOUT|AbortError/i],
   ['RUN_NOT_FOUND', /RUN_NOT_FOUND/i],
   ['RUN_ALREADY_SUBMITTED', /RUN_ALREADY_SUBMITTED/i],
   ['RATE_LIMITED', /RATE_LIMITED/i],
@@ -43,9 +45,15 @@ function firstRow(data) {
   return data ?? null;
 }
 
+/** RPC 1회 최대 대기 시간 — 모바일 네트워크에서 무한 대기를 막는다 */
+export const RPC_TIMEOUT_MS = 8000;
+
 export default class ProfileApi {
-  constructor({ clientProvider = getSupabaseClient } = {}) {
+  constructor({ clientProvider = getSupabaseClient, rpcTimeoutMs = RPC_TIMEOUT_MS } = {}) {
     this.clientProvider = clientProvider;
+    this.rpcTimeoutMs = Number.isFinite(rpcTimeoutMs) && rpcTimeoutMs > 0
+      ? rpcTimeoutMs
+      : RPC_TIMEOUT_MS;
   }
 
   async _client() {
@@ -54,11 +62,51 @@ export default class ProfileApi {
     return client;
   }
 
+  /**
+   * RPC 호출 (기본 8초 타임아웃)
+   * - AbortController + PostgrestBuilder.abortSignal() 이 지원되면 요청 자체를 중단한다.
+   * - 지원되지 않는 환경에서도 Promise 경주로 상한을 보장한다.
+   */
   async _rpc(name, args = {}) {
     const client = await this._client();
-    const { data, error } = await client.rpc(name, args);
-    if (error) throw mapProfileError(error);
-    return data;
+    const timeoutMs = this.rpcTimeoutMs;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timer = null;
+    let timedOut = false;
+
+    const timeoutError = () => new ProfileApiError(
+      'TIMEOUT',
+      `${name} RPC timed out after ${timeoutMs}ms`,
+    );
+
+    const timeout = new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        try { controller?.abort?.(); } catch (err) { /* 무시 */ }
+        reject(timeoutError());
+      }, timeoutMs);
+    });
+
+    try {
+      let request;
+      try {
+        request = client.rpc(name, args);
+        if (controller && typeof request?.abortSignal === 'function') {
+          request = request.abortSignal(controller.signal);
+        }
+      } catch (err) {
+        throw mapProfileError(err);
+      }
+
+      const { data, error } = await Promise.race([Promise.resolve(request), timeout]);
+      if (error) throw mapProfileError(error);
+      return data;
+    } catch (err) {
+      if (timedOut || controller?.signal?.aborted) throw timeoutError();
+      throw mapProfileError(err);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**

@@ -23,10 +23,16 @@ const REASON_TEXT = {
   RESERVED: '사용할 수 없는 닉네임이에요.',
   NICKNAME_TAKEN: '이미 사용 중인 닉네임이에요.',
   ALREADY_REGISTERED: '이미 등록된 프로필이에요.',
+  INVALID_NICKNAME: `닉네임은 ${NICKNAME_RULE.minLength}~${NICKNAME_RULE.maxLength}자 한글/영문/숫자/밑줄(_)만 쓸 수 있어요.`,
   INVALID_AVATAR: '이모지를 다시 선택해 주세요.',
+  AUTH_REQUIRED: '로그인 세션이 만료됐어요. 잠시 후 다시 시도해 주세요.',
+  SESSION_REQUIRED: '게스트 세션이 필요해요. 잠시 후 다시 시도해 주세요.',
+  PROFILE_UNAVAILABLE: '프로필 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.',
+  TIMEOUT: '서버 응답이 늦어지고 있어요. 잠시 후 다시 시도해 주세요.',
   REMOTE_DISABLED: '지금은 서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.',
   NETWORK_ERROR: '네트워크 오류가 발생했어요. 잠시 후 다시 시도해 주세요.',
   AUTH_RATE_LIMITED: '요청이 너무 많아요. 잠시 후 다시 시도해 주세요.',
+  UNKNOWN: '알 수 없는 오류가 발생했어요. 잠시 후 다시 시도해 주세요.',
 };
 
 function reasonText(reason) {
@@ -45,6 +51,8 @@ export default class RegisterModal {
 
     this.opened = false;
     this.busy = false;
+    this.busyKind = '';
+    this.requestSeq = 0;
     this.nicknameAvailable = false;
     this.checkedNickname = '';
     this.selectedAvatar = 1;
@@ -78,9 +86,11 @@ export default class RegisterModal {
 
     const snapshot = this.profile?.getSnapshot?.() || {};
     this.summary = summary || this.profile?.lastRunSummary || null;
+    this.requestSeq += 1; // 이전에 진행 중이던 요청의 늦은 응답을 무시한다
     this.nicknameAvailable = false;
     this.checkedNickname = '';
     this.busy = false;
+    this.busyKind = '';
     this.selectedAvatar = isValidAvatarId(snapshot.avatarEmojiId)
       ? Number(snapshot.avatarEmojiId)
       : 1;
@@ -89,7 +99,7 @@ export default class RegisterModal {
     this._setStatus('', '');
     this._updateSummary(this.summary);
     this._renderAvatars();
-    this._updateSubmit();
+    this._setBusy(false);
 
     this.opened = true;
     if (this.overlay) {
@@ -112,6 +122,9 @@ export default class RegisterModal {
     if (!this.opened) return false;
     const dismiss = options.dismiss !== false;
     this.opened = false;
+    // 닫힌 뒤 도착하는 응답이 상태/버튼을 건드리지 않도록 세대를 올리고 busy 를 푼다.
+    this.requestSeq += 1;
+    this._setBusy(false);
 
     if (this.overlay) {
       this.overlay.setAttribute?.('aria-hidden', 'true');
@@ -144,9 +157,15 @@ export default class RegisterModal {
       return false;
     }
 
-    this._setBusy(true);
+    const seq = ++this.requestSeq;
+    this._setBusy(true, 'check');
     try {
+      await this._retryInitIfNeeded();
+      if (!this._isCurrentRequest(seq)) return false;
+
       const result = await this.profile.checkNickname(validated.value);
+      if (!this._isCurrentRequest(seq)) return false;
+
       this.nicknameAvailable = !!result?.available;
       this.checkedNickname = this.nicknameAvailable ? validated.value : '';
       this._setStatus(
@@ -154,11 +173,13 @@ export default class RegisterModal {
         this.nicknameAvailable ? 'ok' : 'error',
       );
     } catch (err) {
+      if (!this._isCurrentRequest(seq)) return false;
       this.nicknameAvailable = false;
       this.checkedNickname = '';
       this._setStatus(reasonText(err?.code), 'error');
     } finally {
-      this._setBusy(false);
+      // 닫히거나 새 요청이 시작됐다면 그쪽에서 busy 를 관리하므로 건드리지 않는다.
+      if (this._isCurrentRequest(seq)) this._setBusy(false);
     }
 
     return this.nicknameAvailable;
@@ -183,31 +204,67 @@ export default class RegisterModal {
       return;
     }
 
-    this._setBusy(true);
+    await this._retryInitIfNeeded();
+    if (!this.opened) return;
+
+    const seq = ++this.requestSeq;
+    this._setBusy(true, 'submit');
     try {
       const snapshot = await this.profile.register(candidate, this.selectedAvatar);
+      if (!this._isCurrentRequest(seq)) return;
+
       this._setStatus('등록 완료! 이제 리더보드에 기록돼요 🏆', 'ok');
       showToast(`${avatarEmoji(snapshot.avatarEmojiId)} ${snapshot.nickname} 등록 완료!`);
       this.close({ dismiss: false });
       this.onRegistered?.(snapshot);
     } catch (err) {
+      if (!this._isCurrentRequest(seq)) return;
       if (err?.code === 'NICKNAME_TAKEN') {
         this.nicknameAvailable = false;
         this.checkedNickname = '';
       }
       this._setStatus(reasonText(err?.code), 'error');
     } finally {
-      this._setBusy(false);
+      if (this._isCurrentRequest(seq)) this._setBusy(false);
     }
   }
 
-  _setBusy(busy) {
+  /**
+   * 원격 초기화가 실패한 상태(remote=false)라면 force 재초기화를 1회 시도한다.
+   * 실패해도 등록 흐름은 이어서 진행하며, 최종 안내는 서버 오류 코드가 담당한다.
+   */
+  async _retryInitIfNeeded() {
+    const profile = this.profile;
+    if (!profile || typeof profile.init !== 'function') return;
+    if (profile.isRemote !== false) return;
+
+    try {
+      await profile.init({ force: true });
+    } catch (err) {
+      // 다음 checkNickname/register 호출이 REMOTE_DISABLED 등으로 안내한다.
+    }
+  }
+
+  _isCurrentRequest(seq) {
+    return seq === this.requestSeq;
+  }
+
+  /**
+   * @param {boolean} busy
+   * @param {'check'|'submit'|''} [kind] 진행 중인 작업 종류 (버튼 문구/disabled 구분)
+   */
+  _setBusy(busy, kind = '') {
     this.busy = !!busy;
+    this.busyKind = this.busy ? kind : '';
+    const checking = this.busyKind === 'check';
+    const registering = this.busyKind === 'submit';
+
     if (this.checkButton) {
-      this.checkButton.textContent = busy ? '확인 중...' : '중복 확인';
+      this.checkButton.textContent = checking ? '확인 중...' : '중복 확인';
+      this.checkButton.disabled = this.busy;
     }
     if (this.submitButton) {
-      this.submitButton.textContent = busy ? '등록 중...' : '등록하기';
+      this.submitButton.textContent = registering ? '등록 중...' : '등록하기';
     }
     this._updateSubmit();
   }

@@ -1267,6 +1267,7 @@ body.touch-landscape .pad-restart {
 .modal-secondary,
 .avatar-btn,
 .exit-button,
+.demo-button,
 .pad-board {
   touch-action: manipulation;
 }
@@ -1816,3 +1817,64 @@ body.touch-landscape .pad-actions .pad-skill {
     animation: none;
   }
 }
+
+/* ============================================================
+   메인 화면 [데모 실행] 버튼
+   - [게임 종료] 바로 아래에 고정해 PC/모바일 어디서든 보이게 한다.
+   - 도움말/모달(z-index 60+) 아래에 두어 열린 동안은 가려진다.
+   ============================================================ */
+.demo-button {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 52px);
+  right: calc(env(safe-area-inset-right, 0px) + 10px);
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: min(46vw, 210px);
+  padding: 7px 11px;
+  border: 1px solid rgba(41, 182, 246, 0.55);
+  border-radius: 12px;
+  background: rgba(6, 38, 66, 0.86);
+  color: #9fdcff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.demo-button:hover,
+.demo-button:focus-visible {
+  border-color: #29b6f6;
+  background: rgba(8, 56, 96, 0.94);
+  outline: none;
+  filter: brightness(1.08);
+}
+
+.demo-button:active {
+  transform: translateY(1px);
+}
+
+.demo-button [aria-hidden="true"] {
+  font-size: 14px;
+  line-height: 1;
+}
+
+@media (max-width: 700px) {
+  .demo-button {
+    top: calc(env(safe-area-inset-top, 0px) + 40px);
+    right: calc(env(safe-area-inset-right, 0px) + 6px);
+    padding: 5px 9px;
+    font-size: 11.5px;
+    max-width: 42vw;
+  }
+}
+

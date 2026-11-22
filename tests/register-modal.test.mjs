@@ -258,3 +258,172 @@ test('"나중에" / Escape 로 닫으면 다음 안내를 잠시 미룬다', () 
   assert.equal(modal.isOpen, false);
   assert.equal(profile.dismissCalls, 2);
 });
+
+test('중복 확인 중에는 확인 버튼만 "확인 중..."으로 잠기고, 닫으면 늦은 응답을 무시한다', async () => {
+  const root = createDocument();
+  const profile = createProfile();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  profile.checkNickname = async () => {
+    await gate;
+    return { available: true, reason: 'OK' };
+  };
+
+  const modal = new RegisterModal({ profile, root });
+  modal.open();
+  root.input.value = 'baby';
+  root.input.dispatch('input');
+  root.check.click();
+  await flush();
+
+  assert.equal(modal.busy, true);
+  assert.equal(root.check.disabled, true, '확인 중에는 확인 버튼이 잠긴다');
+  assert.equal(root.check.textContent, '확인 중...');
+  assert.equal(root.submit.textContent, '등록하기', '등록 버튼 문구는 유지된다');
+  assert.equal(root.submit.disabled, true);
+
+  modal.close({ dismiss: false });
+  assert.equal(modal.busy, false, '닫으면 busy 가 풀린다');
+  assert.equal(root.check.disabled, false);
+  assert.equal(root.check.textContent, '중복 확인');
+
+  release();
+  await flush();
+
+  assert.equal(modal.nicknameAvailable, false, '닫힌 뒤 늦은 응답은 무시된다');
+  assert.equal(root.status.textContent, '', '닫힌 뒤 상태 문구를 덮어쓰지 않는다');
+  assert.equal(modal.busy, false, 'busy 가 영구 고정되지 않는다');
+});
+
+test('등록 중에는 등록 버튼만 "등록 중..."으로 잠기고 완료 후 busy 가 풀린다', async () => {
+  const root = createDocument();
+  const profile = createProfile();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const register = profile.register;
+  profile.register = async (name, avatar) => {
+    await gate;
+    return register(name, avatar);
+  };
+
+  const modal = new RegisterModal({ profile, root });
+  modal.open();
+  root.input.value = 'baby';
+  root.input.dispatch('input');
+  root.check.click();
+  await flush();
+  assert.equal(root.submit.disabled, false);
+
+  root.submit.click();
+  await flush();
+
+  assert.equal(modal.busy, true);
+  assert.equal(root.submit.textContent, '등록 중...');
+  assert.equal(root.submit.disabled, true);
+  assert.equal(root.check.textContent, '중복 확인', '확인 버튼 문구는 유지된다');
+  assert.equal(root.check.disabled, true);
+
+  release();
+  await flush();
+  await flush();
+
+  assert.equal(modal.isOpen, false);
+  assert.equal(modal.busy, false);
+  assert.equal(root.submit.textContent, '등록하기');
+  assert.equal(root.check.textContent, '중복 확인');
+  assert.deepEqual(profile.registerCalls[0], ['baby', 1]);
+});
+
+test('TIMEOUT 오류는 한글 안내 문구로 표시하고 busy 를 해제한다', async () => {
+  const root = createDocument();
+  const profile = createProfile();
+  profile.checkNickname = async () => {
+    const error = new Error('timeout');
+    error.code = 'TIMEOUT';
+    throw error;
+  };
+
+  const modal = new RegisterModal({ profile, root });
+  modal.open();
+  root.input.value = 'baby';
+  root.input.dispatch('input');
+  root.check.click();
+  await flush();
+
+  assert.match(root.status.textContent, /서버 응답이 늦어지고/);
+  assert.equal(modal.busy, false);
+  assert.equal(root.check.disabled, false);
+  assert.equal(root.check.textContent, '중복 확인');
+});
+
+test('원격 초기화가 실패한 상태면 중복 확인 전에 force 재초기화를 1회 시도한다', async () => {
+  const root = createDocument();
+  const profile = createProfile();
+  profile.isRemote = false;
+  const initCalls = [];
+  profile.init = async (options = {}) => {
+    initCalls.push(options);
+    profile.isRemote = true;
+    return profile.getSnapshot();
+  };
+
+  const modal = new RegisterModal({ profile, root });
+  modal.open();
+  root.input.value = 'baby';
+  root.input.dispatch('input');
+  root.check.click();
+  await flush();
+
+  assert.deepEqual(initCalls, [{ force: true }]);
+  assert.equal(modal.nicknameAvailable, true);
+  assert.match(root.status.textContent, /사용 가능/);
+});
+
+test('재초기화도 실패하면 연결 안내 문구를 보여 주고 busy 를 해제한다', async () => {
+  const root = createDocument();
+  const profile = createProfile();
+  profile.isRemote = false;
+  let initCalls = 0;
+  profile.init = async () => {
+    initCalls += 1;
+    return profile.getSnapshot();
+  };
+  profile.checkNickname = async () => ({ available: false, reason: 'REMOTE_DISABLED' });
+
+  const modal = new RegisterModal({ profile, root });
+  modal.open();
+  root.input.value = 'baby';
+  root.input.dispatch('input');
+  root.check.click();
+  await flush();
+
+  assert.equal(initCalls, 1, '재시도는 1회만 한다');
+  assert.match(root.status.textContent, /서버에 연결할 수 없어요/);
+  assert.equal(modal.busy, false);
+});
+
+test('등록 직전 원격이 아니면 force 재초기화 후 등록을 진행한다', async () => {
+  const root = createDocument();
+  const profile = createProfile();
+  const initCalls = [];
+  profile.init = async (options = {}) => {
+    initCalls.push(options);
+    profile.isRemote = true;
+    return profile.getSnapshot();
+  };
+
+  const modal = new RegisterModal({ profile, root });
+  modal.open();
+  root.input.value = 'baby';
+  modal.nicknameAvailable = true;
+  modal.checkedNickname = 'baby';
+  profile.isRemote = false;
+
+  root.submit.click();
+  await flush();
+  await flush();
+
+  assert.deepEqual(initCalls, [{ force: true }]);
+  assert.deepEqual(profile.registerCalls[0], ['baby', 1]);
+  assert.equal(modal.isOpen, false);
+});

@@ -134,3 +134,86 @@ test('setUiBlocked 는 도움말과 동일하게 게임을 멈춘다', () => {
   game.setUiBlocked(false);
   assert.equal(game.helpOpen, false);
 });
+
+test('[게임 종료]로 진행 중인 정식 매뉴얼 런의 점수를 제출한다 (중복 없음)', () => {
+  const ends = [];
+  const game = setup({ onRunEnd: summary => ends.push(summary) });
+
+  game.state = 'PLAYING';
+  game.player.score = 1234;
+  game.round = 2;
+
+  assert.equal(game.exitGame(), 'EXITED');
+  assert.equal(ends.length, 1, '종료 시 현재 런을 제출');
+  assert.equal(ends[0].score, 1234);
+  assert.equal(ends[0].round, 2);
+  assert.equal(ends[0].assisted, false);
+  assert.equal(game.runEnded, true);
+
+  game.exitGame();
+  assert.equal(ends.length, 1, '같은 런을 두 번 제출하지 않는다');
+});
+
+test('중도 재시작 시 이전 런 점수를 먼저 제출한 뒤 새 런을 시작한다', () => {
+  const events = [];
+  const game = setup({
+    onRunStart: () => events.push('start'),
+    onRunEnd: summary => events.push(`end:${summary.score}`),
+  });
+
+  events.length = 0;
+  game.state = 'PLAYING';
+  game.player.score = 500;
+  game.round = 2;
+
+  game.resetAll();
+
+  assert.deepEqual(events, ['end:500', 'start'], '제출 → 새 런 시작 순서');
+  assert.equal(game.runEnded, false, '새 런은 미종료 상태');
+  assert.equal(game.player.score, 0);
+});
+
+test('게임 오버 후 재도전/종료는 이미 제출한 런을 다시 제출하지 않는다', () => {
+  const ends = [];
+  const game = setup({ onRunEnd: summary => ends.push(summary) });
+
+  game.state = 'PLAYING';
+  game.player.score = 800;
+  game._gameOver();
+  assert.equal(ends.length, 1);
+  assert.equal(game.runEnded, true);
+
+  game.resetAll(); // 게임 오버 → 새 런
+  assert.equal(ends.length, 1, '게임 오버에서 이미 제출됨');
+
+  game.player.score = 120;
+  game.exitGame(); // 새 런은 정식 매뉴얼 + 점수 > 0 → 제출
+  assert.equal(ends.length, 2);
+  assert.equal(ends[1].score, 120);
+});
+
+test('0점/어시스트/데모 런은 종료·재시작에서 제출하지 않는다', () => {
+  const zero = setup({ onRunEnd: () => { throw new Error('제출되면 안 됨'); } });
+  zero.state = 'PLAYING';
+  zero.player.score = 0;
+  zero.exitGame();
+
+  const assistedEnds = [];
+  const assisted = setup({ onRunEnd: summary => assistedEnds.push(summary) });
+  assisted.state = 'PLAYING';
+  assisted.runAssisted = true;
+  assisted.player.score = 500;
+  assisted.exitGame();
+  assisted.resetAll();
+  assert.equal(assistedEnds.length, 0);
+
+  const demoEnds = [];
+  const demo = setup({ onRunEnd: summary => demoEnds.push(summary) });
+  demo.state = 'PLAYING';
+  demo.demoMode = true;
+  demo.runAssisted = true;
+  demo.player.score = 500;
+  demo.exitGame();
+  demo.resetAll();
+  assert.equal(demoEnds.length, 0);
+});

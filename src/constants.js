@@ -223,6 +223,8 @@ export const PROFILE_STORAGE_KEYS = {
   PROFILE: 'pacbaby.profile',
   PROMPT: 'pacbaby.registerPrompt',
   LEADERBOARD: 'pacbaby.leaderboardCache',
+  // 오프라인/일시 오류로 제출하지 못한 런 (다음 접속에서 1회 재제출)
+  PENDING_RUN: 'pacbaby.pendingSubmission',
 };
 
 /** 닉네임 규칙 — DB CHECK 제약(users_nickname_format)과 반드시 동일하게 유지한다 */

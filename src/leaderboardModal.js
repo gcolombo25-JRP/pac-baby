@@ -7,6 +7,8 @@
  */
 
 import { avatarEmoji, countryToFlag } from './validation.js';
+import { describeSubmissionReason } from './profile.js';
+import { isRemoteConfigured } from './supabaseClient.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -40,6 +42,7 @@ export default class LeaderboardModal {
     this.loading = false;
     this.handlers = [];
     this.unsubscribe = null;
+    this.lastSnapshot = null;
 
     this.overlay = this._byId('leaderboard-overlay');
     this.card = this._byId('leaderboard-card');
@@ -52,7 +55,7 @@ export default class LeaderboardModal {
     this._bind();
 
     if (this.profile?.subscribe) {
-      this.unsubscribe = this.profile.subscribe(snapshot => this._syncCta(snapshot));
+      this.unsubscribe = this.profile.subscribe(snapshot => this._handleSnapshot(snapshot));
     }
   }
 
@@ -73,7 +76,9 @@ export default class LeaderboardModal {
     this.card?.focus?.();
 
     this.onOpen?.();
-    this._syncCta(this.profile?.getSnapshot?.());
+    const snapshot = this.profile?.getSnapshot?.();
+    this.lastSnapshot = snapshot || this.lastSnapshot;
+    this._syncCta(snapshot);
     this.load(false);
     return true;
   }
@@ -112,12 +117,12 @@ export default class LeaderboardModal {
     try {
       const result = await Promise.race([this.profile.fetchLeaderboard({ force }), timeout]);
       if (result === null) {
-        this._setStatus('순위를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.', 'error');
+        this._setStatusWithNotice('순위를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.', 'error');
       } else {
         this._render(result);
       }
     } catch (err) {
-      this._setStatus('순위를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.', 'error');
+      this._setStatusWithNotice('순위를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.', 'error');
     } finally {
       if (watchdog) clearTimeout(watchdog);
       this.loading = false;
@@ -143,7 +148,7 @@ export default class LeaderboardModal {
 
     if (!rows.length) {
       if (this.body) this.body.innerHTML = '';
-      this._setStatus(
+      this._setStatusWithNotice(
         offline
           ? '오프라인이에요. 저장된 순위가 아직 없어요.'
           : '아직 등록된 기록이 없어요. 첫 번째 주인공이 되어 보세요! 🏆',
@@ -172,10 +177,39 @@ export default class LeaderboardModal {
       }).join('');
     }
 
-    this._setStatus(
+    this._setStatusWithNotice(
       offline ? '오프라인이에요 — 저장된 순위를 보여 드려요.' : '',
       offline ? 'error' : '',
     );
+  }
+
+  /** 프로필 스냅샷 갱신: CTA + 최근 제출 실패 안내 */
+  _handleSnapshot(snapshot) {
+    this.lastSnapshot = snapshot || null;
+    this._syncCta(snapshot);
+
+    if (!this.opened || this.loading) return;
+    const notice = this._submissionNotice(snapshot);
+    if (notice) this._setStatus(notice, 'error');
+  }
+
+  /** 최근 제출이 서버에 반영되지 못했으면 이유를 한 줄로 알린다 */
+  _submissionNotice(snapshot = this.lastSnapshot) {
+    const last = snapshot?.lastSubmission;
+    if (!last || last.accepted) return '';
+    if (last.reason === 'ASSISTED_RUN') return '';
+    // env 미설정 LOCAL 모드는 의도된 동작 — 경고를 띄우지 않는다.
+    // (env 가 설정됐는데 네트워크로 LOCAL 이 된 경우는 알린다)
+    if (last.reason === 'REMOTE_DISABLED' && !isRemoteConfigured()) return '';
+
+    const score = this.formatScore(last.score);
+    return `최근 기록(${score}점)이 순위에 반영되지 않았어요 — ${describeSubmissionReason(last.reason)}`;
+  }
+
+  _setStatusWithNotice(text, tone) {
+    const notice = this._submissionNotice(this.lastSnapshot || this.profile?.getSnapshot?.());
+    const message = notice ? (text ? `${text} · ${notice}` : notice) : (text || '');
+    this._setStatus(message, tone || (notice ? 'error' : ''));
   }
 
   _syncCta(snapshot) {

@@ -192,3 +192,70 @@ test('오프라인/빈 목록 상태 메시지를 보여 준다', async () => {
   assert.match(root.status.textContent, /오프라인/);
   assert.equal(root.body.innerHTML, '');
 });
+
+test('최근 제출이 반영되지 않았으면 이유를 상태 줄에 표시한다', async () => {
+  const root = createDocument();
+  const profile = createProfile();
+  profile.snapshot.lastSubmission = {
+    accepted: false,
+    reason: 'NETWORK_ERROR',
+    score: 600,
+    round: 2,
+    at: 1,
+  };
+  const modal = new LeaderboardModal({ profile, root });
+
+  modal.open();
+  await flush();
+
+  assert.match(root.status.textContent, /반영되지 않았어요/);
+  assert.match(root.status.textContent, /네트워크 연결 오류/);
+  assert.match(root.status.textContent, /600/);
+  assert.ok(root.status.classList.contains('is-error'));
+});
+
+test('반영된 기록/어시스트/로컬 모드는 제출 실패 경고를 띄우지 않는다', async () => {
+  const acceptedRoot = createDocument();
+  const acceptedProfile = createProfile();
+  acceptedProfile.snapshot.lastSubmission = {
+    accepted: true,
+    reason: 'ACCEPTED',
+    score: 600,
+    round: 2,
+    at: 1,
+  };
+  const acceptedModal = new LeaderboardModal({ profile: acceptedProfile, root: acceptedRoot });
+  acceptedModal.open();
+  await flush();
+  assert.equal(acceptedRoot.status.textContent, '');
+
+  const assistedRoot = createDocument();
+  const assistedProfile = createProfile();
+  assistedProfile.snapshot.lastSubmission = {
+    accepted: false,
+    reason: 'ASSISTED_RUN',
+    score: 600,
+    round: 2,
+    at: 1,
+  };
+  const assistedModal = new LeaderboardModal({ profile: assistedProfile, root: assistedRoot });
+  assistedModal.open();
+  await flush();
+  assert.equal(assistedRoot.status.textContent, '');
+
+  const localRoot = createDocument();
+  const localProfile = createProfile();
+  localProfile.snapshot.remote = false;
+  localProfile.snapshot.lastSubmission = {
+    accepted: false,
+    reason: 'REMOTE_DISABLED',
+    score: 600,
+    round: 2,
+    at: 1,
+  };
+  const localModal = new LeaderboardModal({ profile: localProfile, root: localRoot });
+  localModal.open();
+  await flush();
+  assert.equal(localRoot.status.textContent, '');
+});
+
