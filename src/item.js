@@ -134,6 +134,364 @@ function drawPacifier(ctx, cx, cy, size, timeMs) {
 
   if (canSave) ctx.restore?.();
 }
+/** 아이콘 공통: quadraticCurveTo 가 없는 최소 스텁에서는 직선으로 근사 */
+function iconCurve(ctx, cpx, cpy, x, y) {
+  if (typeof ctx.quadraticCurveTo === 'function') ctx.quadraticCurveTo(cpx, cpy, x, y);
+  else ctx.lineTo(x, y);
+}
+
+/**
+ * 아이콘을 살짝 기울여 그린다 (장난감이 굴러가는 느낌).
+ * transform 미지원 스텁에서는 아무 일도 하지 않으며, save/restore 는 항상 균형을 맞춘다.
+ * @returns {() => void} 그리기 종료 후 호출할 복원 함수
+ */
+function tiltIcon(ctx, cx, cy, angle) {
+  const canSave = typeof ctx.save === 'function';
+  if (canSave) ctx.save();
+  if (typeof ctx.translate === 'function' && typeof ctx.rotate === 'function') {
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.translate(-cx, -cy);
+  }
+  return () => { if (canSave) ctx.restore?.(); };
+}
+
+/**
+ * 우유 유리병 — 진한 외곽선 + 흰 우유 + 유리 하이라이트 (Canvas 2D 벡터)
+ */
+export function drawMilkIcon(ctx, cx, cy, size, timeMs = 0) {
+  const s = size;
+  const restore = tiltIcon(ctx, cx, cy, -0.10 + Math.sin(timeMs / 950) * 0.035);
+
+  const bw = s * 0.50;              // 병 몸통 너비
+  const bh = s * 0.44;              // 병 몸통 높이
+  const nw = s * 0.22;              // 목 너비
+  const nh = s * 0.19;              // 목 높이
+  const topY = cy - s * 0.48;       // 목 꼭대기
+  const shoulderY = topY + nh;
+  const bottomY = cy + bh * 0.60;
+
+  // 병 실루엣
+  ctx.beginPath();
+  ctx.moveTo(cx - nw / 2, topY);
+  ctx.lineTo(cx + nw / 2, topY);
+  ctx.lineTo(cx + nw / 2, shoulderY);
+  iconCurve(ctx, cx + nw / 2, shoulderY + s * 0.06, cx + bw / 2, shoulderY + s * 0.03);
+  ctx.lineTo(cx + bw / 2, bottomY);
+  iconCurve(ctx, cx + bw / 2, bottomY + s * 0.10, cx, bottomY + s * 0.10);
+  iconCurve(ctx, cx - bw / 2, bottomY + s * 0.10, cx - bw / 2, bottomY);
+  ctx.lineTo(cx - bw / 2, shoulderY + s * 0.03);
+  iconCurve(ctx, cx - nw / 2, shoulderY + s * 0.06, cx - nw / 2, shoulderY);
+  ctx.closePath?.();
+
+  ctx.fillStyle = '#e9f7ff';
+  ctx.fill();
+  ctx.strokeStyle = '#1d4a60';
+  ctx.lineWidth = Math.max(1, s * 0.085);
+  ctx.stroke();
+
+  // 우유 액체 (아래 2/3)
+  const inX = s * 0.06;
+  ctx.beginPath();
+  ctx.moveTo(cx - bw / 2 + inX, cy - bh * 0.06);
+  ctx.lineTo(cx + bw / 2 - inX, cy - bh * 0.06);
+  ctx.lineTo(cx + bw / 2 - inX, bottomY);
+  iconCurve(ctx, cx + bw / 2 - inX, bottomY + s * 0.09, cx, bottomY + s * 0.09);
+  iconCurve(ctx, cx - bw / 2 + inX, bottomY + s * 0.09, cx - bw / 2 + inX, bottomY);
+  ctx.closePath?.();
+  ctx.fillStyle = '#fffdf5';
+  ctx.fill();
+
+  // 우유 표면
+  ctx.strokeStyle = '#cfe9f6';
+  ctx.lineWidth = Math.max(1, s * 0.045);
+  ctx.beginPath();
+  ctx.moveTo(cx - bw / 2 + inX + 1, cy - bh * 0.06);
+  ctx.lineTo(cx + bw / 2 - inX - 1, cy - bh * 0.06);
+  ctx.stroke();
+
+  // 유리 하이라이트
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.lineWidth = Math.max(1, s * 0.055);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - bw * 0.32, shoulderY + s * 0.10);
+  ctx.lineTo(cx - bw * 0.32, bottomY - s * 0.05);
+  ctx.stroke();
+
+  // 파스텔 캡
+  const capW = nw + s * 0.12;
+  const capH = s * 0.13;
+  const capY = topY - capH + s * 0.025;
+  ctx.beginPath();
+  ctx.moveTo(cx - capW / 2, capY);
+  ctx.lineTo(cx + capW / 2, capY);
+  ctx.lineTo(cx + capW / 2, capY + capH);
+  ctx.lineTo(cx - capW / 2, capY + capH);
+  ctx.closePath?.();
+  ctx.fillStyle = '#7fd3f0';
+  ctx.fill();
+  ctx.strokeStyle = '#1d4a60';
+  ctx.lineWidth = Math.max(1, s * 0.07);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.beginPath();
+  ctx.arc(cx - capW * 0.22, capY + capH * 0.4, s * 0.035, 0, Math.PI * 2);
+  ctx.fill();
+
+  restore();
+}
+
+
+
+/**
+ * 줄무늬 딸기 사탕 — 래퍼 트위스트 + 소용돌이 줄무늬 (Canvas 2D 벡터)
+ */
+export function drawCandyIcon(ctx, cx, cy, size, timeMs = 0) {
+  const s = size;
+  const restore = tiltIcon(ctx, cx, cy, Math.sin(timeMs / 720) * 0.12);
+
+  const r = s * 0.30;
+  const wrapX = s * 0.53;
+  const wrapH = s * 0.15;
+
+  // 양쪽 래퍼 트위스트
+  const drawWrap = (dir) => {
+    ctx.beginPath();
+    ctx.moveTo(cx + dir * r * 0.86, cy);
+    ctx.lineTo(cx + dir * wrapX, cy - wrapH);
+    ctx.lineTo(cx + dir * wrapX, cy + wrapH);
+    ctx.closePath?.();
+    ctx.fillStyle = dir < 0 ? '#ffb3c8' : '#ffc2d2';
+    ctx.fill();
+    ctx.strokeStyle = '#8c2f4a';
+    ctx.lineWidth = Math.max(1, s * 0.06);
+    ctx.stroke();
+  };
+  drawWrap(-1);
+  drawWrap(1);
+
+  // 사탕 몸통
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = '#ff5f8f';
+  ctx.fill();
+  ctx.strokeStyle = '#7d2342';
+  ctx.lineWidth = Math.max(1, s * 0.085);
+  ctx.stroke();
+
+  // 소용돌이 줄무늬
+  ctx.strokeStyle = '#ffe3ec';
+  ctx.lineWidth = Math.max(1, s * 0.095);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.64, 0.35, 2.5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.30, 2.9, 5.4);
+  ctx.stroke();
+
+  // 딸기 씨 포인트
+  ctx.fillStyle = '#ffd166';
+  const seeds = [[-0.34, 0.10], [0.16, -0.36], [0.30, 0.32]];
+  for (const [dx, dy] of seeds) {
+    ctx.beginPath();
+    ctx.arc(cx + r * dx, cy + r * dy, Math.max(0.8, s * 0.032), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 유광 하이라이트
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.36, cy - r * 0.40, r * 0.17, 0, Math.PI * 2);
+  ctx.fill();
+
+  restore();
+}
+
+/**
+ * 초코칩 쿠키 — 둥글둥글 스캘럽 가장자리 + 진한 초코칩 (Canvas 2D 벡터)
+ */
+export function drawCookieIcon(ctx, cx, cy, size, timeMs = 0) {
+  const s = size;
+  const restore = tiltIcon(ctx, cx, cy, Math.sin(timeMs / 880) * 0.06);
+
+  const r = s * 0.32;
+
+  // 스캘럽(울퉁불퉁) 가장자리
+  ctx.fillStyle = '#d99a5b';
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const angle = (Math.PI * 2 / 10) * i + 0.18;
+    ctx.arc(cx + Math.cos(angle) * r * 0.84, cy + Math.sin(angle) * r * 0.84, r * 0.24, 0, Math.PI * 2);
+  }
+  ctx.fill();
+
+  // 쿠키 본체
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#6b3f1d';
+  ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.stroke();
+
+  // 구운 결 하이라이트
+  ctx.strokeStyle = '#eab97d';
+  ctx.lineWidth = Math.max(1, s * 0.05);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.82, 0.25, 2.4);
+  ctx.stroke();
+
+  // 초코칩
+  const chips = [[-0.36, -0.22], [0.28, -0.34], [0.12, 0.20], [-0.20, 0.40], [0.46, 0.18]];
+  for (const [dx, dy] of chips) {
+    const chipX = cx + r * dx;
+    const chipY = cy + r * dy;
+    const chipR = Math.max(0.9, r * 0.16);
+    ctx.fillStyle = '#4a2a16';
+    ctx.beginPath();
+    ctx.arc(chipX, chipY, chipR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.42)';
+    ctx.beginPath();
+    ctx.arc(chipX - chipR * 0.3, chipY - chipR * 0.3, chipR * 0.38, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 부스러기 하이라이트
+  ctx.fillStyle = 'rgba(255, 240, 200, 0.72)';
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.52, cy - r * 0.48, Math.max(0.8, s * 0.035), 0, Math.PI * 2);
+  ctx.fill();
+
+  restore();
+}
+
+/**
+ * 황금빛 기울어진 젖병 — 무적 보행기 슈퍼 아이템 (Canvas 2D 벡터)
+ */
+export function drawGoldenBottleIcon(ctx, cx, cy, size, timeMs = 0) {
+  const s = size;
+  const restore = tiltIcon(ctx, cx, cy, -0.26 + Math.sin(timeMs / 640) * 0.02);
+
+  const bw = s * 0.46;
+  const bh = s * 0.46;
+  const topY = cy - s * 0.36;
+  const bottomY = cy + bh * 0.62;
+
+  // 실리콘 젖꼭지
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.10, topY);
+  iconCurve(ctx, cx - s * 0.17, topY - s * 0.17, cx, topY - s * 0.21);
+  iconCurve(ctx, cx + s * 0.17, topY - s * 0.17, cx + s * 0.10, topY);
+  ctx.closePath?.();
+  ctx.fillStyle = '#fff4c7';
+  ctx.fill();
+  ctx.strokeStyle = '#8a5a00';
+  ctx.lineWidth = Math.max(1, s * 0.07);
+  ctx.stroke();
+
+  // 젖병 뚜껑 링
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.21, topY);
+  ctx.lineTo(cx + s * 0.21, topY);
+  ctx.lineTo(cx + s * 0.21, topY + s * 0.12);
+  ctx.lineTo(cx - s * 0.21, topY + s * 0.12);
+  ctx.closePath?.();
+  ctx.fillStyle = '#f0b429';
+  ctx.fill();
+  ctx.strokeStyle = '#8a5a00';
+  ctx.lineWidth = Math.max(1, s * 0.07);
+  ctx.stroke();
+
+  // 젖병 몸통
+  ctx.beginPath();
+  ctx.moveTo(cx - bw / 2, topY + s * 0.12);
+  ctx.lineTo(cx + bw / 2, topY + s * 0.12);
+  ctx.lineTo(cx + bw / 2, bottomY);
+  iconCurve(ctx, cx + bw / 2, bottomY + s * 0.10, cx, bottomY + s * 0.10);
+  iconCurve(ctx, cx - bw / 2, bottomY + s * 0.10, cx - bw / 2, bottomY);
+  ctx.closePath?.();
+  ctx.fillStyle = '#ffd54f';
+  ctx.fill();
+  ctx.strokeStyle = '#8a5a00';
+  ctx.lineWidth = Math.max(1, s * 0.085);
+  ctx.stroke();
+
+  // 황금 액체 (아래쪽 진한 골드)
+  const inX = s * 0.055;
+  ctx.beginPath();
+  ctx.moveTo(cx - bw / 2 + inX, cy + bh * 0.02);
+  ctx.lineTo(cx + bw / 2 - inX, cy + bh * 0.02);
+  ctx.lineTo(cx + bw / 2 - inX, bottomY);
+  iconCurve(ctx, cx + bw / 2 - inX, bottomY + s * 0.085, cx, bottomY + s * 0.085);
+  iconCurve(ctx, cx - bw / 2 + inX, bottomY + s * 0.085, cx - bw / 2 + inX, bottomY);
+  ctx.closePath?.();
+  ctx.fillStyle = '#ffb300';
+  ctx.fill();
+
+  // 액체 표면 반짝임
+  ctx.strokeStyle = '#fff1a8';
+  ctx.lineWidth = Math.max(1, s * 0.05);
+  ctx.beginPath();
+  ctx.moveTo(cx - bw / 2 + inX + 1, cy + bh * 0.02);
+  ctx.lineTo(cx + bw / 2 - inX - 1, cy + bh * 0.02);
+  ctx.stroke();
+
+  // 눈금선
+  ctx.strokeStyle = 'rgba(138, 90, 0, 0.75)';
+  ctx.lineWidth = Math.max(1, s * 0.035);
+  ctx.beginPath();
+  ctx.moveTo(cx + bw * 0.12, cy + bh * 0.22);
+  ctx.lineTo(cx + bw * 0.34, cy + bh * 0.22);
+  ctx.moveTo(cx + bw * 0.12, cy + bh * 0.36);
+  ctx.lineTo(cx + bw * 0.28, cy + bh * 0.36);
+  ctx.stroke();
+
+  // 유광 하이라이트
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.lineWidth = Math.max(1, s * 0.055);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - bw * 0.34, topY + s * 0.21);
+  ctx.lineTo(cx - bw * 0.34, bottomY - s * 0.06);
+  ctx.stroke();
+
+  restore();
+}
+
+/**
+ * 캔버스용 아이템 벡터 아이콘 디스패처.
+ * OS 이모지(fillText) 대신 고대비 Canvas 2D 도형만 사용한다.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {'MILK'|'CANDY'|'COOKIE'|'GOLDEN'|'PACIFIER'} type
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} size
+ * @param {number} timeMs
+ */
+export function drawItemIcon(ctx, type, cx, cy, size, timeMs = 0) {
+  switch (type) {
+    case 'MILK':
+      drawMilkIcon(ctx, cx, cy, size, timeMs);
+      break;
+    case 'CANDY':
+      drawCandyIcon(ctx, cx, cy, size, timeMs);
+      break;
+    case 'COOKIE':
+      drawCookieIcon(ctx, cx, cy, size, timeMs);
+      break;
+    case 'GOLDEN':
+      drawGoldenBottleIcon(ctx, cx, cy, size, timeMs);
+      break;
+    case 'PACIFIER':
+      drawPacifier(ctx, cx, cy, size, timeMs);
+      break;
+    default:
+      break;
+  }
+}
 
 /**
  * 아이템 (맵에 놓여있는 상태)
@@ -298,17 +656,18 @@ export class Item {
     ctx.arc(cx, cy, TILE_SIZE / 2 - 4, 0, Math.PI * 2);
     ctx.stroke();
 
-    if (isPacifier) {
-      // OS 이모지 대신 Canvas 2D 도형으로 직접 그린다
-      drawPacifier(ctx, cx, cy, TILE_SIZE * 0.82, timeMs);
-    } else {
-      // 아이템 심볼 (크고 선명하게)
-      ctx.fillStyle = '#333';
-      ctx.font = `${TILE_SIZE * (isGolden ? 0.7 : 0.62)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(this.config.symbol, cx, cy + 0.5);
-    }
+    // OS 이모지 대신 Canvas 2D 벡터 아이콘으로 직접 그린다
+    const iconSize = TILE_SIZE * (isGolden ? 0.86 : isPacifier ? 0.82 : 0.78);
+    drawItemIcon(ctx, this.type, cx, cy + (isGolden ? 0.6 : 0.4), iconSize, timeMs);
+
+    // 외곽 발광 링 — 어둠/모바일에서도 아이콘 윤곽이 또렷하게 보이도록
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = ring;
+    ctx.lineWidth = isGolden ? 1.6 : 1.1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, TILE_SIZE / 2 - 0.8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
 
     // 둘레를 도는 반짝이
     ctx.strokeStyle = isGolden

@@ -48,6 +48,12 @@ function mixHexColor(from, to, t) {
   return `rgb(${mix(0)}, ${mix(1)}, ${mix(2)})`;
 }
 
+/** quadraticCurveTo 가 없는 최소 ctx 스텁에서는 직선으로 근사한다 */
+function enemyCurve(ctx, cpx, cpy, x, y) {
+  if (typeof ctx.quadraticCurveTo === 'function') ctx.quadraticCurveTo(cpx, cpy, x, y);
+  else ctx.lineTo(x, y);
+}
+
 /** 탐색 시 사용할 4방향 오프셋 */
 const NEIGHBOR_OFFSETS = [
   { row: -1, col: 0, dir: 'UP' },
@@ -986,7 +992,9 @@ export default class Enemy {
       ? 'rgba(100, 181, 246, 0.95)'
       : fleeing
         ? 'rgba(129, 212, 250, 0.95)'
-        : 'rgba(239, 83, 80, 0.7)';
+        : this.mode === ENEMY_MODE.PATROL
+          ? 'rgba(255, 167, 38, 0.7)'
+          : 'rgba(239, 83, 80, 0.7)';
     ctx.shadowBlur = frozen || fleeing ? 16 : 10;
     ctx.fillStyle = this.getBodyColor();
     ctx.beginPath();
@@ -995,19 +1003,126 @@ export default class Enemy {
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';
 
+    // 밝은 파스텔 배경에서도 실루엣이 또렷하도록 얇은 외곽선
+    ctx.strokeStyle = frozen ? 'rgba(18, 70, 110, 0.48)' : fleeing ? 'rgba(18, 70, 110, 0.42)' : 'rgba(70, 20, 26, 0.45)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.arc(cx, cy + bob, radius - 0.45, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 몸통 아래쪽 얇은 음영 — 도형이 납작해 보이지 않게
+    ctx.strokeStyle = frozen || fleeing ? 'rgba(20, 60, 90, 0.28)' : 'rgba(92, 24, 30, 0.34)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy + bob, radius - 0.4, 0.14 * Math.PI, 0.86 * Math.PI);
+    ctx.stroke();
+
+    const headCy = cy + bob;
+
     // 위쪽 광택
     ctx.fillStyle = 'rgba(255, 255, 255, 0.26)';
     ctx.beginPath();
-    ctx.arc(cx - radius * 0.32, cy - radius * 0.38 + bob, radius * 0.3, 0, Math.PI * 2);
+    ctx.arc(cx - radius * 0.32, headCy - radius * 0.38, radius * 0.3, 0, Math.PI * 2);
     ctx.fill();
 
-    // 앞치마 (보모 느낌)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.24)';
+    // ===== ① 깐깐한 올림머리(쪽진 머리) + 삐죽 머리핀/잔머리 =====
+    // 정수리를 감싸는 진한 머리카락 띠
+    ctx.strokeStyle = COLORS.ENEMY_HAIR;
+    ctx.lineWidth = Math.max(2, radius * 0.30);
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(cx, cy + radius * 0.28 + bob, radius * 0.7, 0.18 * Math.PI, 0.82 * Math.PI);
+    ctx.arc(cx, headCy, radius * 0.84, Math.PI * 1.08, Math.PI * 1.92);
+    ctx.stroke();
+
+    // 정수리 위 동그란 올림머리
+    const bunY = headCy - radius * 0.84;
+    const bunR = radius * 0.34;
+    ctx.fillStyle = COLORS.ENEMY_HAIR;
+    ctx.strokeStyle = COLORS.ENEMY_HAIR_DARK;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, bunY, bunR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // 올림머리 하이라이트
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.20)';
+    ctx.beginPath();
+    ctx.arc(cx - bunR * 0.32, bunY - bunR * 0.34, bunR * 0.34, 0, Math.PI * 2);
     ctx.fill();
 
-    // 눈 (진행 방향을 노려본다)
+    // 삐죽 튀어나온 금색 머리핀
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(cx - radius * 0.54, bunY - 0.4);
+    ctx.lineTo(cx + radius * 0.66, bunY - 1.6);
+    ctx.stroke();
+    ctx.fillStyle = '#ffe9a3';
+    ctx.beginPath();
+    ctx.arc(cx + radius * 0.66, bunY - 1.6, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 삐죽삐죽 잔머리
+    ctx.strokeStyle = COLORS.ENEMY_HAIR;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx + bunR * 0.3, bunY - bunR * 0.8);
+    ctx.lineTo(cx + bunR * 1.1, bunY - bunR * 1.7);
+    ctx.moveTo(cx - bunR * 0.2, bunY - bunR * 0.9);
+    ctx.lineTo(cx - bunR * 0.9, bunY - bunR * 1.8);
+    ctx.moveTo(cx + bunR * 0.9, bunY - bunR * 0.2);
+    ctx.lineTo(cx + bunR * 1.7, bunY - bunR * 0.6);
+    ctx.stroke();
+
+    // ===== ② 빳빳한 앞치마 실루엣 =====
+    const apronColor = frozen
+      ? 'rgba(226, 246, 255, 0.95)'
+      : fleeing
+        ? 'rgba(238, 249, 255, 0.95)'
+        : COLORS.ENEMY_APRON;
+    const apronEdge = frozen
+      ? 'rgba(60, 120, 160, 0.7)'
+      : fleeing
+        ? 'rgba(50, 110, 150, 0.66)'
+        : COLORS.ENEMY_APRON_EDGE;
+
+    const apronTop = headCy + radius * 0.46;
+    const apronBottom = headCy + radius * 0.98;
+    ctx.fillStyle = apronColor;
+    ctx.strokeStyle = apronEdge;
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(cx - radius * 0.58, apronTop);
+    ctx.lineTo(cx + radius * 0.58, apronTop);
+    ctx.lineTo(cx + radius * 0.42, apronBottom - radius * 0.08);
+    enemyCurve(ctx, cx + radius * 0.18, apronBottom, cx, apronBottom);
+    enemyCurve(ctx, cx - radius * 0.18, apronBottom, cx - radius * 0.42, apronBottom - radius * 0.08);
+    ctx.closePath?.();
+    ctx.fill();
+    ctx.stroke();
+
+    // 어깨끈 2줄 — 앞치마가 빳빳하게 서 있는 느낌
+    ctx.strokeStyle = apronEdge;
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(cx - radius * 0.54, apronTop);
+    ctx.lineTo(cx - radius * 0.70, headCy + radius * 0.02);
+    ctx.moveTo(cx + radius * 0.54, apronTop);
+    ctx.lineTo(cx + radius * 0.70, headCy + radius * 0.02);
+    ctx.stroke();
+
+    // 앞치마 주머니
+    ctx.strokeStyle = 'rgba(122, 72, 84, 0.45)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(cx - radius * 0.22, headCy + radius * 0.66);
+    ctx.lineTo(cx - radius * 0.22, headCy + radius * 0.86);
+    ctx.lineTo(cx + radius * 0.22, headCy + radius * 0.86);
+    ctx.lineTo(cx + radius * 0.22, headCy + radius * 0.66);
+    ctx.stroke();
+
+    // ===== ③ 째려보는 눈 + V자 눈썹 =====
     let lookX = 0;
     let lookY = 0.4;
     if (this.direction === 'LEFT') { lookX = -1; lookY = 0; }
@@ -1015,19 +1130,26 @@ export default class Enemy {
     else if (this.direction === 'UP') { lookX = 0; lookY = -1; }
     else if (this.direction === 'DOWN') { lookX = 0; lookY = 1; }
 
-    const eyeY = cy - 3 + bob;
-    const eyeRadius = fleeing ? 3.15 : 2.6;
+    const eyeY = headCy - radius * 0.22;
+    const eyeRadius = fleeing ? 3.2 : 2.5;
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.arc(cx - 4, eyeY, eyeRadius, 0, Math.PI * 2);
     ctx.arc(cx + 4, eyeY, eyeRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    const pupilRadius = fleeing ? 1.1 : 1.35;
+    const pupilRadius = fleeing ? 1.15 : 1.25;
     ctx.fillStyle = '#2b2b33';
     ctx.beginPath();
     ctx.arc(cx - 4 + lookX * 1.1, eyeY + lookY * 1.1, pupilRadius, 0, Math.PI * 2);
     ctx.arc(cx + 4 + lookX * 1.1, eyeY + lookY * 1.1, pupilRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 눈동자 반짝임
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.beginPath();
+    ctx.arc(cx - 4.4 + lookX * 1.1, eyeY - 0.5 + lookY * 1.1, 0.5, 0, Math.PI * 2);
+    ctx.arc(cx + 3.6 + lookX * 1.1, eyeY - 0.5 + lookY * 1.1, 0.5, 0, Math.PI * 2);
     ctx.fill();
 
     if (fleeing) {
@@ -1044,37 +1166,89 @@ export default class Enemy {
       // 겁먹은 동그란 입
       ctx.fillStyle = '#3e2723';
       ctx.beginPath();
-      ctx.arc(cx, cy + 5.2 + bob, 2.2, 0, Math.PI * 2);
+      ctx.arc(cx, headCy + radius * 0.40, 2.2, 0, Math.PI * 2);
       ctx.fill();
 
       // 식은땀 방울
       ctx.fillStyle = 'rgba(214, 244, 255, 0.95)';
-      const sweatY = cy - 1 + bob + Math.sin(timeMs / 120 + this.index) * 2;
+      const sweatY = headCy - 1 + Math.sin(timeMs / 120 + this.index) * 2;
       ctx.beginPath();
       ctx.arc(cx - radius - 1.2, sweatY, 1.4, 0, Math.PI * 2);
       ctx.arc(cx + radius + 1.4, sweatY - 3, 1.1, 0, Math.PI * 2);
       ctx.fill();
     } else {
-      // 화난 눈썹
-      ctx.strokeStyle = '#4a1010';
-      ctx.lineWidth = 1.4;
+      // 째려보는 눈꺼풀 + 다크서클/눈가 주름
+      ctx.strokeStyle = 'rgba(74, 16, 16, 0.62)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(cx - 6.4, eyeY - 3.6);
-      ctx.lineTo(cx - 2.2, eyeY - 2.2);
-      ctx.moveTo(cx + 6.4, eyeY - 3.6);
-      ctx.lineTo(cx + 2.2, eyeY - 2.2);
+      ctx.moveTo(cx - 6.4, eyeY - 1.1);
+      ctx.lineTo(cx - 1.6, eyeY - 1.8);
+      ctx.moveTo(cx + 6.4, eyeY - 1.1);
+      ctx.lineTo(cx + 1.6, eyeY - 1.8);
       ctx.stroke();
 
-      // 찡그린 입
-      ctx.strokeStyle = '#4a1010';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(90, 48, 60, 0.35)';
+      ctx.lineWidth = 0.9;
       ctx.beginPath();
-      ctx.arc(cx, cy + 4.6 + bob, 3, 1.1 * Math.PI, 1.9 * Math.PI);
+      ctx.arc(cx - 4, eyeY + 2.1, 2.2, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.arc(cx + 4, eyeY + 2.1, 2.2, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+
+      // 날카롭게 치켜올린 V자 눈썹
+      ctx.strokeStyle = '#4a1010';
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx - 7.0, eyeY - 4.4);
+      ctx.lineTo(cx - 2.0, eyeY - 2.0);
+      ctx.moveTo(cx + 7.0, eyeY - 4.4);
+      ctx.lineTo(cx + 2.0, eyeY - 2.0);
+      ctx.stroke();
+
+      // 앙다문 지그재그(삐죽) 입
+      ctx.strokeStyle = '#4a1010';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(cx - 3.2, headCy + radius * 0.34);
+      ctx.lineTo(cx - 1.6, headCy + radius * 0.42);
+      ctx.lineTo(cx, headCy + radius * 0.34);
+      ctx.lineTo(cx + 1.6, headCy + radius * 0.42);
+      ctx.lineTo(cx + 3.2, headCy + radius * 0.34);
+      ctx.stroke();
+    }
+
+    // 추격 상태: 관자놀이 근처에 작은 만화풍 짜증 핏줄(💢 형태 벡터)
+    const chasing = !frozen && !fleeing && this.mode === ENEMY_MODE.CHASE;
+    if (chasing) {
+      const angerX = cx + radius * 0.78;
+      const angerY = headCy - radius * 0.64;
+      ctx.strokeStyle = COLORS.ENEMY_ANGER;
+      ctx.lineWidth = 1.1;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const angle = Math.PI / 4 + (Math.PI / 2) * i;
+        ctx.moveTo(angerX + Math.cos(angle) * 1.3, angerY + Math.sin(angle) * 1.3);
+        ctx.lineTo(angerX + Math.cos(angle) * 3.3, angerY + Math.sin(angle) * 3.3);
+      }
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(183, 28, 28, 0.8)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.arc(angerX, angerY, 1.1, 0, Math.PI * 2);
       ctx.stroke();
     }
 
     // 얼어붙은 상태: 서리 링 + 얼음 결정
     if (frozen) {
+      // 올림머리 위 서리 캡
+      ctx.strokeStyle = 'rgba(235, 250, 255, 0.9)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, bunY, bunR + 0.9, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+
       ctx.strokeStyle = 'rgba(200, 235, 255, 0.65)';
       ctx.lineWidth = 1.2;
       ctx.beginPath();

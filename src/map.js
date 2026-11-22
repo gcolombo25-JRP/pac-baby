@@ -87,13 +87,14 @@ const WALL_EDGE_LIGHT = Math.max(1, TILE_SIZE * 0.045);                     // �
 const WALL_SHADOW_DEPTH = TILE_SIZE * 0.16;                                 // 바닥 드롭 섀도우
 const WALL_TOP_LIGHT_DEPTH = TILE_SIZE * 0.5;                               // 윗면 하이라이트
 
-// 벽 윗면(바닥보다 밝은 인디고) / 앞벽(윗면보다 어둡고 바닥과 구분되는 중간 톤) / 구분선 색
-const WALL_TOP_FACE = '#2a3f68';
-const WALL_FRONT_TOP = '#233757';
-const WALL_FRONT_MID = '#1e2f4d';
-const WALL_FRONT_BOTTOM = '#182642';
-const WALL_FRONT_SEAM = 'rgba(6, 10, 20, 0.85)';
-const WALL_FRONT_BEVEL = 'rgba(188, 222, 255, 0.5)';
+// 벽 윗면(파스텔 민트) / 앞벽(딥 민트 — 장난감 블록 측면) / 구분선 색
+const WALL_TOP_FACE = '#6ec6b8';
+const WALL_FRONT_TOP = '#4f9e90';
+const WALL_FRONT_MID = '#438a7e';
+const WALL_FRONT_BOTTOM = '#38756b';
+const WALL_FRONT_SEAM = 'rgba(24, 58, 52, 0.85)';
+const WALL_FRONT_BEVEL = 'rgba(184, 242, 230, 0.85)';
+const WALL_WOOD_TRIM = 'rgba(201, 138, 82, 0.55)'; // 장난감 블록의 따뜻한 우드 이음선
 
 /**
  * 같은 면(面)에 속한 사각형들을 path 로 모아 한 번의 fill 로 채운다.
@@ -324,10 +325,10 @@ export default class MapRenderer {
       // ① 윗면(Top face) — 위 모서리에서 아래로 갈수록 옅어지는 빛 (빛은 위에서 내려온다)
       if (lit.length > 0) {
         const topSheen = safeLinearGradient(ctx, 0, y, 0, y + WALL_TOP_LIGHT_DEPTH, [
-          [0, 'rgba(198, 229, 255, 0.26)'],
-          [0.35, 'rgba(126, 180, 255, 0.10)'],
-          [1, 'rgba(126, 180, 255, 0)'],
-        ]) || 'rgba(160, 208, 255, 0.12)';
+          [0, 'rgba(214, 255, 246, 0.34)'],
+          [0.35, 'rgba(184, 242, 230, 0.14)'],
+          [1, 'rgba(184, 242, 230, 0)'],
+        ]) || 'rgba(184, 242, 230, 0.14)';
 
         fillRects(
           ctx,
@@ -359,6 +360,18 @@ export default class MapRenderer {
         ctx,
         WALL_FRONT_BEVEL,
         exposed.map(col => [col * TILE_SIZE, baseY, TILE_SIZE, WALL_EDGE_LIGHT]),
+      );
+
+      // 파스텔 민트 림 바로 아래의 얇은 우드 이음선 — 원목 장난감 블록 느낌
+      fillRects(
+        ctx,
+        WALL_WOOD_TRIM,
+        exposed.map(col => [
+          col * TILE_SIZE,
+          baseY + WALL_EDGE_LIGHT,
+          TILE_SIZE,
+          Math.max(1, TILE_SIZE * 0.035),
+        ]),
       );
 
       // 연속된 앞벽 구간마다 좌·우 끝단 세로선 + 하단 가로선 (1px)
@@ -462,33 +475,33 @@ export default class MapRenderer {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // 1) 윗면 상단 + 좌측 모서리에만 넓고 은은한 시안 글로우
-    ctx.shadowColor = 'rgba(79, 195, 247, 0.95)';
+    // 1) 윗면 상단 + 좌측 모서리에만 넓고 은은한 민트 글로우
+    ctx.shadowColor = 'rgba(184, 242, 230, 0.9)';
     ctx.shadowBlur = Math.max(6, TILE_SIZE * 0.45) * blurScale;
-    ctx.strokeStyle = 'rgba(79, 195, 247, 0.5)';
+    ctx.strokeStyle = 'rgba(184, 242, 230, 0.55)';
     ctx.lineWidth = 2.8;
     ctx.stroke();
 
-    // 2) 면도칼처럼 선명한 네온 코어
+    // 2) 면도칼처럼 선명한 민트 코어
     ctx.shadowBlur = Math.max(2, TILE_SIZE * 0.18) * blurScale;
-    ctx.strokeStyle = 'rgba(206, 241, 255, 0.95)';
+    ctx.strokeStyle = 'rgba(244, 255, 251, 0.95)';
     ctx.lineWidth = 1.3;
     ctx.stroke();
 
     // 3) 상단 모서리는 빛의 방향과 정면으로 만나므로 가장 밝게 한 번 더
     if (this._traceWallEdges(ctx, 'top')) {
-      ctx.shadowColor = 'rgba(214, 246, 255, 0.95)';
+      ctx.shadowColor = 'rgba(255, 252, 236, 0.9)';
       ctx.shadowBlur = Math.max(4, TILE_SIZE * 0.3) * blurScale;
-      ctx.strokeStyle = 'rgba(250, 254, 255, 0.98)';
+      ctx.strokeStyle = 'rgba(255, 255, 250, 0.98)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
 
     // 4) 우측 모서리는 빛을 등지므로 얇고 어둡게 (4면이 똑같이 빛나지 않게)
     if (this._traceWallEdges(ctx, 'right')) {
-      ctx.shadowColor = 'rgba(28, 74, 122, 0.55)';
+      ctx.shadowColor = 'rgba(32, 86, 78, 0.55)';
       ctx.shadowBlur = Math.max(1, TILE_SIZE * 0.08) * blurScale;
-      ctx.strokeStyle = 'rgba(96, 156, 218, 0.62)';
+      ctx.strokeStyle = 'rgba(120, 190, 175, 0.62)';
       ctx.lineWidth = 0.9;
       ctx.stroke();
     }
@@ -506,12 +519,12 @@ export default class MapRenderer {
     ctx.fillStyle = COLORS.ITEM_SPOT;
     ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
 
-    ctx.fillStyle = 'rgba(245, 200, 66, 0.18)';
+    ctx.fillStyle = 'rgba(255, 214, 130, 0.16)';
     ctx.beginPath();
     ctx.arc(cx, cy, TILE_SIZE * 0.38, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = '#f5c842';
+    ctx.fillStyle = '#ffd38a';
     ctx.beginPath();
     ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
     ctx.fill();
@@ -547,7 +560,7 @@ export default class MapRenderer {
   _drawFloorMote(ctx, row, col, x, y) {
     if ((row * 7 + col * 13) % 11 !== 0) return;
 
-    ctx.fillStyle = 'rgba(120, 190, 255, 0.10)';
+    ctx.fillStyle = 'rgba(255, 226, 178, 0.12)';
     ctx.beginPath();
     ctx.arc(x + TILE_SIZE * 0.65, y + TILE_SIZE * 0.35, 1.2, 0, Math.PI * 2);
     ctx.fill();

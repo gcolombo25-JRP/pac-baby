@@ -26,7 +26,7 @@ import MapRenderer from './map.js';
 import BotBrain from './bot.js';
 import Player from './player.js';
 import Enemy, { ENEMY_MODE, createEnemySpawnPlan } from './enemy.js';
-import { Item, Trap } from './item.js';
+import { Item, Trap, drawItemIcon } from './item.js';
 import Effects from './effects.js';
 import SoundFX, { stereoPanFromTiles } from './sound.js';
 import { scoreCapForRound } from './validation.js';
@@ -2502,7 +2502,11 @@ export default class Game {
     drawItem(`R${this.round}`, '#29b6f6');
 
     ctx.textAlign = 'right';
-    ctx.fillText(`${this.sound.enabled ? '🔊' : '🔇'} Pac-Baby 🍼`, CANVAS_WIDTH - 10, 14);
+    const title = `${this.sound.enabled ? '🔊' : '🔇'} Pac-Baby`;
+    ctx.fillText(title, CANVAS_WIDTH - 10, 14);
+
+    // 브랜드 젖병 아이콘 — OS 이모지 대신 Canvas 2D 벡터로 그린다
+    drawItemIcon(ctx, 'MILK', CANVAS_WIDTH - 10 - measure(title) - 11, 14, 13, this.animTime || 0);
 
     // 소화 게이지 (트랩 배출까지)
     this._renderDigestionGauge(ctx);
@@ -2668,13 +2672,15 @@ export default class Game {
     const badges = [];
     if (this.goldenTimer > 0) {
       badges.push({
-        text: `🍼 보행기 ${(this.goldenTimer / 1000).toFixed(1)}초`,
+        type: 'GOLDEN',
+        text: `보행기 ${(this.goldenTimer / 1000).toFixed(1)}초`,
         color: COLORS.GOLDEN,
       });
     }
     if (this.sugarRushTimer > 0) {
       badges.push({
-        text: `🍬 슈가 러시 ${(this.sugarRushTimer / 1000).toFixed(1)}초`,
+        type: 'CANDY',
+        text: `슈가 러시 ${(this.sugarRushTimer / 1000).toFixed(1)}초`,
         color: COLORS.SUGAR,
       });
     }
@@ -2684,16 +2690,22 @@ export default class Game {
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 12px "Segoe UI", sans-serif';
 
+    const iconSize = 13;
     let y = 40;
     for (const badge of badges) {
       const metrics = typeof ctx.measureText === 'function' ? ctx.measureText(badge.text) : null;
       const textWidth = metrics && typeof metrics.width === 'number'
         ? metrics.width
         : badge.text.length * 7;
-      const width = textWidth + 18;
+      // 아이콘 + 여백까지 포함한 배지 폭
+      const width = textWidth + iconSize + 24;
+      const left = CANVAS_WIDTH - 10 - width;
 
       ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-      ctx.fillRect(CANVAS_WIDTH - 10 - width, y - 9, width, 18);
+      ctx.fillRect(left, y - 9, width, 18);
+
+      // OS 이모지 대신 아이템 벡터 아이콘을 배지 왼쪽에 그린다
+      drawItemIcon(ctx, badge.type, left + 11, y, iconSize, this.animTime || 0);
 
       ctx.fillStyle = badge.color;
       ctx.fillText(badge.text, CANVAS_WIDTH - 18, y);

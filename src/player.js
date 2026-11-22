@@ -15,6 +15,12 @@ const TRAIL_LIFE_MS = 420;    // 잔상 하나가 사라지기까지 (0.42초 �
 const TRAIL_MAX = 36;         // 동시에 유지하는 최대 잔상 수
 const TRAIL_MIN_MOVE = 2;     // 이 거리(px) 이상 움직였을 때만 새 잔상
 
+/** quadraticCurveTo 가 없는 최소 ctx 스텁에서는 직선으로 근사한다 */
+function curveTo(ctx, cpx, cpy, x, y) {
+  if (typeof ctx.quadraticCurveTo === 'function') ctx.quadraticCurveTo(cpx, cpy, x, y);
+  else ctx.lineTo(x, y);
+}
+
 export default class Player {
   constructor(spawnPos) {
     this.row = spawnPos.row;
@@ -405,9 +411,9 @@ export default class Player {
     const goldenWalker = options.goldenWalker === true;
     const scared = this.stunTimer > 0; // 체포 연출: 깜짝 놀라 굳은 표정
 
-    // 파워업 색상: 황금 보행기 > 슈가 러시(무지개) > 기본
+    // 파워업 색상: 황금 보행기 > 슈가 러시(무지개) > 기본(살구빛 아기 피부)
     let bodyColor = COLORS.BABY;
-    let glowColor = 'rgba(255, 224, 130, 0.85)';
+    let glowColor = 'rgba(255, 198, 160, 0.9)';
     if (goldenWalker && sugarRush) {
       bodyColor = `hsl(${(timeMs / 8) % 360}, 100%, 70%)`;
       glowColor = 'rgba(255, 215, 0, 0.95)';
@@ -451,11 +457,13 @@ export default class Player {
       ctx.fill();
     }
 
-    // 몸통 (파워업 시 무지개/황금, 평소엔 따뜻한 네온 글로우)
+    // 몸통 — 통통한 아기 실루엣 (머리+볼살을 합친 포동포동한 형태)
     ctx.save?.();
     ctx.shadowColor = glowColor;
     ctx.shadowBlur = 12;
     ctx.fillStyle = bodyColor;
+
+    // ★ 먼저 그리는 호가 렌더 기준 arc 다 (테스트 계약 유지)
     ctx.beginPath();
     if (supportsEllipse) {
       ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
@@ -463,8 +471,78 @@ export default class Player {
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
     }
     ctx.fill();
+
+    // 볼 아래쪽으로 퍼지는 통통한 볼살 — 몸통과 같은 색으로 합쳐진다
+    ctx.beginPath();
+    if (supportsEllipse) {
+      ctx.ellipse(cx - rx * 0.42, cy + ry * 0.30, radius * 0.56, radius * 0.50, 0, 0, Math.PI * 2);
+      ctx.ellipse(cx + rx * 0.42, cy + ry * 0.30, radius * 0.56, radius * 0.50, 0, 0, Math.PI * 2);
+    } else {
+      ctx.arc(cx - radius * 0.42, cy + radius * 0.30, radius * 0.56, 0, Math.PI * 2);
+      ctx.arc(cx + radius * 0.42, cy + radius * 0.30, radius * 0.56, 0, Math.PI * 2);
+    }
+    ctx.fill();
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';
+
+    // 볼살 음영 — 몸통 안쪽에만 남는 부드러운 곡선
+    ctx.strokeStyle = 'rgba(214, 143, 105, 0.30)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy + ry * 0.06, radius * 0.70, 0.22 * Math.PI, 0.78 * Math.PI);
+    ctx.stroke();
+
+    // 기저귀 포인트 — 아래쪽 아이보리 크레센트
+    ctx.fillStyle = COLORS.BABY_DIAPER;
+    ctx.strokeStyle = 'rgba(210, 172, 144, 0.85)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.97, 0.16 * Math.PI, 0.84 * Math.PI);
+    ctx.closePath?.();
+    ctx.fill();
+    ctx.stroke();
+
+    // 턱받이 포인트 — 파스텔 민트 빕 + 작은 단추
+    const bibTop = cy + radius * 0.44;
+    const bibW = radius * 1.0;
+    const bibH = radius * 0.34;
+    ctx.fillStyle = COLORS.BABY_BIB;
+    ctx.strokeStyle = 'rgba(70, 122, 112, 0.8)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(cx - bibW / 2, bibTop);
+    ctx.lineTo(cx + bibW / 2, bibTop);
+    curveTo(ctx, cx + bibW * 0.34, bibTop + bibH * 0.72, cx + bibW * 0.20, bibTop + bibH);
+    curveTo(ctx, cx, bibTop + bibH * 1.08, cx - bibW * 0.20, bibTop + bibH);
+    curveTo(ctx, cx - bibW * 0.34, bibTop + bibH * 0.72, cx - bibW / 2, bibTop);
+    ctx.closePath?.();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(cx, bibTop + bibH * 0.42, 1.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 작은 손 — 몸통 옆으로 빼꼼
+    const handY = cy + ry * 0.30;
+    const handR = Math.max(1.7, radius * 0.23);
+    ctx.fillStyle = bodyColor;
+    ctx.strokeStyle = 'rgba(198, 134, 100, 0.5)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.arc(cx - rx * 0.94, handY, handR, 0, Math.PI * 2);
+    ctx.arc(cx + rx * 0.94, handY, handR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // 작은 발 — 통통한 아기 발
+    const footY = cy + ry * 0.88;
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.arc(cx - radius * 0.36, footY, radius * 0.24, 0, Math.PI * 2);
+    ctx.arc(cx + radius * 0.36, footY, radius * 0.24, 0, Math.PI * 2);
+    ctx.fill();
 
     // 위쪽 광택
     ctx.fillStyle = 'rgba(255, 255, 255, 0.38)';
@@ -525,20 +603,26 @@ export default class Player {
       }
     }
 
-    // 볼터치
-    ctx.fillStyle = 'rgba(255, 171, 145, 0.55)';
+    // 큼직한 코랄 볼터치 — 통통 볼살 위에 두 겹으로 포동포동하게
+    ctx.fillStyle = 'rgba(255, 158, 138, 0.55)';
     ctx.beginPath();
-    ctx.arc(cx - 5.6, cy + 1.8, 1.7, 0, Math.PI * 2);
-    ctx.arc(cx + 5.6, cy + 1.8, 1.7, 0, Math.PI * 2);
+    ctx.arc(cx - rx * 0.55, cy + 1.9, 2.5, 0, Math.PI * 2);
+    ctx.arc(cx + rx * 0.55, cy + 1.9, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255, 126, 108, 0.34)';
+    ctx.beginPath();
+    ctx.arc(cx - rx * 0.55, cy + 2.2, 1.25, 0, Math.PI * 2);
+    ctx.arc(cx + rx * 0.55, cy + 2.2, 1.25, 0, Math.PI * 2);
     ctx.fill();
 
     // 눈 (진행 방향을 바라보는 눈동자 + 주기적 깜빡임)
     // 체포 연출 중에는 눈을 크게 뜨고(휘둥그레) 깜빡이지 않는다
     const look = scared ? { x: 0, y: 0 } : this._lookVector();
-    const eyeY = cy - 3.2;
+    const eyeY = cy - 3.4;
     const blink = (timeMs % 3400) > 3260 ? 0.2 : 1;
-    const eyeRx = scared ? 3.7 : 3.0;
-    const eyeRy = scared ? 4.3 : 3.5 * blink;
+    const eyeRx = scared ? 3.8 : 3.2;
+    const eyeRy = scared ? 4.4 : 3.8 * blink;
 
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
@@ -554,18 +638,18 @@ export default class Player {
     // 눈동자 (방향에 따라 이동) — 굳은 표정이면 작게(겁먹은 눈)
     const pupilX = look.x * 1.25;
     const pupilY = look.y * 1.25;
-    const pupilR = scared ? 1.2 : 1.6;
+    const pupilR = scared ? 1.2 : 1.7;
     ctx.fillStyle = '#2b2b33';
     ctx.beginPath();
     ctx.arc(cx - 3.9 + pupilX, eyeY + pupilY, pupilR, 0, Math.PI * 2);
     ctx.arc(cx + 3.9 + pupilX, eyeY + pupilY, pupilR, 0, Math.PI * 2);
     ctx.fill();
 
-    // 눈동자 반짝임
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    // 눈동자 반짝임 — 초롱초롱한 아기 눈
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
     ctx.beginPath();
-    ctx.arc(cx - 4.4 + pupilX, eyeY - 0.6 + pupilY, 0.62, 0, Math.PI * 2);
-    ctx.arc(cx + 3.4 + pupilX, eyeY - 0.6 + pupilY, 0.62, 0, Math.PI * 2);
+    ctx.arc(cx - 4.4 + pupilX, eyeY - 0.7 + pupilY, 0.68, 0, Math.PI * 2);
+    ctx.arc(cx + 3.4 + pupilX, eyeY - 0.7 + pupilY, 0.68, 0, Math.PI * 2);
     ctx.fill();
 
     // 입: 평소엔 미소, 체포 연출 중에는 "Oh!" 하고 벌어진 입
@@ -589,15 +673,24 @@ export default class Player {
       ctx.fill();
     } else {
       ctx.beginPath();
-      ctx.arc(cx, cy + 2.4, 3.8, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.arc(cx, cy + 2.5, 3.6, 0.15 * Math.PI, 0.85 * Math.PI);
       ctx.stroke();
     }
 
-    // 머리카락 한 가닥 (아호게)
-    ctx.strokeStyle = '#d4a017';
-    ctx.lineWidth = 1.5;
+    // 아호게 머리카락 — 통통한 머리 위로 큼직하게 삐죽
+    ctx.strokeStyle = COLORS.BABY_HAIR;
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(cx + 1.6, cy - ry + 1.2, 2.3, 0.15 * Math.PI, 1.35 * Math.PI);
+    ctx.moveTo(cx + 0.6, cy - ry + 1.4);
+    curveTo(ctx, cx + 2.4, cy - ry - 3.0, cx + 4.8, cy - ry - 0.8);
+    curveTo(ctx, cx + 3.0, cy - ry + 0.2, cx + 2.2, cy - ry + 1.6);
+    ctx.stroke();
+
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 2.2, cy - ry + 1.2);
+    curveTo(ctx, cx - 4.2, cy - ry - 0.4, cx - 3.4, cy - ry + 1.7);
     ctx.stroke();
 
     // 스텔스 중이면 반짝이는 테두리 표시

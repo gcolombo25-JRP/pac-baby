@@ -9,26 +9,39 @@ export const COLS = 28;
 export const ROWS = 28;
 export const TILE_SIZE = CANVAS_WIDTH / COLS; // ≈ 22.86px
 
-// ===== 색상 팔레트 =====
+// ===== 색상 팔레트 (아기방 / 유아 놀이방 테마) =====
 export const COLORS = {
-  WALL:        '#1a1a2e',   // 벽 (어두운 네이비)
-  WALL_TOP:    '#2c4270',   // 벽 상단 하이라이트 (입체감)
-  WALL_EDGE:   '#3d5aa0',   // 벽 모서리 베벨
-  FLOOR:       '#0f3460',   // 바닥 (진한 블루)
-  FLOOR_ALT:   '#0d3057',   // 바닥 체크 패턴 (한 단계 어두운 블루)
-  NEON:        '#4fc3f7',   // 네온 시안 (벽 글로우)
-  NEON_CORE:   '#c9efff',   // 네온 코어 (밝은 심)
+  // 장난감 블록 2.5D 벽 — 파스텔 민트 윗면 + 우드 톤 앞벽
+  WALL:        '#438a7e',   // 벽 앞면 (딥 민트 — 장난감 블록 측면)
+  WALL_TOP:    '#6ec6b8',   // 벽 윗면 (파스텔 민트)
+  WALL_EDGE:   '#b8f2e6',   // 벽 상단 림 (밝은 민트 하이라이트)
+  // 포근한 라벤더/트와일라잇 놀이매트 바닥
+  FLOOR:       '#352f4d',   // 바닥 (라벤더 트와일라잇)
+  FLOOR_ALT:   '#3d3658',   // 바닥 체크 패턴 (한 단계 밝은 라벤더)
+  NEON:        '#b8f2e6',   // 따뜻한 민트 하이라이트 (벽 글로우)
+  NEON_CORE:   '#f4fffb',   // 하이라이트 코어 (거의 흰색)
   SPAWN_BED:   '#e94560',   // 침대 스폰 (레드)
   STEALTH_BED: '#29b6f6',   // 스텔스 사용 중인 침대 (파랑)
   ENEMY_SPAWN: '#533483',   // 악당 스폰 (퍼플)
-  ITEM_SPOT:   '#16213e',   // 아이템 위치 (약간 밝은 네이비)
-  GRID_LINE:   '#1a1a3e',   // 그리드 선 (아주 미세)
-  BABY:        '#ffe082',   // 베이비 (노랑)
-  BABY_CHEEK:  '#ffab91',   // 베이비 볼터치 (코랄)
-  ENEMY:       '#ef5350',   // 악당 (빨강)
-  ENEMY_PATROL: '#ffa726',  // 경비 악당 (주황)
-  ENEMY_FROZEN: '#64b5f6',  // 얼어붙은 악당 (파랑)
-  ENEMY_SCARED: '#90caf9',  // 겁에 질린 악당 (연한 파랑)
+  ITEM_SPOT:   '#3f3757',   // 아이템 위치 (라벤더 위 살짝 밝은 매트)
+  GRID_LINE:   '#2d2842',   // 그리드 선 (아주 미세)
+  // 통통한 아기 — 살구/복숭아 피부톤
+  BABY:        '#ffd6ba',   // 아기 피부 (따뜻한 살구/복숭아)
+  BABY_SHADE:  '#f0bb98',   // 아기 피부 음영 (볼살/손발 테두리)
+  BABY_CHEEK:  '#ff9e8a',   // 베이비 볼터치 (큼직한 코랄)
+  BABY_HAIR:   '#b5763f',   // 아호게 머리카락 (부드러운 밤색)
+  BABY_BIB:    '#bfe9df',   // 턱받이 (파스텔 민트)
+  BABY_DIAPER: '#fff8f0',   // 기저귀 (아이보리)
+  // 깐깐한 보모
+  ENEMY:       '#ef5350',   // 추격 보모 (빨강/코랄)
+  ENEMY_PATROL: '#ffa726',  // 순찰 보모 (주황/머스타드)
+  ENEMY_FROZEN: '#64b5f6',  // 얼어붙은 보모 (파랑)
+  ENEMY_SCARED: '#90caf9',  // 겁에 질린 보모 (연한 파랑 — FLEE)
+  ENEMY_HAIR:  '#3b2a3f',   // 쪽진 올림머리 (진한 자주빛 밤색)
+  ENEMY_HAIR_DARK: '#241a29', // 올림머리 외곽선
+  ENEMY_APRON: '#f7f1e6',   // 빳빳한 앞치마 (아이보리)
+  ENEMY_APRON_EDGE: 'rgba(122, 72, 84, 0.72)', // 앞치마 외곽선
+  ENEMY_ANGER: '#b71c1c',   // 짜증 핏줄(💢 형태 벡터) 포인트
   TEAR:        '#81d4fa',   // 눈물 (맑은 하늘색)
   GOLDEN:      '#ffd700',   // 황금 젖병 / 보행기 모드
   SUGAR:       '#f06292',   // 슈가 러시 (핑크)
@@ -374,6 +387,8 @@ export const FAKE_PACIFIER = {
 };
 
 // ===== 아이템 속성 =====
+// symbol 은 레거시 데이터 호환용으로만 남겨 둔다.
+// 캔버스 렌더링은 OS 이모지 대신 item.js 의 Canvas 2D 벡터 아이콘(drawItemIcon)을 쓴다.
 export const ITEMS = {
   MILK: {
     name: '우유병',
