@@ -71,6 +71,50 @@ const CRIB_STEALTH = {
 };
 
 /**
+ * 벽 2.5D 돌출(Extrude) 규격
+ * - 정면 돌출면 높이는 타일 높이의 18%(≈4.1px)로 제한한다.
+ *   → 바로 아래 타일 중앙의 아이템/트랩을 가리지 않는다. (15~20% 이내 유지)
+ *   → 고해상도(DPR 1.5~2) 화면에서는 6~8 물리 픽셀 두께로 보인다.
+ * - 그림자는 반투명 그라디언트라 바닥을 덮어도 아이템이 비쳐 보인다.
+ */
+const WALL_DEPTH = TILE_SIZE * 0.18;                                        // 정면 돌출면
+const WALL_EDGE_LIGHT = Math.max(0.8, TILE_SIZE * 0.04);                    // 돌출면 상단 칩 라인
+const WALL_SHADOW_DEPTH = TILE_SIZE * 0.14;                                 // 바닥 드롭 섀도우
+const WALL_TOP_LIGHT_DEPTH = TILE_SIZE * 0.46;                              // 윗면 하이라이트
+
+/**
+ * 같은 면(面)에 속한 사각형들을 path 로 모아 한 번의 fill 로 채운다.
+ * - 타일 기본 채움(fillRect)과 섞이지 않아 렌더 계약이 그대로 유지된다.
+ * - rect() 가 없는 최소 ctx 스텁에서도 moveTo/lineTo 로 같은 사각형을 만든다.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string|CanvasGradient} fillStyle
+ * @param {Array<[number, number, number, number]>} rects [x, y, w, h]
+ */
+function fillRects(ctx, fillStyle, rects) {
+  if (rects.length === 0) return;
+
+  const useRect = typeof ctx.rect === 'function';
+
+  ctx.fillStyle = fillStyle;
+  ctx.beginPath();
+
+  for (const [x, y, w, h] of rects) {
+    if (useRect) {
+      ctx.rect(x, y, w, h);
+      continue;
+    }
+
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.closePath();
+  }
+
+  ctx.fill();
+}
+
+/**
  * 둥근 모서리 사각형 경로 (roundRect 미지원 컨텍스트에서도 동작)
  * @param {CanvasRenderingContext2D} ctx
  * @param {number} x
@@ -246,8 +290,90 @@ export default class MapRenderer {
       }
     }
 
-    // 벽 테두리를 따라 푸른 네온 글로우 (한 번의 path + stroke)
+    // 벽을 2.5D 블록처럼 돌출시킨 뒤, 테두리를 따라 푸른 네온 글로우
+    this._drawWallExtrusion(ctx);
     this._drawNeonWalls(ctx);
+  }
+
+  /**
+   * 벽 타일을 2.5D 블록처럼 보이게 하는 돌출 레이어.
+   *
+   * ① 밝은 윗면(Top face) — 위에서 빛을 받는 면
+   * ② 아래로 뻗는 어두운 정면 돌출면(Extruded front face)
+   * ③ 돌출면 바로 아래 바닥의 은은한 드롭 섀도우(Drop shadow)
+   *
+   * - 타일을 모두 그린 뒤 한 번에 그려서 다른 타일(아이템 패드/침대)을 덮지 않는다.
+   * - 행(row)마다 면(面)을 묶어 fill 하므로 타일 수와 무관하게 fill 호출은 행당 최대 4회다.
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  _drawWallExtrusion(ctx) {
+    const isWall = (row, col) => this._isWallTile(row, col);
+
+    for (let row = 0; row < ROWS; row++) {
+      const lit = [];      // 위가 뚫린 벽 (윗면이 빛을 받는다)
+      const exposed = [];  // 아래가 뚫린 벽 (정면이 보인다)
+
+      for (let col = 0; col < COLS; col++) {
+        if (this.map[row][col] !== 1) continue;
+        if (!isWall(row - 1, col)) lit.push(col);
+        if (!isWall(row + 1, col)) exposed.push(col);
+      }
+
+      const y = row * TILE_SIZE;
+
+      // ① 윗면(Top face) — 위 모서리에서 아래로 갈수록 옅어지는 빛
+      if (lit.length > 0) {
+        const topFace = safeLinearGradient(ctx, 0, y, 0, y + WALL_TOP_LIGHT_DEPTH, [
+          [0, 'rgba(176, 218, 255, 0.22)'],
+          [0.45, 'rgba(122, 180, 255, 0.08)'],
+          [1, 'rgba(122, 180, 255, 0)'],
+        ]) || 'rgba(150, 205, 255, 0.10)';
+
+        fillRects(
+          ctx,
+          topFace,
+          lit.map(col => [col * TILE_SIZE, y, TILE_SIZE, WALL_TOP_LIGHT_DEPTH]),
+        );
+      }
+
+      if (exposed.length === 0) continue;
+
+      const baseY = y + TILE_SIZE; // 벽 타일의 아래 모서리 = 윗면과 정면의 경계
+
+      // ② 정면 돌출면(Extruded front face) — 위는 살짝 밝고 아래로 갈수록 어둡다
+      const face = safeLinearGradient(ctx, 0, baseY, 0, baseY + WALL_DEPTH, [
+        [0, '#243052'],
+        [0.42, '#131b31'],
+        [1, '#060912'],
+      ]) || '#101830';
+
+      fillRects(
+        ctx,
+        face,
+        exposed.map(col => [col * TILE_SIZE, baseY, TILE_SIZE, WALL_DEPTH]),
+      );
+
+      // 돌출면 상단 칩(chisel) 라인 — 빛을 받는 모서리를 살짝 밝게
+      fillRects(
+        ctx,
+        'rgba(158, 205, 255, 0.24)',
+        exposed.map(col => [col * TILE_SIZE, baseY, TILE_SIZE, WALL_EDGE_LIGHT]),
+      );
+
+      // ③ 바닥 드롭 섀도우 — 돌출면 바로 아래에 짧게 떨어진다 (아이템은 그 위에 그려진다)
+      const shadowY = baseY + WALL_DEPTH;
+      const shadow = safeLinearGradient(ctx, 0, shadowY, 0, shadowY + WALL_SHADOW_DEPTH, [
+        [0, 'rgba(0, 0, 0, 0.42)'],
+        [0.55, 'rgba(0, 0, 0, 0.16)'],
+        [1, 'rgba(0, 0, 0, 0)'],
+      ]) || 'rgba(0, 0, 0, 0.20)';
+
+      fillRects(
+        ctx,
+        shadow,
+        exposed.map(col => [col * TILE_SIZE, shadowY, TILE_SIZE, WALL_SHADOW_DEPTH]),
+      );
+    }
   }
 
   /** 벽 타일 여부 (범위 밖은 벽으로 취급하지 않는다) */
@@ -259,6 +385,7 @@ export default class MapRenderer {
    * 통로와 맞닿은 벽 테두리에만 네온 라인을 그린다.
    * - 바깥 외곽선(화면 끝)은 제외해 액자처럼 보이지 않게 한다.
    * - path 를 한 번만 stroke 해서 shadowBlur 비용을 최소화한다.
+   * - 마지막에 위쪽 모서리만 한 번 더 밝게 덧그려 2.5D 윗면의 림 라이트를 만든다.
    */
   _drawNeonWalls(ctx) {
     const isWall = (row, col) => this._isWallTile(row, col);
@@ -317,6 +444,29 @@ export default class MapRenderer {
     ctx.strokeStyle = 'rgba(201, 239, 255, 0.92)';
     ctx.lineWidth = 1.1;
     ctx.stroke();
+
+    // 3) 상단 모서리 림 라이트 — 윗면과 정면이 만나는 위쪽 모서리만 더 밝게
+    let hasRim = false;
+    ctx.beginPath();
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        if (this.map[row][col] !== 1 || isWall(row - 1, col)) continue;
+
+        const x = col * TILE_SIZE;
+        const y = row * TILE_SIZE;
+        ctx.moveTo(x, y + 0.8);
+        ctx.lineTo(x + TILE_SIZE, y + 0.8);
+        hasRim = true;
+      }
+    }
+
+    if (hasRim) {
+      ctx.shadowColor = 'rgba(198, 240, 255, 0.95)';
+      ctx.shadowBlur = Math.max(3, TILE_SIZE * 0.22) * blurScale;
+      ctx.strokeStyle = 'rgba(244, 253, 255, 0.96)';
+      ctx.lineWidth = 1.3;
+      ctx.stroke();
+    }
 
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';

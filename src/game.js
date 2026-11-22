@@ -33,6 +33,20 @@ import SoundFX, { stereoPanFromTiles } from './sound.js';
 /** 한 프레임에서 처리할 최대 tick 수 (탭 전환 후 폭주 방지) */
 const MAX_FRAME_TICKS = 3;
 
+/**
+ * 임팩트 연출: 히트스톱(프레임 정지) + 마이크로 줌
+ * - 보모를 날려버릴 때/체포될 때 55~75ms 동안 화면을 멈춰 타격감을 준다.
+ * - 멈춘 동안 베이비 중심으로 1.04~1.06배 줌인했다가 부드럽게 원복한다.
+ */
+const HIT_STOP_KNOCK_MS = 60;
+const HIT_STOP_CAUGHT_MS = 75;
+const IMPACT_ZOOM_KNOCK = 1.05;
+const IMPACT_ZOOM_CAUGHT = 1.06;
+const IMPACT_ZOOM_MS = 280;
+
+/** 임팩트 줌 커브: 빠르게 최대치까지 당긴 뒤(22%) 남은 시간 동안 ease-out 으로 복귀 */
+const ZOOM_ATTACK_RATIO = 0.22;
+
 /** localStorage 안전 접근 (없거나 차단된 환경은 null) */
 function safeStorage() {
   try {
@@ -97,6 +111,12 @@ export default class Game {
     this.cryCooldown = 0;  // 울기 재사용 대기(ms)
     this.heartbeatIntensity = 0; // 어둠 모드 보모 근접 경고 강도 (0 = 안전 ~ 1 = 바로 옆)
     this.heartbeatPan = 0;       // 가장 가까운 보모의 좌우 방향 (-0.8 왼쪽 ~ +0.8 오른쪽)
+
+    // 임팩트 연출 (히트스톱 + 베이비 중심 마이크로 줌)
+    this.hitStopMs = 0;     // 남은 프레임 정지 시간(ms) — 0 이면 정상 진행
+    this.zoomTimer = 0;     // 남은 줌 펄스 시간(ms)
+    this.zoomDuration = 0;  // 줌 펄스 총 길이(ms)
+    this.zoomPeak = 1;      // 줌 최대 배율 (1.04~1.06)
 
     // 침대 스텔스
     this.stealthBed = null; // 스텔스에 사용 중인 침대 { row, col }
@@ -674,8 +694,8 @@ export default class Game {
     this._checkUserActivity();
     this._markAssistedIfNeeded();
 
-    // 애니메이션 시간 (캐릭터 바운스/아이템 부유/트랩 흔들림)
-    if (dt > 0) this.animTime = (this.animTime + dt) % 600000;
+    // 마이크로 줌은 히트스톱으로 프레임이 멈춘 동안에도 부드럽게 이어져야 한다
+    this._updateCameraZoom(dt);
 
     // 시각 효과(프레임 단위) + 8비트 BGM 스케줄 (일시정지·도움말 중에는 BGM 정지)
     this.effects.update(dt / 1000);
@@ -687,6 +707,18 @@ export default class Game {
       this.input.clearJustPressed();
       return;
     }
+
+    // 히트스톱: 임팩트 순간(55~75ms) 로직·애니메이션 시간을 멈추고 같은 프레임을 유지한다.
+    // - 파티클/셰이크(effects)는 그대로 흘려 타격 순간의 여운을 살린다.
+    // - 입력은 clear 하지 않고 다음 프레임에서 처리되게 남겨 둔다.
+    if (this.hitStopMs > 0) {
+      this.hitStopMs = Math.max(0, this.hitStopMs - dt);
+      this._render(this.tickMs > 0 ? this.tickAccumulator / this.tickMs : 0);
+      return;
+    }
+
+    // 애니메이션 시간 (캐릭터 바운스/아이템 부유/트랩 흔들림) — 히트스톱 중에는 멈춘다
+    if (dt > 0) this.animTime = (this.animTime + dt) % 600000;
 
     // 매 프레임 조작 확인 (속도/음향/스킬/일시정지/재시작·다음 라운드)
     this._handleSystemInput();
@@ -738,6 +770,12 @@ export default class Game {
 
         // 체포 연출/라운드 클리어로 상태가 바뀌면 남은 tick 을 몰아서 처리하지 않는다
         if (this.state !== 'PLAYING') {
+          stateChanged = true;
+          break;
+        }
+
+        // 임팩트 히트스톱이 걸리면 그 자리에서 멈춘다 (밀린 tick 으로 프레임이 튀지 않게)
+        if (this.hitStopMs > 0) {
           stateChanged = true;
           break;
         }
@@ -1208,6 +1246,9 @@ export default class Game {
     this.effects.shockwave(hitRow, hitCol, COLORS.GOLDEN, TILE_SIZE * 2.8, 0.45);
     this.effects.flashScreen(COLORS.GOLDEN, 0.16, 0.2);
     this.effects.shake(0.12, 4);
+
+    // 60ms 프레임 정지 + 1.05배 줌인으로 '쾅' 하고 날려버리는 손맛
+    this._startImpact({ holdMs: HIT_STOP_KNOCK_MS, zoom: IMPACT_ZOOM_KNOCK });
   }
 
   /** 라운드/재시작 시 파워업 상태를 모두 해제 */
@@ -1274,6 +1315,57 @@ export default class Game {
   }
 
   /**
+   * 임팩트 히트스톱 + 마이크로 줌을 동시에 발동한다.
+   * - 황금 보행기로 보모를 날려버릴 때 / 보모에게 체포될 때 사용한다.
+   * @param {{holdMs?: number, zoom?: number, durationMs?: number}} [options]
+   * @returns {{holdMs: number, zoom: number}} 실제 적용된 값
+   */
+  _startImpact(options = {}) {
+    const holdMs = Number.isFinite(options.holdMs) ? options.holdMs : HIT_STOP_KNOCK_MS;
+    const zoom = Number.isFinite(options.zoom) ? options.zoom : IMPACT_ZOOM_KNOCK;
+    const durationMs = Number.isFinite(options.durationMs) ? options.durationMs : IMPACT_ZOOM_MS;
+
+    // 진행 중인 히트스톱이 있으면 더 긴 쪽을 유지한다 (연속 임팩트)
+    this.hitStopMs = Math.max(this.hitStopMs || 0, Math.max(0, holdMs));
+    this.zoomPeak = Math.max(1, zoom);
+    this.zoomDuration = Math.max(0, durationMs);
+    this.zoomTimer = this.zoomDuration;
+
+    return { holdMs: this.hitStopMs, zoom: this.zoomPeak };
+  }
+
+  /**
+   * 마이크로 줌 펄스 진행 (ms)
+   * - 히트스톱으로 로직이 멈춘 동안에도 _tick 에서 계속 호출된다.
+   * @param {number} dt 프레임 경과(ms)
+   */
+  _updateCameraZoom(dt) {
+    if (!(this.zoomTimer > 0) || !(dt > 0)) return;
+
+    this.zoomTimer = Math.max(0, this.zoomTimer - dt);
+    if (this.zoomTimer === 0) {
+      this.zoomDuration = 0;
+      this.zoomPeak = 1;
+    }
+  }
+
+  /**
+   * 현재 마이크로 줌 배율 (1 = 원본)
+   * - 22% 구간에서 빠르게 최대치까지 당긴 뒤 ease-out 으로 1.0 까지 복귀한다.
+   * @returns {number} 1.0 ~ 1.06
+   */
+  getZoomScale() {
+    if (!(this.zoomTimer > 0) || !(this.zoomDuration > 0)) return 1;
+
+    const progress = Math.min(1, Math.max(0, 1 - this.zoomTimer / this.zoomDuration));
+    const eased = progress < ZOOM_ATTACK_RATIO
+      ? progress / ZOOM_ATTACK_RATIO
+      : Math.pow(1 - (progress - ZOOM_ATTACK_RATIO) / (1 - ZOOM_ATTACK_RATIO), 2);
+
+    return 1 + (this.zoomPeak - 1) * Math.max(0, Math.min(1, eased));
+  }
+
+  /**
    * 체포 연출 시작: 베이비가 그 자리에 굳고 "Oh! No~" 가 울린다.
    * 실제 페널티(목숨 -1 / 게임 오버)는 CAUGHT_STUN_MS 뒤 `_finishCaught()` 에서 적용한다.
    *
@@ -1296,6 +1388,9 @@ export default class Game {
     this.effects.burstTears(this.player.row, this.player.col);
     this.effects.flashScreen('#ef5350', 0.32, 0.5);          // 붉은 섬광
     this.effects.shake(0.4, 12);                             // 카메라 셰이크
+
+    // 75ms 프레임 정지 + 베이비 중심 1.06배 줌인으로 '덜컥' 잡히는 타격감
+    this._startImpact({ holdMs: HIT_STOP_CAUGHT_MS, zoom: IMPACT_ZOOM_CAUGHT });
   }
 
   /**
@@ -1566,6 +1661,13 @@ export default class Game {
     this.cryCooldown = 0;
     this.heartbeatIntensity = 0;
     this.heartbeatPan = 0;
+
+    // 라운드/재시작 시 임팩트 연출(히트스톱·줌)을 초기화한다
+    this.hitStopMs = 0;
+    this.zoomTimer = 0;
+    this.zoomDuration = 0;
+    this.zoomPeak = 1;
+
     this.sound?.resetHeartbeat?.();
     this.tickAccumulator = 0;
     this.caughtTimer = 0;
@@ -1632,6 +1734,19 @@ export default class Game {
     ctx.save();
     ctx.translate(shake.x, shake.y);
 
+    // 임팩트 마이크로 줌 — 베이비 중심으로 확대했다가 원복한다.
+    // 줌 변환은 반드시 아래 월드 레이어(미로/아이템/어둠/파티클)에만 적용하고,
+    // 조명·HUD·오버레이는 화면 좌표 그대로 그린다.
+    const zoom = this.getZoomScale();
+    const zoomed = zoom > 1.0001 && typeof ctx.scale === 'function';
+    if (zoomed) {
+      const focus = this.player.getRenderCenter(alpha);
+      ctx.save();
+      ctx.translate(focus.x, focus.y);
+      ctx.scale(zoom, zoom);
+      ctx.translate(-focus.x, -focus.y);
+    }
+
     // 맵 렌더링
     this.map.render(ctx, this.animTime);
 
@@ -1687,6 +1802,7 @@ export default class Game {
     this.effects.renderShockwaves(ctx);
     this.effects.renderParticles(ctx);
 
+    if (zoomed) ctx.restore(); // [월드 레이어 끝] 마이크로 줌 해제
     ctx.restore();
 
     // 베이비 주변 원형 조명 + 주변부 비네트
@@ -1909,8 +2025,11 @@ export default class Game {
     const lightTiles = this.darkMode
       ? Math.min(BABY_LIGHT_RADIUS_TILES, this.visionTiles)
       : BABY_LIGHT_RADIUS_TILES;
-    const radius = TILE_SIZE * lightTiles;
-    const outerRadius = radius + TILE_SIZE * BABY_LIGHT_FEATHER_TILES;
+
+    // 줌은 베이비 중심이므로 조명 중심은 그대로지만, 반경은 월드와 같은 배율로 맞춘다
+    const zoom = this.getZoomScale();
+    const radius = TILE_SIZE * lightTiles * zoom;
+    const outerRadius = radius + TILE_SIZE * BABY_LIGHT_FEATHER_TILES * zoom;
 
     // 1) 8라운드 이전에만 은은한 비네트 (이후엔 강한 어둠이 담당)
     if (!this.darkMode) {
