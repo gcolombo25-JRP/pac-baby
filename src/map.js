@@ -94,24 +94,41 @@ const WALL_WOOD_TRIM = 'rgba(201, 138, 82, 0.45)'; // 장난감 블록의 따뜻
 const WALL_STAMP_SYMBOLS = ['cloud', 'star', 'crescent', 'heart', 'bear'];
 
 /**
- * 벽 블록 중앙에 인쇄하는 아기방 일러스트 5종.
- * - 라운드 시드로 섬마다 종류가 바뀌어 같은 맵이라도 라운드마다 다른 벽지가 된다.
+ * 벽 블록 중앙에 인쇄하는 아기방 일러스트 14종.
+ * - 블록 모양(가로로 긴 / 세로로 긴 / 정사각)에 맞는 세트에서 라운드 시드로 하나를 고른다.
+ * - 같은 맵이라도 라운드마다 종류·위치·질감이 새로 섞여 벽지가 다시 인쇄된 느낌이 된다.
  * - 납작한 단색 실루엣 대신 파스텔 다색 채색 + 눈/코/볼터치 디테일을 가진다.
  */
-const WALL_ILLUSTRATIONS = ['bear', 'cloud', 'rainbow', 'duck', 'flower'];
+const WALL_ILLUSTRATIONS_HORIZONTAL = ['train', 'caterpillar', 'car', 'rainbow'];
+const WALL_ILLUSTRATIONS_VERTICAL = ['rocket', 'giraffe', 'balloons', 'tallFlower'];
+const WALL_ILLUSTRATIONS_SQUARE = ['bear', 'cloud', 'duck', 'flower', 'sun', 'boat'];
+const WALL_ILLUSTRATIONS = [
+  ...WALL_ILLUSTRATIONS_SQUARE,
+  ...WALL_ILLUSTRATIONS_HORIZONTAL,
+  ...WALL_ILLUSTRATIONS_VERTICAL,
+];
 
 /**
- * 일러스트 종류별 실제 그림 크기 보정.
- * 공통 반지름만 쓰면 실루엣 폭이 제각각이라, 이 배율로 모든 그림의 실제 폭을
- * 약 1.3~1.6 타일로 맞춘다 (무지개는 좁게, 병아리는 넓게).
+ * centerpiece.kind 로 유지해야 하는 기존 분류(테스트/호환 계약).
+ * 실제 그림 종류는 centerpiece.variant 가 갖는다 (가로/세로/정사각 세트에서 시드로 선택).
  */
-const WALL_ART_SCALE = {
-  bear: 1.15,
-  cloud: 1.1,
-  rainbow: 0.85,
-  duck: 1.3,
-  flower: 1.2,
-};
+const WALL_ILLUSTRATION_KINDS = ['bear', 'cloud', 'rainbow', 'duck', 'flower'];
+
+/**
+ * 일러스트가 블록 내부 사각형을 채우는 비율 (75~85%).
+ * - 기존 1.3~1.6 타일(내부 사각형의 약 40%)보다 약 2배 큰 그림이 된다.
+ * - 가로/세로를 각각 채우므로 블록 비율에 맞춰 그림이 늘어나 꽉 들어찬다.
+ */
+const WALL_ART_FILL_MIN = 0.75;
+const WALL_ART_FILL_MAX = 0.85;
+
+/** 입체 질감 3종 — 볼록 양각(emboss) / 오목 음각(deboss) / 뾰족 스크래치(scratch) */
+const WALL_ART_TEXTURES = ['emboss', 'deboss', 'scratch'];
+
+/** 질감 공통 색 (팔레트에 전용 색이 없을 때의 폴백) */
+const WALL_ART_TEX_SHADOW = 'rgba(58, 40, 26, 0.34)';
+const WALL_ART_TEX_LIGHT = 'rgba(255, 255, 255, 0.72)';
+const WALL_ART_SCRATCH_INK = 'rgba(72, 52, 36, 0.42)';
 
 /** 일러스트는 복도 캐릭터보다 튀지 않도록 반투명하게 인쇄한다 */
 const WALL_ART_ALPHA_MIN = 0.55;
@@ -198,6 +215,34 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + radius);
   ctx.arc(x + radius, y + radius, radius, Math.PI, Math.PI * 1.5);
   ctx.closePath();
+}
+
+/** 둥근 사각형 면 채우기 (fillRect 를 추가하지 않고 path fill 만 사용) */
+function fillRoundBox(ctx, x, y, w, h, r, color) {
+  if (!(w > 0 && h > 0)) return;
+  roundedRectPath(ctx, x, y, w, h, r);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+/** 둥근 사각형 윤곽선 (겹선 윤곽/홈 하이라이트 전용) */
+function strokeRoundBox(ctx, x, y, w, h, r, color, width) {
+  if (!(w > 0 && h > 0)) return;
+  roundedRectPath(ctx, x, y, w, h, r);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(0.4, width);
+  ctx.stroke();
+}
+
+/** 꼭짓점 배열을 잇는 폐곡선 채우기 (지붕/돛/날개/불꽃 같은 다각형 전용) */
+function fillPolygon(ctx, points, color) {
+  if (!Array.isArray(points) || points.length < 3) return;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /** 파스텔 원 한 점 (fillRect 없이 경로만 사용 → 캐시 fillRect 계약 유지) */
@@ -659,7 +704,9 @@ export default class MapRenderer {
   /**
    * Island 중앙 일러스트를 라운드 시드로 배정한다.
    * - 내부 사각형이 2x2 이상일 때만 일러스트를 놓는다 (긴 1칸 막대는 스티치 테두리로 대체).
-   * - 지름이 약 1.2~1.7 타일이 되도록 반지름을 잡고, 0.55~0.72 알파로 은은하게 인쇄한다.
+   * - 블록 모양(가로형/세로형/정사각)에 맞는 일러스트 세트에서 하나를 고른다.
+   * - 내부 사각형 폭·높이의 75~85% 를 꽉 채우도록 rx/ry 를 따로 잡는다 (기존 대비 약 2배).
+   * - 볼록 양각 / 오목 음각 / 뾰족 스크래치 질감도 시드로 섞어 블록마다 다르게 새긴다.
    * @param {object} island
    * @param {number} round
    * @returns {object|null}
@@ -673,34 +720,51 @@ export default class MapRenderer {
       ((island.id + 13) * 2654435761) ^ ((roundNo * 3266489917) >>> 0),
     );
 
-    const minDim = Math.min(rect.width, rect.height);
-    // 2x2 → 공통 지름 1.36타일, 3칸 이상 → 1.56타일
-    // (종류별 WALL_ART_SCALE 보정 후 실제 그림 폭은 약 1.3~1.6 타일)
-    const radius = Math.min(
-      TILE_SIZE * 0.78,
-      Math.max(TILE_SIZE * 0.68, minDim * TILE_SIZE * 0.34),
-    );
-    const jitter = TILE_SIZE * 0.06;
-    const halfW = (rect.width * TILE_SIZE) / 2;
-    const halfH = (rect.height * TILE_SIZE) / 2;
-    const centerX = (rect.minCol + rect.width / 2) * TILE_SIZE;
-    const centerY = (rect.minRow + rect.height / 2) * TILE_SIZE;
+    // ① 블록 모양에 맞는 일러스트 세트 (가로로 긴 / 세로로 긴 / 정사각)
+    const shapeRatio = rect.width / rect.height;
+    let pool = WALL_ILLUSTRATIONS_SQUARE;
+    let orientation = 'square';
+    if (shapeRatio > 1.25) {
+      pool = WALL_ILLUSTRATIONS_HORIZONTAL;
+      orientation = 'horizontal';
+    } else if (shapeRatio < 0.8) {
+      pool = WALL_ILLUSTRATIONS_VERTICAL;
+      orientation = 'vertical';
+    }
 
-    // 일러스트가 사각형 밖으로 새지 않도록 중심 흔들림을 제한한다
-    const maxDx = Math.max(0, halfW - radius);
-    const maxDy = Math.max(0, halfH - radius);
-    const dx = Math.max(-maxDx, Math.min(maxDx, (rng() - 0.5) * 2 * jitter));
-    const dy = Math.max(-maxDy, Math.min(maxDy, (rng() - 0.5) * 2 * jitter));
+    const variant = pool[Math.floor(rng() * pool.length)];
+    // kind 는 기존 5종 분류를 유지한다 (실제 그림은 variant)
+    const kind = WALL_ILLUSTRATION_KINDS[Math.floor(rng() * WALL_ILLUSTRATION_KINDS.length)];
 
-    const kind = WALL_ILLUSTRATIONS[Math.floor(rng() * WALL_ILLUSTRATIONS.length)];
-    const rotation = (rng() - 0.5) * 0.12;
+    // ② 내부 사각형의 75~85% 를 가로/세로 각각 채우는 그림 박스
+    const fill = WALL_ART_FILL_MIN + rng() * (WALL_ART_FILL_MAX - WALL_ART_FILL_MIN);
+    const rx = (rect.width * TILE_SIZE * fill) / 2;
+    const ry = (rect.height * TILE_SIZE * fill) / 2;
+
+    // ③ 박스 안에서 아주 조금만 흔들어 블록 중앙에 인쇄한다
+    const jitter = TILE_SIZE * 0.04;
+    const centerX = (rect.minCol + rect.width / 2) * TILE_SIZE + (rng() - 0.5) * jitter;
+    const centerY = (rect.minRow + rect.height / 2) * TILE_SIZE + (rng() - 0.5) * jitter;
+
+    // ④ 질감 3종(양각/음각/스크래치)을 시드로 고른다
+    const texture = WALL_ART_TEXTURES[Math.floor(rng() * WALL_ART_TEXTURES.length)];
+    const rotation = (rng() - 0.5) * 0.08;
     const alpha = WALL_ART_ALPHA_MIN + rng() * (WALL_ART_ALPHA_MAX - WALL_ART_ALPHA_MIN);
 
     return {
       kind,
-      x: centerX + dx,
-      y: centerY + dy,
-      radius,
+      variant,
+      orientation,
+      texture,
+      x: centerX,
+      y: centerY,
+      rx,
+      ry,
+      // 레거시 단일 반지름(1.2~1.7 타일 지름) — 실제 렌더링 크기는 rx/ry(내부 사각형의 75~85%)를 쓴다
+      radius: Math.min(
+        TILE_SIZE * 0.78,
+        Math.max(TILE_SIZE * 0.68, Math.min(rect.width, rect.height) * TILE_SIZE * 0.34),
+      ),
       rotation,
       alpha,
     };
@@ -856,10 +920,11 @@ export default class MapRenderer {
   }
 
   /**
-   * 큰 벽 블록 중앙에 아기방 일러스트(곰돌이/구름/무지개/병아리/꽃)를 인쇄한다.
+   * 큰 벽 블록 중앙에 아기방 일러스트를 인쇄한다.
+   * - 내부 사각형의 75~85% 를 가로/세로로 꽉 채워 기존보다 약 2배 크게 그린다.
    * - 파스텔 다색 + 눈/코/볼터치로 그려 벽지에 인쇄된 교구 그림처럼 보이게 한다.
    * - 전체 알파 0.55~0.72 로 낮춰 복도의 캐릭터/아이템보다 튀지 않는다.
-   * - roundRect/ellipse/bezierCurveTo 없이 arc/lineTo 기본 도형만 쓴다.
+   * - 둥근 사각형은 arc/lineTo 경로로만 그리고, 면 채움도 path fill 로만 한다 (fillRect 계약 유지).
    * @param {CanvasRenderingContext2D} ctx
    * @param {Array<object>} islands
    */
@@ -867,6 +932,11 @@ export default class MapRenderer {
     for (const island of islands) {
       const piece = island.centerpiece;
       if (!piece) continue;
+
+      const palette = island.palette || WALL_PALETTES[0];
+      const rx = piece.rx || piece.radius || TILE_SIZE * 0.4;
+      const ry = piece.ry || rx;
+      const art = piece.variant || piece.kind;
 
       ctx.save?.();
 
@@ -882,20 +952,148 @@ export default class MapRenderer {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      // 종류별 보정 배율을 곱해 실제 그림 폭을 1.3~1.6 타일로 통일한다
-      const artRadius = piece.radius * (WALL_ART_SCALE[piece.kind] || 1);
-
-      switch (piece.kind) {
-        case 'bear': this._drawArtBear(ctx, piece.x, piece.y, artRadius); break;
-        case 'cloud': this._drawArtCloud(ctx, piece.x, piece.y, artRadius); break;
-        case 'rainbow': this._drawArtRainbow(ctx, piece.x, piece.y, artRadius); break;
-        case 'duck': this._drawArtDuck(ctx, piece.x, piece.y, artRadius); break;
-        default: this._drawArtFlower(ctx, piece.x, piece.y, artRadius); break;
+      if (piece.texture === 'scratch') {
+        // ③ 뾰족하게 긁은 낙서 — 연하게 칠한 그림 위로 빗금/겹선 윤곽을 긁어 덮는다
+        ctx.globalAlpha = piece.alpha * 0.55;
+        this._drawArtGlyph(ctx, art, piece.x, piece.y, rx, ry);
+        ctx.globalAlpha = piece.alpha * 0.9;
+        this._drawArtScratch(ctx, palette, piece);
+      } else {
+        // ① 볼록 양각 / ② 오목 음각 — 스티커 판을 깐 뒤 그림을 인쇄한다
+        this._drawArtTexture(ctx, palette, piece);
+        ctx.globalAlpha = piece.alpha;
+        this._drawArtGlyph(ctx, art, piece.x, piece.y, rx, ry);
       }
 
       ctx.globalAlpha = 1;
       ctx.restore?.();
     }
+  }
+
+  /**
+   * 일러스트 variant → 그리기 함수 디스패치 (kind 는 기존 분류 메타데이터).
+   * - 가로형(기차/애벌레/자동차/무지개), 세로형(로켓/기린/풍선/키 큰 꽃)은 rx/ry 를 모두 써서 박스를 꽉 채운다.
+   * - 정사각/원형 계열(곰돌이/구름/병아리/꽃/햇님/종이배)은 짧은 변 기준 반지름으로 그린다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {string} variant
+   * @param {number} x
+   * @param {number} y
+   * @param {number} rx
+   * @param {number} ry
+   */
+  _drawArtGlyph(ctx, variant, x, y, rx, ry) {
+    const r = Math.min(rx, ry);
+    switch (variant) {
+      case 'train': return this._drawArtTrain(ctx, x, y, rx, ry);
+      case 'caterpillar': return this._drawArtWorm(ctx, x, y, rx, ry);
+      case 'car': return this._drawArtCar(ctx, x, y, rx, ry);
+      case 'rainbow': return this._drawArtRainbow(ctx, x, y, rx, ry);
+      case 'rocket': return this._drawArtRocket(ctx, x, y, rx, ry);
+      case 'giraffe': return this._drawArtGiraffe(ctx, x, y, rx, ry);
+      case 'balloons': return this._drawArtBalloons(ctx, x, y, rx, ry);
+      case 'tallFlower': return this._drawArtTallFlower(ctx, x, y, rx, ry);
+      case 'bear': return this._drawArtBear(ctx, x, y, r);
+      case 'cloud': return this._drawArtCloud(ctx, x, y, r);
+      case 'duck': return this._drawArtDuck(ctx, x, y, r);
+      case 'sun': return this._drawArtSun(ctx, x, y, r);
+      case 'boat': return this._drawArtBoat(ctx, x, y, rx, ry);
+      case 'flower': return this._drawArtFlower(ctx, x, y, r);
+      default: return this._drawArtFlower(ctx, x, y, r);
+    }
+  }
+
+  /**
+   * ① 볼록 양각 / ② 오목 음각 질감 판.
+   * - 양각: 우하단 +2px 어두운 드롭 섀도우 + 좌상단 -1.5px 밝은 하이라이트 → 스티커처럼 튀어나온다.
+   * - 음각: 좌상단 -1.5px 어두운 홈 그림자 + 우하단 +1.5px 밝은 턱 → 꾹 눌려 파인 도장처럼 보인다.
+   * - 판 자체는 블록 윗면과 같은 색이라 그림 주변에 질감 테두리만 남는다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {object} palette
+   * @param {object} piece
+   */
+  _drawArtTexture(ctx, palette, piece) {
+    const dark = palette.embossDark || WALL_ART_TEX_SHADOW;
+    const light = palette.embossEdge || WALL_ART_TEX_LIGHT;
+    const pad = Math.min(piece.rx, piece.ry) * 0.05;
+    const x = piece.x - piece.rx + pad;
+    const y = piece.y - piece.ry + pad;
+    const w = (piece.rx - pad) * 2;
+    const h = (piece.ry - pad) * 2;
+    const radius = Math.min(w, h) * 0.42;
+
+    if (piece.texture === 'deboss') {
+      fillRoundBox(ctx, x - 1.5, y - 1.5, w, h, radius, dark);
+      fillRoundBox(ctx, x + 1.5, y + 1.5, w, h, radius, light);
+      fillRoundBox(ctx, x, y, w, h, radius, palette.top || '#ffffff');
+      strokeRoundBox(ctx, x + 1.2, y + 1.2, w - 2.4, h - 2.4, radius, light, 0.9);
+      return;
+    }
+
+    fillRoundBox(ctx, x + 2, y + 2, w, h, radius, dark);
+    fillRoundBox(ctx, x - 1.5, y - 1.5, w, h, radius, light);
+    fillRoundBox(ctx, x, y, w, h, radius, palette.top || '#ffffff');
+    strokeRoundBox(ctx, x + 1.4, y + 1.4, w - 2.8, h - 2.8, radius, light, 0.9);
+  }
+
+  /**
+   * ③ 뾰족하게 긁은 낙서 질감.
+   * - 매끈한 면 채우기 대신 45° 거친 빗금(해칭)을 박스 안에만 긁는다.
+   * - 긁힌 선 옆 1px 밝은 홈 하이라이트 + 가느다란 겹선 윤곽 2줄로 크레파스 낙서 느낌을 낸다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {object} palette
+   * @param {object} piece
+   */
+  _drawArtScratch(ctx, palette, piece) {
+    const dark = palette.embossDark || WALL_ART_SCRATCH_INK;
+    const light = palette.embossEdge || WALL_ART_TEX_LIGHT;
+    const x = piece.x;
+    const y = piece.y;
+    const rx = piece.rx * 0.94;
+    const ry = piece.ry * 0.94;
+    const short = Math.min(rx, ry);
+    const step = Math.max(2.2, short * 0.34);
+    const lineWidth = Math.max(0.6, short * 0.045);
+    const span = rx + ry;
+
+    // 거친 빗금 — 박스 안에서만 잘라 45° 선을 긁는다 (clip 없이 교점 계산)
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    for (let k = -span; k <= span; k += step) {
+      const uMin = Math.max(-rx, k - ry);
+      const uMax = Math.min(rx, k + ry);
+      if (uMax - uMin < 1) continue;
+      ctx.moveTo(x + uMin, y + k - uMin);
+      ctx.lineTo(x + uMax, y + k - uMax);
+    }
+    ctx.stroke();
+
+    // 긁힌 선 바로 옆 1px 밝은 홈 하이라이트
+    ctx.strokeStyle = light;
+    ctx.lineWidth = Math.max(0.45, lineWidth * 0.7);
+    ctx.beginPath();
+    for (let k = -span; k <= span; k += step) {
+      const uMin = Math.max(-rx, k - ry);
+      const uMax = Math.min(rx, k + ry);
+      if (uMax - uMin < 1) continue;
+      ctx.moveTo(x + uMin + 0.9, y + k - uMin + 0.9);
+      ctx.lineTo(x + uMax + 0.9, y + k - uMax + 0.9);
+    }
+    ctx.stroke();
+
+    // 가느다란 겹선 윤곽 (바깥 밝은 홈 → 안쪽 어두운 두 줄)
+    strokeRoundBox(
+      ctx, x - rx, y - ry, rx * 2, ry * 2,
+      short * 0.42, light, Math.max(0.6, lineWidth),
+    );
+    strokeRoundBox(
+      ctx, x - rx + 1.2, y - ry + 1.2, (rx - 1.2) * 2, (ry - 1.2) * 2,
+      short * 0.4, dark, Math.max(0.55, lineWidth * 0.85),
+    );
+    strokeRoundBox(
+      ctx, x - rx + 3, y - ry + 3, (rx - 3) * 2, (ry - 3) * 2,
+      short * 0.36, dark, Math.max(0.45, lineWidth * 0.6),
+    );
   }
 
   /** ① 웃는 곰돌이 얼굴 — 둥근 얼굴 + 귀 안쪽 포인트 + 점눈 + 코/미소 + 볼터치 */
@@ -951,28 +1149,30 @@ export default class MapRenderer {
     fillRaindrop(ctx, cx + r * 0.32, cy + r * 0.88, r * 0.085, '#b9e3f5');
   }
 
-  /** ③ 파스텔 무지개 — 3겹 반원 아치 + 양 끝 작은 솜구름 2개 */
-  _drawArtRainbow(ctx, cx, cy, r) {
-    const baseY = cy + r * 0.46;
+  /** ③ 파스텔 무지개 — 넓게 나란한 3겹 아치 + 양 끝 작은 솜구름 2개 (가로 블록용) */
+  _drawArtRainbow(ctx, cx, cy, rx, ry) {
+    const baseY = cy + ry * 0.56;
+    const halfW = rx * 0.8;
     const bands = [
-      { scale: 1.0, color: '#f6c4d5' },
-      { scale: 0.78, color: '#fbe3a6' },
-      { scale: 0.56, color: '#bfe3cf' },
+      { lift: 1.0, color: '#f6c4d5' },
+      { lift: 0.78, color: '#fbe3a6' },
+      { lift: 0.56, color: '#bfe3cf' },
     ];
 
     for (const band of bands) {
       ctx.strokeStyle = band.color;
-      ctx.lineWidth = r * 0.19;
+      ctx.lineWidth = Math.max(1, ry * 0.17);
       ctx.beginPath();
-      ctx.arc(cx, baseY, r * band.scale, Math.PI, Math.PI * 2);
+      ctx.moveTo(cx - halfW, baseY);
+      ctx.quadraticCurveTo(cx, baseY - ry * 1.5 * band.lift, cx + halfW, baseY);
       ctx.stroke();
     }
 
-    this._drawArtCloudPuff(ctx, cx - r * 0.9, baseY, r * 0.26);
-    this._drawArtCloudPuff(ctx, cx + r * 0.9, baseY, r * 0.26);
+    this._drawArtCloudPuff(ctx, cx - halfW, baseY, ry * 0.24);
+    this._drawArtCloudPuff(ctx, cx + halfW, baseY, ry * 0.24);
 
-    fillCircle(ctx, cx - r * 0.9, baseY + r * 0.02, r * 0.08, WALL_ART_BLUSH);
-    fillCircle(ctx, cx + r * 0.9, baseY + r * 0.02, r * 0.08, WALL_ART_BLUSH);
+    fillCircle(ctx, cx - halfW, baseY + ry * 0.02, ry * 0.08, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + halfW, baseY + ry * 0.02, ry * 0.08, WALL_ART_BLUSH);
   }
 
   /** 무지개 끝 솜구름 (작은 크림 구름 덩이) */
@@ -1058,6 +1258,466 @@ export default class MapRenderer {
       ctx, cx, cy + r * 0.08, r * 0.1,
       Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, r * 0.035,
     );
+  }
+
+  /** ⑥ 꼬마기차 — 레일 위 증기기관차 + 연기 + 바퀴 (가로 블록용) */
+  _drawArtTrain(ctx, cx, cy, rx, ry) {
+    const wheelY = cy + ry * 0.6;
+
+    // 레일
+    ctx.strokeStyle = '#c8a07a';
+    ctx.lineWidth = Math.max(0.8, ry * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(cx - rx * 0.98, wheelY + ry * 0.26);
+    ctx.lineTo(cx + rx * 0.98, wheelY + ry * 0.26);
+    ctx.stroke();
+
+    // 연기 3덩이
+    fillCircle(ctx, cx + rx * 0.34, cy - ry * 0.8, ry * 0.16, 'rgba(243, 246, 250, 0.9)');
+    fillCircle(ctx, cx + rx * 0.5, cy - ry * 0.94, ry * 0.12, 'rgba(243, 246, 250, 0.82)');
+    fillCircle(ctx, cx + rx * 0.17, cy - ry * 0.92, ry * 0.1, 'rgba(243, 246, 250, 0.76)');
+
+    // 굴뚝
+    fillRoundBox(ctx, cx + rx * 0.24, cy - ry * 0.74, rx * 0.14, ry * 0.36, ry * 0.05, '#96b7c9');
+
+    // 운전석 + 보일러 몸통
+    fillRoundBox(ctx, cx - rx * 0.8, cy - ry * 0.5, rx * 1.5, ry * 0.94, ry * 0.3, '#f2a7b3');
+    fillRoundBox(ctx, cx + rx * 0.1, cy - ry * 0.26, rx * 0.72, ry * 0.66, ry * 0.28, '#f6b98f');
+
+    // 운전석 창 + 기관사 얼굴
+    fillCircle(ctx, cx - rx * 0.46, cy - ry * 0.02, ry * 0.26, '#e2f2fb');
+    fillCircle(ctx, cx - rx * 0.51, cy - ry * 0.06, ry * 0.05, WALL_ART_INK);
+    fillCircle(ctx, cx - rx * 0.37, cy - ry * 0.06, ry * 0.05, WALL_ART_INK);
+    strokeArc(
+      ctx, cx - rx * 0.44, cy + ry * 0.04, ry * 0.1,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, ry * 0.035,
+    );
+
+    // 보일러 앞면 얼굴 + 전조등
+    fillCircle(ctx, cx + rx * 0.74, cy - ry * 0.02, ry * 0.1, '#ffe6a8');
+    fillCircle(ctx, cx + rx * 0.48, cy - ry * 0.06, ry * 0.05, WALL_ART_INK);
+    fillCircle(ctx, cx + rx * 0.64, cy - ry * 0.06, ry * 0.05, WALL_ART_INK);
+    strokeArc(
+      ctx, cx + rx * 0.56, cy + ry * 0.04, ry * 0.1,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, ry * 0.035,
+    );
+
+    // 바퀴 3개
+    for (const [wx, wr] of [[-0.54, 0.24], [-0.14, 0.18], [0.44, 0.24]]) {
+      fillCircle(ctx, cx + rx * wx, wheelY, ry * wr, '#7d8ea0');
+      fillCircle(ctx, cx + rx * wx, wheelY, ry * wr * 0.45, '#e8f0f7');
+    }
+
+    // 앞 배기 그릴
+    fillPolygon(ctx, [
+      [cx + rx * 0.78, cy + ry * 0.36],
+      [cx + rx * 0.98, cy + ry * 0.44],
+      [cx + rx * 0.98, cy + ry * 0.16],
+    ], '#e0a95f');
+  }
+
+  /** ⑦ 꿈틀이 애벌레 — 물결 몸통 마디 + 더듬이 + 얼굴 (가로 블록용) */
+  _drawArtWorm(ctx, cx, cy, rx, ry) {
+    const segments = 6;
+    const colors = ['#c9e8ad', '#a8dbb0', '#bfe3a8', '#cbeaae', '#b0dfa6', '#d5f0bc'];
+    const headX = cx + rx * 0.88;
+    const headY = cy - Math.sin(Math.PI * 2.2) * ry * 0.2;
+
+    // 꼬리 → 머리 순으로 겹쳐 그려 마디가 이어지게 한다
+    for (let i = segments - 1; i >= 0; i--) {
+      const t = i / (segments - 1);
+      const px = cx - rx * 0.9 + rx * 1.78 * t;
+      const py = cy - Math.sin(t * Math.PI * 2.2) * ry * 0.2;
+      const radius = ry * (0.22 + 0.1 * t);
+      fillCircle(ctx, px, py, radius, colors[i]);
+      fillCircle(ctx, px - radius * 0.28, py - radius * 0.34, radius * 0.3, 'rgba(255, 255, 255, 0.5)');
+    }
+
+    // 더듬이 2개
+    ctx.strokeStyle = '#8fbf7a';
+    ctx.lineWidth = Math.max(0.7, ry * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(headX - ry * 0.12, headY - ry * 0.24);
+    ctx.quadraticCurveTo(headX - ry * 0.34, headY - ry * 0.6, headX - ry * 0.16, headY - ry * 0.8);
+    ctx.moveTo(headX + ry * 0.1, headY - ry * 0.26);
+    ctx.quadraticCurveTo(headX + ry * 0.3, headY - ry * 0.62, headX + ry * 0.12, headY - ry * 0.84);
+    ctx.stroke();
+    fillCircle(ctx, headX - ry * 0.16, headY - ry * 0.8, ry * 0.07, '#f7a8b8');
+    fillCircle(ctx, headX + ry * 0.12, headY - ry * 0.84, ry * 0.07, '#f7a8b8');
+
+    // 얼굴 + 볼터치
+    fillCircle(ctx, headX - ry * 0.1, headY - ry * 0.08, ry * 0.06, WALL_ART_INK);
+    fillCircle(ctx, headX + ry * 0.13, headY - ry * 0.08, ry * 0.06, WALL_ART_INK);
+    strokeArc(
+      ctx, headX, headY + ry * 0.06, ry * 0.1,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, ry * 0.04,
+    );
+    fillCircle(ctx, headX - ry * 0.3, headY + ry * 0.08, ry * 0.075, WALL_ART_BLUSH);
+    fillCircle(ctx, headX + ry * 0.32, headY + ry * 0.08, ry * 0.075, WALL_ART_BLUSH);
+  }
+
+  /** ⑧ 붕붕 자동차 — 지붕/창문/바퀴 + 헤드라이트 눈 (가로 블록용) */
+  _drawArtCar(ctx, cx, cy, rx, ry) {
+    const wheelY = cy + ry * 0.5;
+
+    // 도로
+    ctx.strokeStyle = '#cbb59b';
+    ctx.lineWidth = Math.max(0.8, ry * 0.07);
+    ctx.beginPath();
+    ctx.moveTo(cx - rx * 0.95, wheelY + ry * 0.34);
+    ctx.lineTo(cx + rx * 0.95, wheelY + ry * 0.34);
+    ctx.stroke();
+
+    // 지붕(캐빈) + 차체
+    fillPolygon(ctx, [
+      [cx - rx * 0.34, cy - ry * 0.12],
+      [cx - rx * 0.14, cy - ry * 0.62],
+      [cx + rx * 0.2, cy - ry * 0.62],
+      [cx + rx * 0.42, cy - ry * 0.12],
+    ], '#a9d4f2');
+    fillRoundBox(ctx, cx - rx * 0.92, cy - ry * 0.16, rx * 1.84, ry * 0.62, ry * 0.24, '#f6c7a1');
+
+    // 창문 2장
+    fillPolygon(ctx, [
+      [cx - rx * 0.26, cy - ry * 0.2],
+      [cx - rx * 0.1, cy - ry * 0.54],
+      [cx - rx * 0.01, cy - ry * 0.54],
+      [cx - rx * 0.01, cy - ry * 0.2],
+    ], '#e3f4ff');
+    fillPolygon(ctx, [
+      [cx + rx * 0.05, cy - ry * 0.2],
+      [cx + rx * 0.05, cy - ry * 0.54],
+      [cx + rx * 0.16, cy - ry * 0.54],
+      [cx + rx * 0.3, cy - ry * 0.2],
+    ], '#e3f4ff');
+
+    // 바퀴
+    for (const wx of [-0.56, 0.56]) {
+      fillCircle(ctx, cx + rx * wx, wheelY, ry * 0.26, '#6f8090');
+      fillCircle(ctx, cx + rx * wx, wheelY, ry * 0.11, '#eef4fa');
+    }
+
+    // 헤드라이트 + 얼굴
+    fillCircle(ctx, cx - rx * 0.82, cy + ry * 0.04, ry * 0.07, '#fff3c4');
+    fillCircle(ctx, cx + rx * 0.82, cy + ry * 0.04, ry * 0.07, '#fff3c4');
+    fillCircle(ctx, cx - rx * 0.06, cy + ry * 0.1, ry * 0.05, WALL_ART_INK);
+    fillCircle(ctx, cx + rx * 0.14, cy + ry * 0.1, ry * 0.05, WALL_ART_INK);
+    strokeArc(
+      ctx, cx + rx * 0.04, cy + ry * 0.2, ry * 0.1,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, ry * 0.035,
+    );
+    fillCircle(ctx, cx - rx * 0.24, cy + ry * 0.16, ry * 0.075, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + rx * 0.32, cy + ry * 0.16, ry * 0.075, WALL_ART_BLUSH);
+  }
+
+  /** ⑨ 우뚝 선 로켓 — 뾰족 노즈 + 창문 + 좌우 날개 + 불꽃 (세로 블록용) */
+  _drawArtRocket(ctx, cx, cy, rx, ry) {
+    const bodyW = rx * 0.7;
+    const noseY = cy - ry * 0.74;
+    const bodyTop = cy - ry * 0.5;
+    const bodyBottom = cy + ry * 0.34;
+
+    // 불꽃
+    fillPolygon(ctx, [
+      [cx - bodyW * 0.45, bodyBottom - ry * 0.02],
+      [cx, cy + ry * 0.98],
+      [cx + bodyW * 0.45, bodyBottom - ry * 0.02],
+    ], '#f9b46b');
+    fillPolygon(ctx, [
+      [cx - bodyW * 0.24, bodyBottom - ry * 0.02],
+      [cx, cy + ry * 0.76],
+      [cx + bodyW * 0.24, bodyBottom - ry * 0.02],
+    ], '#fde08a');
+
+    // 좌우 날개
+    fillPolygon(ctx, [
+      [cx - bodyW * 0.46, cy + ry * 0.02],
+      [cx - rx * 0.94, cy + ry * 0.36],
+      [cx - bodyW * 0.46, bodyBottom],
+    ], '#ef8fa4');
+    fillPolygon(ctx, [
+      [cx + bodyW * 0.46, cy + ry * 0.02],
+      [cx + rx * 0.94, cy + ry * 0.36],
+      [cx + bodyW * 0.46, bodyBottom],
+    ], '#ef8fa4');
+
+    // 몸통 + 노즈콘
+    fillRoundBox(
+      ctx, cx - bodyW / 2, bodyTop, bodyW,
+      bodyBottom - bodyTop, bodyW * 0.34, '#cfe6f7',
+    );
+    fillPolygon(ctx, [
+      [cx - bodyW / 2, bodyTop + bodyW * 0.14],
+      [cx, noseY],
+      [cx + bodyW / 2, bodyTop + bodyW * 0.14],
+    ], '#f6a8b8');
+
+    // 창문
+    fillCircle(ctx, cx, cy - ry * 0.26, bodyW * 0.3, '#8fd0ef');
+    fillCircle(ctx, cx, cy - ry * 0.26, bodyW * 0.2, '#dff4ff');
+
+    // 얼굴 + 볼터치
+    fillCircle(ctx, cx - bodyW * 0.16, cy + ry * 0.04, bodyW * 0.05, WALL_ART_INK);
+    fillCircle(ctx, cx + bodyW * 0.16, cy + ry * 0.04, bodyW * 0.05, WALL_ART_INK);
+    strokeArc(
+      ctx, cx, cy + ry * 0.12, bodyW * 0.1,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, bodyW * 0.04,
+    );
+    fillCircle(ctx, cx - bodyW * 0.3, cy + ry * 0.08, bodyW * 0.075, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + bodyW * 0.3, cy + ry * 0.08, bodyW * 0.075, WALL_ART_BLUSH);
+
+    // 별가루
+    fillCircle(ctx, cx - rx * 0.72, cy - ry * 0.62, rx * 0.06, '#cbe6ff');
+    fillCircle(ctx, cx + rx * 0.74, cy - ry * 0.34, rx * 0.05, '#cbe6ff');
+    fillCircle(ctx, cx + rx * 0.56, cy + ry * 0.66, rx * 0.055, '#ffd9e2');
+  }
+
+  /** ⑩ 롱다리 기린 — 긴 목 + 반점 + 오시콘 (세로 블록용) */
+  _drawArtGiraffe(ctx, cx, cy, rx, ry) {
+    const bodyW = rx * 1.5;
+    const bodyY = cy + ry * 0.44;
+    const legTop = bodyY + bodyW * 0.16;
+
+    // 다리 4개
+    ctx.strokeStyle = '#e0b06a';
+    ctx.lineWidth = Math.max(1, rx * 0.13);
+    for (const lx of [-0.34, -0.16, 0.12, 0.3]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + bodyW * lx, legTop);
+      ctx.lineTo(cx + bodyW * lx, cy + ry * 0.94);
+      ctx.stroke();
+    }
+
+    // 몸통
+    fillRoundBox(
+      ctx, cx - bodyW * 0.5, bodyY - bodyW * 0.28,
+      bodyW, bodyW * 0.6, bodyW * 0.3, '#f2c983',
+    );
+
+    // 목
+    const neckX = cx + bodyW * 0.08;
+    fillRoundBox(
+      ctx, neckX - rx * 0.2, cy - ry * 0.56,
+      rx * 0.4, ry * 0.94, rx * 0.2, '#f6d79b',
+    );
+
+    // 머리 + 주둥이
+    fillCircle(ctx, neckX + rx * 0.14, cy - ry * 0.64, rx * 0.3, '#f6d79b');
+    fillCircle(ctx, neckX + rx * 0.4, cy - ry * 0.56, rx * 0.16, '#f9e3b4');
+
+    // 오시콘(뿔) 2개
+    ctx.strokeStyle = '#d99a52';
+    ctx.lineWidth = Math.max(0.8, rx * 0.07);
+    ctx.beginPath();
+    ctx.moveTo(neckX + rx * 0.02, cy - ry * 0.86);
+    ctx.lineTo(neckX, cy - ry * 0.96);
+    ctx.moveTo(neckX + rx * 0.2, cy - ry * 0.88);
+    ctx.lineTo(neckX + rx * 0.18, cy - ry * 0.98);
+    ctx.stroke();
+    fillCircle(ctx, neckX, cy - ry * 0.97, rx * 0.06, '#c9873f');
+    fillCircle(ctx, neckX + rx * 0.18, cy - ry * 0.99, rx * 0.06, '#c9873f');
+
+    // 반점
+    fillCircle(ctx, cx - bodyW * 0.26, bodyY - bodyW * 0.1, bodyW * 0.1, '#e3a85f');
+    fillCircle(ctx, cx - bodyW * 0.02, bodyY + bodyW * 0.06, bodyW * 0.09, '#e3a85f');
+    fillCircle(ctx, cx + bodyW * 0.24, bodyY - bodyW * 0.08, bodyW * 0.085, '#e3a85f');
+    fillCircle(ctx, neckX - rx * 0.06, cy - ry * 0.24, rx * 0.08, '#e3a85f');
+    fillCircle(ctx, neckX - rx * 0.02, cy - ry * 0.02, rx * 0.075, '#e3a85f');
+
+    // 얼굴
+    fillCircle(ctx, neckX + rx * 0.22, cy - ry * 0.68, rx * 0.045, WALL_ART_INK);
+    fillCircle(ctx, neckX + rx * 0.44, cy - ry * 0.6, rx * 0.03, WALL_ART_INK);
+    fillCircle(ctx, neckX + rx * 0.04, cy - ry * 0.6, rx * 0.07, WALL_ART_BLUSH);
+  }
+
+  /** ⑪ 줄 달린 풍선 다발 — 위로 몰린 5개 풍선 + 매듭으로 모이는 줄 (세로 블록용) */
+  _drawArtBalloons(ctx, cx, cy, rx, ry) {
+    const knotX = cx + rx * 0.06;
+    const knotY = cy + ry * 0.9;
+    const balloons = [
+      { dx: -0.34, dy: -0.3, r: 0.3, color: '#f7a8b8' },
+      { dx: 0.26, dy: -0.42, r: 0.26, color: '#a9d4f2' },
+      { dx: -0.06, dy: -0.7, r: 0.32, color: '#fbe08a' },
+      { dx: 0.46, dy: -0.08, r: 0.22, color: '#bfe3cf' },
+      { dx: -0.5, dy: -0.02, r: 0.24, color: '#e3c8f0' },
+    ];
+
+    // 줄을 먼저 그어 풍선 뒤로 지나가게 한다
+    ctx.strokeStyle = 'rgba(140, 120, 100, 0.72)';
+    ctx.lineWidth = Math.max(0.6, rx * 0.04);
+    ctx.beginPath();
+    for (const b of balloons) {
+      ctx.moveTo(cx + rx * b.dx, cy + ry * b.dy + rx * b.r * 0.86);
+      ctx.quadraticCurveTo(
+        cx + rx * b.dx * 0.5, cy + ry * (b.dy + 0.6) + rx * b.r,
+        knotX, knotY,
+      );
+    }
+    ctx.stroke();
+
+    // 풍선 + 광택
+    for (const b of balloons) {
+      const bx = cx + rx * b.dx;
+      const by = cy + ry * b.dy;
+      fillCircle(ctx, bx, by, rx * b.r, b.color);
+      fillCircle(
+        ctx, bx - rx * b.r * 0.32, by - rx * b.r * 0.34,
+        rx * b.r * 0.22, 'rgba(255, 255, 255, 0.62)',
+      );
+    }
+
+    // 매듭 + 리본
+    fillCircle(ctx, knotX, knotY, rx * 0.1, '#f0c98a');
+    fillPolygon(ctx, [
+      [knotX, knotY + rx * 0.02],
+      [knotX - rx * 0.22, knotY + rx * 0.3],
+      [knotX + rx * 0.05, knotY + rx * 0.24],
+    ], '#f7a8b8');
+
+    // 가운데 큰 풍선 얼굴
+    fillCircle(ctx, cx - rx * 0.13, cy - ry * 0.76, rx * 0.045, WALL_ART_INK);
+    fillCircle(ctx, cx + rx * 0.04, cy - ry * 0.76, rx * 0.045, WALL_ART_INK);
+    strokeArc(
+      ctx, cx - rx * 0.05, cy - ry * 0.69, rx * 0.09,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, rx * 0.032,
+    );
+  }
+
+  /** ⑫ 키 큰 꽃 — 긴 줄기 + 잎 2장 + 위쪽 꽃송이 (세로 블록용) */
+  _drawArtTallFlower(ctx, cx, cy, rx, ry) {
+    const bloom = Math.min(rx * 0.88, ry * 0.3);
+    const bloomY = cy - ry * 0.44;
+
+    // 줄기 (살짝 S 자)
+    ctx.strokeStyle = '#8fc486';
+    ctx.lineWidth = Math.max(1, bloom * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + ry * 0.96);
+    ctx.quadraticCurveTo(cx - rx * 0.3, cy + ry * 0.26, cx, bloomY + bloom * 0.4);
+    ctx.stroke();
+
+    // 잎 2장
+    fillPolygon(ctx, [
+      [cx - rx * 0.04, cy + ry * 0.6],
+      [cx - rx * 0.8, cy + ry * 0.34],
+      [cx - rx * 0.2, cy + ry * 0.86],
+    ], '#b6dda6');
+    fillPolygon(ctx, [
+      [cx + rx * 0.04, cy + ry * 0.36],
+      [cx + rx * 0.78, cy + ry * 0.14],
+      [cx + rx * 0.16, cy + ry * 0.6],
+    ], '#a9d69a');
+
+    // 꽃잎 6장 + 꽃술
+    const petalColors = ['#f7c6d8', '#eed2f2', '#ffd6bc', '#f7c6d8', '#eed2f2', '#ffd6bc'];
+    for (let i = 0; i < 6; i++) {
+      const angle = -Math.PI / 2 + (Math.PI * 2 * i) / 6;
+      fillCircle(
+        ctx,
+        cx + Math.cos(angle) * bloom * 0.44,
+        bloomY + Math.sin(angle) * bloom * 0.44,
+        bloom * 0.34, petalColors[i],
+      );
+    }
+    fillCircle(ctx, cx, bloomY, bloom * 0.36, '#fbe08a');
+    fillCircle(ctx, cx - bloom * 0.1, bloomY - bloom * 0.14, bloom * 0.03, '#e0b84f');
+    fillCircle(ctx, cx + bloom * 0.12, bloomY - bloom * 0.1, bloom * 0.025, '#e0b84f');
+
+    // 얼굴
+    fillCircle(ctx, cx - bloom * 0.1, bloomY + bloom * 0.04, bloom * 0.04, WALL_ART_INK);
+    fillCircle(ctx, cx + bloom * 0.11, bloomY + bloom * 0.04, bloom * 0.04, WALL_ART_INK);
+    strokeArc(
+      ctx, cx, bloomY + bloom * 0.12, bloom * 0.09,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, bloom * 0.032,
+    );
+  }
+
+  /** ⑬ 웃는 햇님 — 8방향 광선 + 노란 얼굴 + 점눈/미소/볼터치 (정사각 블록용) */
+  _drawArtSun(ctx, cx, cy, r) {
+    // 광선 8개
+    ctx.strokeStyle = '#f7c96b';
+    ctx.lineWidth = Math.max(1, r * 0.09);
+    for (let i = 0; i < 8; i++) {
+      const angle = (Math.PI * 2 * i) / 8 + Math.PI / 8;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(angle) * r * 0.74, cy + Math.sin(angle) * r * 0.74);
+      ctx.lineTo(cx + Math.cos(angle) * r * 0.98, cy + Math.sin(angle) * r * 0.98);
+      ctx.stroke();
+    }
+
+    fillCircle(ctx, cx, cy, r * 0.68, '#f9c85f');
+    fillCircle(ctx, cx, cy - r * 0.16, r * 0.44, '#fbe08a');
+
+    fillCircle(ctx, cx - r * 0.22, cy - r * 0.04, r * 0.06, WALL_ART_INK);
+    fillCircle(ctx, cx + r * 0.22, cy - r * 0.04, r * 0.06, WALL_ART_INK);
+    fillCircle(ctx, cx - r * 0.2, cy - r * 0.09, r * 0.022, 'rgba(255, 255, 255, 0.95)');
+    fillCircle(ctx, cx + r * 0.24, cy - r * 0.09, r * 0.022, 'rgba(255, 255, 255, 0.95)');
+    strokeArc(
+      ctx, cx, cy + r * 0.08, r * 0.14,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK, r * 0.045,
+    );
+    fillCircle(ctx, cx - r * 0.38, cy + r * 0.14, r * 0.1, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + r * 0.38, cy + r * 0.14, r * 0.1, WALL_ART_BLUSH);
+  }
+
+  /** ⑭ 종이배 — 두 장 돛 + 깃대 + 접힌 종이 몸통 + 물결 (정사각 블록용) */
+  _drawArtBoat(ctx, cx, cy, rx, ry) {
+    // 물결 2줄
+    ctx.strokeStyle = 'rgba(150, 205, 235, 0.92)';
+    ctx.lineWidth = Math.max(0.8, ry * 0.07);
+    for (let i = 0; i < 2; i++) {
+      const wy = cy + ry * (0.6 + i * 0.24);
+      const amp = ry * 0.09;
+      ctx.beginPath();
+      ctx.moveTo(cx - rx * 0.92, wy);
+      ctx.quadraticCurveTo(cx - rx * 0.5, wy - amp, cx - rx * 0.12, wy);
+      ctx.quadraticCurveTo(cx + rx * 0.3, wy + amp, cx + rx * 0.92, wy);
+      ctx.stroke();
+    }
+
+    // 돛 2장
+    fillPolygon(ctx, [
+      [cx - rx * 0.03, cy - ry * 0.86],
+      [cx - rx * 0.03, cy + ry * 0.16],
+      [cx - rx * 0.58, cy + ry * 0.16],
+    ], '#fdf6e3');
+    fillPolygon(ctx, [
+      [cx + rx * 0.04, cy - ry * 0.72],
+      [cx + rx * 0.04, cy + ry * 0.16],
+      [cx + rx * 0.5, cy + ry * 0.16],
+    ], '#fbe3a6');
+
+    // 깃대
+    ctx.strokeStyle = '#b98f63';
+    ctx.lineWidth = Math.max(1, rx * 0.045);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - ry * 0.92);
+    ctx.lineTo(cx, cy + ry * 0.2);
+    ctx.stroke();
+
+    // 종이 몸통
+    fillPolygon(ctx, [
+      [cx - rx * 0.86, cy + ry * 0.14],
+      [cx + rx * 0.86, cy + ry * 0.14],
+      [cx + rx * 0.46, cy + ry * 0.48],
+      [cx - rx * 0.46, cy + ry * 0.48],
+    ], '#eaf6ff');
+    fillPolygon(ctx, [
+      [cx - rx * 0.7, cy + ry * 0.18],
+      [cx + rx * 0.7, cy + ry * 0.18],
+      [cx + rx * 0.44, cy + ry * 0.42],
+      [cx - rx * 0.44, cy + ry * 0.42],
+    ], '#cfe9f8');
+
+    // 배 앞면 얼굴
+    fillCircle(ctx, cx - rx * 0.16, cy + ry * 0.28, ry * 0.055, WALL_ART_INK);
+    fillCircle(ctx, cx + rx * 0.16, cy + ry * 0.28, ry * 0.055, WALL_ART_INK);
+    strokeArc(
+      ctx, cx, cy + ry * 0.34, ry * 0.1,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, ry * 0.035,
+    );
+    fillCircle(ctx, cx - rx * 0.36, cy + ry * 0.3, ry * 0.075, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + rx * 0.36, cy + ry * 0.3, ry * 0.075, WALL_ART_BLUSH);
   }
 
   /**
