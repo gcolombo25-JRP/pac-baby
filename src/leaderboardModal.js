@@ -6,7 +6,7 @@
  * - 게스트에게는 "기록 등록" CTA 1개만 부드럽게 노출한다.
  */
 
-import { avatarEmoji, countryToFlag } from './validation.js';
+import { countryBadge, avatarSvg } from './uiIcons.js';
 import { describeSubmissionReason } from './profile.js';
 import { isRemoteConfigured } from './supabaseClient.js';
 
@@ -151,7 +151,7 @@ export default class LeaderboardModal {
       this._setStatusWithNotice(
         offline
           ? '오프라인이에요. 저장된 순위가 아직 없어요.'
-          : '아직 등록된 기록이 없어요. 첫 번째 주인공이 되어 보세요! 🏆',
+          : '아직 등록된 기록이 없어요. 첫 번째 주인공이 되어 보세요!',
         offline ? 'error' : '',
       );
       return;
@@ -161,18 +161,19 @@ export default class LeaderboardModal {
       this.body.innerHTML = rows.map((row, index) => {
         const rank = Number(row.rank) || index + 1;
         const nickname = escapeHtml(row.nickname || '익명');
-        const emoji = avatarEmoji(row.avatar_emoji_id);
-        const flag = countryToFlag(row.country);
+        // OS 이모지 대신 avatar_emoji_id(1~12)에 매핑된 자체 SVG 아바타
+        const avatar = avatarSvg(row.avatar_emoji_id, { className: 'ui-avatar' });
+        const flag = countryBadge(row.country);
         const score = this.formatScore(row.high_score);
         const round = Math.max(1, Number(row.max_round) || 1);
         const meClass = row.is_me ? ' is-me' : '';
 
         return `<tr class="lb-row${meClass}">`
           + `<td class="lb-rank">${rank}</td>`
-          + `<td class="lb-player"><span class="lb-emoji">${emoji}</span> ${nickname}</td>`
+          + `<td class="lb-player"><span class="lb-emoji">${avatar}</span> ${nickname}</td>`
           + `<td class="lb-score">${score}</td>`
           + `<td class="lb-round">R${round}</td>`
-          + `<td class="lb-country">${flag || '·'}</td>`
+          + `<td class="lb-country">${flag}</td>`
           + '</tr>';
       }).join('');
     }

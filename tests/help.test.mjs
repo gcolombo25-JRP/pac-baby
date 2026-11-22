@@ -6,10 +6,21 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import HelpOverlay from '../src/help.js';
 import Game from '../src/game.js';
 import { HELP_SEEN_KEY, CANVAS_WIDTH } from '../src/constants.js';
+import {
+  AVATAR_IDS,
+  avatarName,
+  avatarSvg,
+  countryBadge,
+  uiIcon,
+} from '../src/uiIcons.js';
+
+/** OS 이모지(이모지 프레젠테이션 문자) 감지 */
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
 
 function createClassList() {
   const set = new Set();
@@ -305,4 +316,44 @@ test('게임은 설명서가 열려 있는 동안 로직과 입력을 멈춘다'
   game._tick(performance.now() + 5000);
 
   assert.equal(game.state, 'PAUSED', '설명서를 닫으면 입력이 다시 동작한다');
+});
+
+test('아바타/UI 아이콘은 OS 이모지 없이 인라인 SVG 로 제공된다', () => {
+  assert.equal(AVATAR_IDS.length, 12);
+
+  for (const id of AVATAR_IDS) {
+    const svg = avatarSvg(id);
+    assert.match(svg, /^<svg class="ui-icon ui-avatar"/);
+    assert.match(svg, /viewBox="0 0 24 24"/);
+    assert.doesNotMatch(svg, EMOJI_RE);
+    assert.ok(avatarName(id).length > 0, `아바타 ${id} 이름이 있어야 한다`);
+  }
+
+  // 잘못된 ID 는 1번 아바타로 폴백
+  assert.equal(avatarSvg(999), avatarSvg(1));
+
+  for (const name of [
+    'bottle', 'candy', 'cookie', 'goldenBottle', 'pacifier',
+    'bed', 'tear', 'soundOn', 'soundOff', 'bot', 'trophy', 'help',
+  ]) {
+    assert.match(uiIcon(name), /<svg class="ui-icon"/, `${name} 아이콘이 있어야 한다`);
+  }
+  assert.equal(uiIcon('not-a-real-icon'), '');
+
+  assert.match(countryBadge('kr'), /class="lb-flag"/);
+  assert.match(countryBadge('kr'), />KR</);
+  assert.doesNotMatch(countryBadge('kr'), EMOJI_RE);
+  assert.match(countryBadge(''), /lb-country-none/);
+});
+
+test('index.html 상단/도움말 UI 는 OS 이모지 대신 인라인 SVG 를 쓴다', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(html, EMOJI_RE, 'index.html 에 OS 이모지가 남아 있으면 안 된다');
+  assert.match(html, /id="profile-badge-emoji"[\s\S]*?<svg class="ui-icon ui-avatar"/);
+  assert.match(html, /id="help-title"[\s\S]*?<svg class="ui-icon"/);
+  assert.match(html, /id="leaderboard-title"[\s\S]*?<svg class="ui-icon"/);
+  assert.match(html, /data-help-action="demo"><svg class="ui-icon"/);
+  assert.match(html, /data-avatar-id="12" aria-label="하트"/);
+  assert.doesNotMatch(html, /class="avatar-btn" data-avatar-id="1">/);
 });

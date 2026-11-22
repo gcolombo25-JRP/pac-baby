@@ -6,10 +6,10 @@
  * - 중복 확인은 UX 용이며, 최종 방어는 서버 UNIQUE 인덱스가 담당한다.
  */
 
-import { AVATAR_EMOJIS, NICKNAME_RULE } from './constants.js';
+import { NICKNAME_RULE } from './constants.js';
 import { showToast } from './toast.js';
+import { avatarName, avatarSvg } from './uiIcons.js';
 import {
-  avatarEmoji,
   isValidAvatarId,
   normalizeNickname,
   validateNickname,
@@ -213,8 +213,8 @@ export default class RegisterModal {
       const snapshot = await this.profile.register(candidate, this.selectedAvatar);
       if (!this._isCurrentRequest(seq)) return;
 
-      this._setStatus('등록 완료! 이제 리더보드에 기록돼요 🏆', 'ok');
-      showToast(`${avatarEmoji(snapshot.avatarEmojiId)} ${snapshot.nickname} 등록 완료!`);
+      this._setStatus('등록 완료! 이제 리더보드에 기록돼요.', 'ok');
+      showToast(`${snapshot.nickname} 등록 완료!`);
       this.close({ dismiss: false });
       this.onRegistered?.(snapshot);
     } catch (err) {
@@ -302,7 +302,10 @@ export default class RegisterModal {
       const id = Number(button.getAttribute?.('data-avatar-id'));
       if (!isValidAvatarId(id)) continue;
 
-      button.textContent = avatarEmoji(id);
+      // 테스트 DOM 에는 createElementNS 가 없을 수 있으므로 문자열 주입만 사용한다.
+      button.innerHTML = avatarSvg(id, { className: 'ui-avatar' });
+      button.setAttribute?.('aria-label', avatarName(id));
+      button.setAttribute?.('title', avatarName(id));
       const selected = id === this.selectedAvatar;
       button.classList?.toggle?.('is-selected', selected);
       button.setAttribute?.('aria-pressed', selected ? 'true' : 'false');

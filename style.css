@@ -1878,3 +1878,196 @@ body.touch-landscape .pad-actions .pad-skill {
   }
 }
 
+
+
+/* ============================================================
+   인라인 SVG 아이콘 (OS 이모지 대체)
+   - src/uiIcons.js / index.html 의 <svg class="ui-icon"> 공통 규격
+   - width/height 를 em 기준으로 두어 글자 크기 변화에 자연스럽게 따라간다
+   ============================================================ */
+.ui-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+  vertical-align: -0.15em;
+  pointer-events: none;
+}
+
+.ui-icon.ui-avatar {
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.22em;
+}
+
+/* 상단 고정 버튼(게임 종료 / 데모 실행) */
+.exit-button .ui-icon,
+.demo-button .ui-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+
+/* D-패드 버튼 */
+.pad-btn {
+  gap: 4px;
+}
+
+.pad-btn .ui-icon {
+  width: 15px;
+  height: 15px;
+  vertical-align: -2px;
+}
+
+.pad-skill-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pad-actions .pad-skill .ui-icon {
+  width: 17px;
+  height: 17px;
+  vertical-align: -2px;
+}
+
+/* 도움말 / 모달 제목 */
+.help-title-wrap h2 .ui-icon,
+.modal-head h2 .ui-icon {
+  width: 18px;
+  height: 18px;
+  vertical-align: -3px;
+  margin-right: 4px;
+}
+
+/* 도움말 섹션: 제목 아이콘과 텍스트를 한 줄에 정렬 */
+.help-section h3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.help-section h3 .ui-icon {
+  width: 16px;
+  height: 16px;
+  vertical-align: -2px;
+}
+
+/* 도움말 표/목록 안의 작은 아이템 아이콘 */
+.help-table td .ui-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+
+.help-list li .ui-icon,
+.help-hint .ui-icon {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+
+/* 도움말 하단 액션 버튼 */
+.help-action .ui-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+
+/* 모달 닫기(✕ 대체) */
+.help-close,
+.modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.help-close .ui-icon,
+.modal-close .ui-icon {
+  width: 15px;
+  height: 15px;
+  vertical-align: 0;
+}
+
+/* 프로필 배지 아바타 */
+.profile-badge-emoji {
+  display: inline-flex;
+  align-items: center;
+}
+
+.profile-badge-emoji .ui-icon {
+  width: 17px;
+  height: 17px;
+  vertical-align: 0;
+}
+
+/* 등록 모달 아바타 그리드 */
+.avatar-btn {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+}
+
+.avatar-btn .ui-icon {
+  width: 100%;
+  height: 100%;
+  max-width: 34px;
+  max-height: 34px;
+  vertical-align: 0;
+}
+
+/* 리더보드: 아바타 + 국가 배지 */
+.leaderboard-table .lb-emoji {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -4px;
+  margin-right: 4px;
+}
+
+.leaderboard-table .lb-emoji .ui-icon {
+  width: 18px;
+  height: 18px;
+  vertical-align: 0;
+}
+
+.lb-flag {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid rgba(41, 182, 246, 0.35);
+  border-radius: 5px;
+  background: rgba(41, 182, 246, 0.18);
+  color: #9fdcff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+}
+
+.lb-country-none {
+  color: rgba(232, 241, 255, 0.4);
+}
+
+@media (max-width: 700px) {
+  .avatar-btn {
+    padding: 3px;
+  }
+
+  .avatar-btn .ui-icon {
+    max-width: 28px;
+    max-height: 28px;
+  }
+
+  .profile-badge-emoji .ui-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .leaderboard-table .lb-emoji .ui-icon {
+    width: 16px;
+    height: 16px;
+  }
+}

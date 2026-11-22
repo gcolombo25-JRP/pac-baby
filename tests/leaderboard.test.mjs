@@ -145,7 +145,10 @@ test('리더보드를 열면 순위/이모지/국기/내 기록이 렌더링된�
   assert.match(root.body.innerHTML, /baby/);
   assert.match(root.body.innerHTML, /1,234/);
   assert.match(root.body.innerHTML, /R3/);
-  assert.match(root.body.innerHTML, /🇰🇷/);
+  assert.match(root.body.innerHTML, /lb-flag/);
+  assert.match(root.body.innerHTML, />KR</);
+  assert.doesNotMatch(root.body.innerHTML, /🇰🇷/);
+  assert.match(root.body.innerHTML, /<svg class="ui-icon ui-avatar"/);
   assert.match(root.body.innerHTML, /is-me/);
   assert.equal(root.cta.hidden, false, '게스트에게는 등록 CTA 노출');
 });

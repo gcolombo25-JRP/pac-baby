@@ -173,6 +173,31 @@ test('조건 충족 시 모달을 열고 이번 기록/선택 이모지를 보�
   assert.equal(root.round.textContent, 'ROUND 2');
   assert.equal(root.submit.disabled, true, '중복 확인 전에는 등록 불가');
   assert.equal(root.avatars[0].getAttribute('aria-pressed'), 'true');
+  assert.match(root.avatars[0].innerHTML, /^<svg class="ui-icon ui-avatar"/);
+  assert.match(root.avatars[11].innerHTML, /^<svg class="ui-icon ui-avatar"/);
+  assert.equal(root.avatars[0].classList.contains('is-selected'), true);
+});
+
+test('아바타 선택 버튼은 OS 이모지 대신 1~12 SVG 아바타로 렌더링된다', () => {
+  const root = createDocument();
+  const modal = new RegisterModal({ profile: createProfile(), root });
+  modal.open();
+
+  const emojiRe = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+  assert.equal(root.avatars.length, 12);
+  for (const button of root.avatars) {
+    assert.match(button.innerHTML, /^<svg class="ui-icon ui-avatar"/);
+    assert.doesNotMatch(button.innerHTML, emojiRe);
+    assert.match(button.getAttribute('aria-label'), /./, '아바타 이름이 접근성 라벨로 들어간다');
+  }
+
+  assert.equal(root.avatars[7].getAttribute('aria-pressed'), 'false');
+  root.avatars[7].click(); // id 8
+  assert.equal(modal.selectedAvatar, 8);
+  assert.equal(root.avatars[0].getAttribute('aria-pressed'), 'false');
+  assert.equal(root.avatars[7].getAttribute('aria-pressed'), 'true');
+  assert.equal(root.avatars[7].classList.contains('is-selected'), true);
+  assert.equal(root.avatars[0].classList.contains('is-selected'), false);
 });
 
 test('이미 등록된 유저에게는 모달을 열지 않는다', () => {

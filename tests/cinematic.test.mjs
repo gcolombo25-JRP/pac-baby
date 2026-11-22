@@ -27,6 +27,7 @@ function createStubCtx() {
     closePath: record('closePath'),
     moveTo: record('moveTo'),
     lineTo: record('lineTo'),
+    quadraticCurveTo: record('quadraticCurveTo'),
     arc: record('arc'),
     ellipse: record('ellipse'),
     fill: record('fill'),

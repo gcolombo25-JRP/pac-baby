@@ -15,7 +15,7 @@ import RegisterModal from './registerModal.js';
 import LeaderboardModal from './leaderboardModal.js';
 import { showToast } from './toast.js';
 import { detectCountryHint, isRemoteConfigured } from './supabaseClient.js';
-import { avatarEmoji } from './validation.js';
+import { avatarSvg } from './uiIcons.js';
 import { HISCORE_KEY } from './constants.js';
 
 function init() {
@@ -147,7 +147,8 @@ function init() {
     const emoji = document.getElementById('profile-badge-emoji');
     const name = document.getElementById('profile-badge-name');
 
-    if (emoji) emoji.textContent = avatarEmoji(snapshot.avatarEmojiId);
+    // OS 이모지 대신 avatar_emoji_id(1~12) 자체 SVG 아이콘
+    if (emoji) emoji.innerHTML = avatarSvg(snapshot.avatarEmojiId, { className: 'ui-avatar' });
     if (name) name.textContent = snapshot.nickname || 'GUEST';
     if (badge) {
       badge.classList?.toggle?.('is-registered', !!snapshot.isRegistered);

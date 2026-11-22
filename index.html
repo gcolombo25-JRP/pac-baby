@@ -7,7 +7,7 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title>Pac-Baby 🍼</title>
+  <title>Pac-Baby</title>
   <link rel="stylesheet" href="style.css" />
   <script>
     // 새 빌드가 배포되면(version.json 변경) 캐시를 우회해 자동으로 새로고침한다.
@@ -44,20 +44,20 @@
     <!-- 글로벌 프로필 배지: 게스트/등록 유저 표시 + 리더보드 진입 -->
     <button id="profile-badge" class="profile-badge" type="button" data-leaderboard-open
             aria-label="리더보드 열기" title="리더보드 / 기록 등록">
-      <span id="profile-badge-emoji" class="profile-badge-emoji" aria-hidden="true">👶</span>
+      <span id="profile-badge-emoji" class="profile-badge-emoji" aria-hidden="true"><svg class="ui-icon ui-avatar" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="13.3" r="7.7" fill="#ffd6ba"/><path d="M4.6 12.1c0-4.2 3.2-7.4 7.4-7.4s7.4 3.2 7.4 7.4c-1.6-1.6-3.9-2.5-7.4-2.5s-5.8.9-7.4 2.5z" fill="#b5763f"/><circle cx="12" cy="4.8" r="1.5" fill="#b5763f"/><circle cx="9.4" cy="13.2" r="1.05" fill="#3b2a3f"/><circle cx="14.6" cy="13.2" r="1.05" fill="#3b2a3f"/><circle cx="7.4" cy="15.7" r="1.5" fill="#ff9e8a" opacity=".8"/><circle cx="16.6" cy="15.7" r="1.5" fill="#ff9e8a" opacity=".8"/><path d="M10 16.7c.6.8 1.2 1.2 2 1.2s1.4-.4 2-1.2" fill="none" stroke="#b5763f" stroke-width="1.2" stroke-linecap="round"/></svg></span>
       <span id="profile-badge-name" class="profile-badge-name">GUEST</span>
     </button>
 
     <!-- 전역 게임 종료 버튼 (타이틀/일시정지/모바일 공통) -->
     <button id="exit-button" class="exit-button" type="button"
             aria-label="게임 종료" title="게임 종료 (나가기)">
-      <span aria-hidden="true">⏻</span> 게임 종료
+      <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.4v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M7.2 6.4a8 8 0 1 0 9.6 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> 게임 종료
     </button>
 
     <!-- 메인 화면 [데모 실행]: 접속 중 언제든 데모 플레이를 다시 볼 수 있다 -->
     <button id="demo-button" class="demo-button" type="button" data-demo-start
             aria-label="데모 실행" title="데모 플레이 보기">
-      <span aria-hidden="true">🤖</span> 데모 실행
+      <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.4" y="6.6" width="17.2" height="12.4" rx="3.2" fill="#9fdcff"/><path d="M12 3v3.4" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="2.6" r="1.3" fill="#ffd54f"/><circle cx="9" cy="12" r="1.5" fill="#0b2545"/><circle cx="15" cy="12" r="1.5" fill="#0b2545"/><path d="M9.2 15.4h5.6" stroke="#0b2545" stroke-width="1.4" stroke-linecap="round"/><rect x="1.2" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/><rect x="21" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/></svg> 데모 실행
     </button>
 
     <canvas id="game-canvas" width="640" height="640"></canvas>
@@ -74,17 +74,17 @@
         <!-- 비상용 [울기]: 단독 강조 버튼 -->
         <button type="button" class="pad-btn pad-skill" data-key="Space" aria-label="울기 (비상)">
           <span class="pad-skill-tag" aria-hidden="true">비상</span>
-          <span class="pad-skill-text" aria-hidden="true">😭 울기</span>
+          <span class="pad-skill-text" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2c2.7 3.5 4.5 6.4 4.5 8.8a4.5 4.5 0 0 1-9 0c0-2.4 1.8-5.3 4.5-8.8z" fill="#81d4fa"/><path d="M10 12.6a1.9 1.9 0 0 0 1.9 1.9" fill="none" stroke="#e1f5fe" stroke-width="1.1" stroke-linecap="round"/></svg> 울기</span>
         </button>
         <!-- 기능 버튼: 소리/정지 · 도움말/재시작 · 리더보드로 구역 정돈 -->
         <div class="pad-functions" role="group" aria-label="게임 기능 버튼">
-          <button type="button" class="pad-btn pad-mute" data-key="KeyM" aria-label="소리 켜기/끄기">🔊 소리</button>
-          <button type="button" class="pad-btn pad-pause" data-key="KeyP" aria-label="일시정지">⏸ 정지</button>
-          <button type="button" class="pad-btn pad-help" data-help-open aria-label="사용 설명서 열기">? 도움말</button>
+          <button type="button" class="pad-btn pad-mute" data-key="KeyM" aria-label="소리 켜기/끄기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9.6h3.2L12 5.8v12.4l-4.8-3.8H4z" fill="#9fdcff"/><path d="M15.2 9.2a4 4 0 0 1 0 5.6M17.8 6.8a7.4 7.4 0 0 1 0 10.4" fill="none" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/></svg> 소리</button>
+          <button type="button" class="pad-btn pad-pause" data-key="KeyP" aria-label="일시정지"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6.6" y="5.2" width="4" height="13.6" rx="1.4" fill="currentColor"/><rect x="13.4" y="5.2" width="4" height="13.6" rx="1.4" fill="currentColor"/></svg> 정지</button>
+          <button type="button" class="pad-btn pad-help" data-help-open aria-label="사용 설명서 열기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="#29b6f6"/><path d="M9.6 9.4a2.6 2.6 0 1 1 3.9 2.3c-.9.5-1.4 1.1-1.4 2.1" fill="none" stroke="#f4fffb" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="17" r="1.2" fill="#f4fffb"/></svg> 도움말</button>
           <button type="button" class="pad-btn pad-restart" data-key="KeyR"
-                  aria-label="재시작 (게임 오버/클리어)">↻ 재시작</button>
+                  aria-label="재시작 (게임 오버/클리어)"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.2 12a7.2 7.2 0 1 1-2.1-5.1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M19.6 3.6v4.4h-4.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg> 재시작</button>
           <button type="button" class="pad-btn pad-board" data-leaderboard-open
-                  aria-label="리더보드 열기">🏆 리더보드</button>
+                  aria-label="리더보드 열기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v4.6a5 5 0 0 1-10 0z" fill="#ffd54f"/><path d="M7 5.4H4.4v1.4A3.2 3.2 0 0 0 7.6 10M17 5.4h2.6v1.4A3.2 3.2 0 0 1 16.4 10" fill="none" stroke="#ffb300" stroke-width="1.5" stroke-linecap="round"/><path d="M10.6 13.4h2.8v3.2h-2.8z" fill="#ffb300"/><rect x="7.6" y="16.4" width="8.8" height="2.4" rx="1.2" fill="#c98b4b"/><rect x="6.4" y="18.6" width="11.2" height="1.8" rx=".9" fill="#a86d33"/></svg> 리더보드</button>
         </div>
       </div>
     </div>
@@ -96,25 +96,25 @@
                aria-labelledby="help-title" tabindex="-1">
         <header class="help-head">
           <div class="help-title-wrap">
-            <h2 id="help-title">🍼 Pac-Baby 사용 설명서</h2>
+            <h2 id="help-title"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="10.1" y="2.4" width="3.8" height="2.2" rx="1.1" fill="#ffd6ba"/><rect x="9.2" y="4.4" width="5.6" height="1.9" rx=".95" fill="#29b6f6"/><path d="M9.1 6.9h5.8a2 2 0 0 1 2 2v9.6a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4V8.9a2 2 0 0 1 2-2z" fill="#e3f7ff"/><path d="M7.1 11.6h9.8v6.9a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4z" fill="#fff8f0"/><path d="M9.2 13.8h5.6M9.2 16.2h5.6" stroke="#bfe9df" stroke-width="1" stroke-linecap="round"/></svg> Pac-Baby 사용 설명서</h2>
             <p class="help-sub">처음 플레이해도 3분이면 충분해요</p>
           </div>
-          <button class="help-close" type="button" data-help-close aria-label="설명서 닫기">✕</button>
+          <button class="help-close" type="button" data-help-close aria-label="설명서 닫기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
         </header>
 
         <div class="help-body">
           <section class="help-section">
-            <h3>🎯 목표</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.6" fill="none" stroke="#ef5350" stroke-width="1.8"/><circle cx="12" cy="12" r="4.8" fill="none" stroke="#ffd54f" stroke-width="1.8"/><circle cx="12" cy="12" r="1.7" fill="#ef5350"/></svg> 목표</h3>
             <p>미로에 있는 <b>아이템 12개</b>를 모두 먹으면 <b class="pos">STAGE CLEAR</b>!<br />
               <b>보모(악당)</b>에게 잡히면 <b class="neg">-200점</b>과 <b>목숨 1개</b>를 잃어요.
               목숨 <b>3개</b>가 모두 사라지면 게임 오버입니다.</p>
           </section>
 
           <section class="help-section">
-            <h3>🎮 조작</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="2" y="7.4" width="20" height="9.6" rx="4.4" fill="#29b6f6"/><path d="M7.2 10.4v3.6M5.4 12.2h3.6" stroke="#f4fffb" stroke-width="1.6" stroke-linecap="round"/><circle cx="16.2" cy="11.2" r="1.2" fill="#ffd54f"/><circle cx="18.4" cy="13.6" r="1.2" fill="#ff9e8a"/></svg> 조작</h3>
             <ul class="help-list">
               <li><span class="help-kbd-row"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span> 이동 — 미리 눌러도 <b>1.2초</b> 기억해요</li>
-              <li>📱 <b>화면 스와이프(드래그)</b>로도 방향을 바꿀 수 있어요 · D-패드는 손가락이 빗나가지 않게 크게 만들었어요</li>
+              <li><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6.6" y="2.6" width="10.8" height="18.8" rx="2.6" fill="#9fdcff"/><rect x="8.2" y="5" width="7.6" height="11.6" rx="1.2" fill="#0b2545"/><circle cx="12" cy="18.6" r="1.1" fill="#0b2545"/></svg> <b>화면 스와이프(드래그)</b>로도 방향을 바꿀 수 있어요 · D-패드는 손가락이 빗나가지 않게 크게 만들었어요</li>
               <li><kbd>Space</kbd> <b>울기</b> — 보모를 3초 얼려요 (<b class="neg">-100점</b>)</li>
               <li><kbd>P</kbd> <kbd>Esc</kbd> 일시정지 · <kbd>M</kbd> 소리·BGM · <kbd>H</kbd> 이 설명서</li>
               <li><kbd>R</kbd> 게임 오버 후 재도전 (폰: <b>재시작</b> 버튼) · <kbd>-</kbd><kbd>+</kbd> 또는 <kbd>1</kbd>~<kbd>0</kbd> 속도 조절</li>
@@ -122,32 +122,32 @@
           </section>
 
           <section class="help-section">
-            <h3>🍼 아이템 → 💩 트랩</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="10.1" y="2.4" width="3.8" height="2.2" rx="1.1" fill="#ffd6ba"/><rect x="9.2" y="4.4" width="5.6" height="1.9" rx=".95" fill="#29b6f6"/><path d="M9.1 6.9h5.8a2 2 0 0 1 2 2v9.6a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4V8.9a2 2 0 0 1 2-2z" fill="#e3f7ff"/><path d="M7.1 11.6h9.8v6.9a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4z" fill="#fff8f0"/><path d="M9.2 13.8h5.6M9.2 16.2h5.6" stroke="#bfe9df" stroke-width="1" stroke-linecap="round"/></svg> 아이템 → 트랩</h3>
             <p class="help-note">먹고 나서 일정 시간이 지나면 <b>트랩</b>을 배출해요. 보모가 밟으면 느려지고 얼어붙어요!</p>
             <table class="help-table">
               <thead>
                 <tr><th>아이템</th><th>점수</th><th>소화</th><th>트랩</th><th>감속 · 얼림</th></tr>
               </thead>
               <tbody>
-                <tr><td>🍼 우유병</td><td class="pos">+50</td><td>5초</td><td>오줌</td><td>10% · 3초</td></tr>
-                <tr><td>🍬 캔디</td><td class="pos">+70</td><td>7초</td><td>토사물</td><td>20% · 6초</td></tr>
-                <tr><td>🍪 쿠키</td><td class="pos">+100</td><td>10초</td><td>똥</td><td>30% · 10초</td></tr>
+                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="10.1" y="2.4" width="3.8" height="2.2" rx="1.1" fill="#ffd6ba"/><rect x="9.2" y="4.4" width="5.6" height="1.9" rx=".95" fill="#29b6f6"/><path d="M9.1 6.9h5.8a2 2 0 0 1 2 2v9.6a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4V8.9a2 2 0 0 1 2-2z" fill="#e3f7ff"/><path d="M7.1 11.6h9.8v6.9a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4z" fill="#fff8f0"/></svg> 우유병</td><td class="pos">+50</td><td>5초</td><td>오줌</td><td>10% · 3초</td></tr>
+                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.6 9.4 2.9 7.5l.7 4.5-.7 4.5 3.7-1.9z" fill="#f8bbd0"/><path d="M17.4 9.4l3.7-1.9-.7 4.5.7 4.5-3.7-1.9z" fill="#f8bbd0"/><circle cx="12" cy="12" r="5" fill="#f06292"/><path d="M12.7 8.2a3.9 3.9 0 1 0 0 7.6" fill="none" stroke="#ffd9e4" stroke-width="1.4" stroke-linecap="round"/></svg> 캔디</td><td class="pos">+70</td><td>7초</td><td>토사물</td><td>20% · 6초</td></tr>
+                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.2" fill="#c98b4b"/><circle cx="12" cy="12" r="7.4" fill="none" stroke="#e0b177" stroke-width="1.1"/><circle cx="9" cy="9.4" r="1.3" fill="#5d3a1a"/><circle cx="15" cy="10.2" r="1.15" fill="#5d3a1a"/><circle cx="11.4" cy="14.4" r="1.35" fill="#5d3a1a"/><circle cx="15.6" cy="15.4" r="1" fill="#5d3a1a"/><circle cx="7.6" cy="13.6" r=".9" fill="#5d3a1a"/></svg> 쿠키</td><td class="pos">+100</td><td>10초</td><td>똥</td><td>30% · 10초</td></tr>
               </tbody>
             </table>
             <p class="help-note">감속은 <b>10초</b> 지속 · 보모가 트랩을 밟으면 <b class="pos">+100점</b> · 아이템은 <b>15초</b> 뒤 새 위치에 다시 나타나요.</p>
           </section>
 
           <section class="help-section">
-            <h3>🍬 파워업: 슈가 러시 &amp; 🍼 황금 젖병</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.6 9.4 2.9 7.5l.7 4.5-.7 4.5 3.7-1.9z" fill="#f8bbd0"/><path d="M17.4 9.4l3.7-1.9-.7 4.5.7 4.5-3.7-1.9z" fill="#f8bbd0"/><circle cx="12" cy="12" r="5" fill="#f06292"/><path d="M12.7 8.2a3.9 3.9 0 1 0 0 7.6" fill="none" stroke="#ffd9e4" stroke-width="1.4" stroke-linecap="round"/></svg> 파워업: 슈가 러시 &amp; <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="10.1" y="2.4" width="3.8" height="2.2" rx="1.1" fill="#ffe082"/><rect x="9.2" y="4.4" width="5.6" height="1.9" rx=".95" fill="#ffb300"/><path d="M9.1 6.9h5.8a2 2 0 0 1 2 2v9.6a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4V8.9a2 2 0 0 1 2-2z" fill="#ffe082"/><path d="M7.1 11.6h9.8v6.9a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4z" fill="#ffd700"/><path d="M18.6 2.6l.75 1.6 1.6.75-1.6.75-.75 1.6-.75-1.6-1.6-.75 1.6-.75z" fill="#fff3c4"/></svg> 황금 젖병</h3>
             <ul class="help-list">
-              <li><b>캔디(🍬)</b>를 먹으면 <b>3초 슈가 러시</b> — 이동 속도 <b class="pos">+50%</b>, 몸이 알록달록 깜빡여요.</li>
-              <li><b>황금 젖병(🍼)</b>은 <b>맵 한가운데</b>! 먹으면 <b>8초 보행기 모드</b> — <b>무적 + 속도 증가</b>, 모든 보모가 파랗게 질려 도망쳐요.</li>
+              <li><b>캔디</b>를 먹으면 <b>3초 슈가 러시</b> — 이동 속도 <b class="pos">+50%</b>, 몸이 알록달록 깜빡여요.</li>
+              <li><b>황금 젖병</b>은 <b>맵 한가운데</b>! 먹으면 <b>8초 보행기 모드</b> — <b>무적 + 속도 증가</b>, 모든 보모가 파랗게 질려 도망쳐요.</li>
               <li>보행기 모드에서 보모와 부딪히면 <b class="pos">+300점</b>과 함께 보모가 대기실로 날아가요. (먹은 뒤 20초면 중앙에 다시 등장)</li>
             </ul>
           </section>
 
           <section class="help-section">
-            <h3>🔥 고라운드 난이도</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3c3.2 3.6 5.4 6.3 5.4 9.6a5.4 5.4 0 0 1-10.8 0C6.6 9.3 8.8 6.6 12 3z" fill="#ff8f00"/><path d="M12 11.4c1.4 1.6 2.3 2.8 2.3 4.2a2.3 2.3 0 0 1-4.6 0c0-1.4.9-2.6 2.3-4.2z" fill="#ffe082"/></svg> 고라운드 난이도</h3>
             <ul class="help-list">
               <li><b>4라운드</b>: 추격 보모 <b>+1</b> (총 5마리) · <b>5라운드</b>: 순찰 보모 <b>+1</b> (총 6마리)</li>
               <li><b>6라운드</b>부터 <b>철창문</b> 등장 — 2라운드마다 +1 (최대 4개). 닫히면 베이비·보모 모두 통과할 수 없어요. (열림 3초 ↔ 닫힘 3초)</li>
@@ -156,7 +156,7 @@
           </section>
 
           <section class="help-section">
-            <h3>😭 울기 &amp; 🛏️ 침대 숨기</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2c2.7 3.5 4.5 6.4 4.5 8.8a4.5 4.5 0 0 1-9 0c0-2.4 1.8-5.3 4.5-8.8z" fill="#81d4fa"/><path d="M10 12.6a1.9 1.9 0 0 0 1.9 1.9" fill="none" stroke="#e1f5fe" stroke-width="1.1" stroke-linecap="round"/></svg> 울기 &amp; <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="2.4" y="11" width="19.2" height="6.4" rx="1.6" fill="#bfe9df"/><rect x="3.8" y="8.4" width="7" height="3.4" rx="1.4" fill="#fff8f0"/><path d="M12.4 8.6h7.8a1.6 1.6 0 0 1 1.6 1.6v1.2h-9.4z" fill="#ff9e8a"/><rect x="3.2" y="17.2" width="1.8" height="3.2" rx=".9" fill="#b5763f"/><rect x="19" y="17.2" width="1.8" height="3.2" rx=".9" fill="#b5763f"/></svg> 침대 숨기</h3>
             <ul class="help-list">
               <li><b>울기</b>: 모든 보모 <b>3초 정지</b> · 쿨다운 <b>3초</b> · 얼어 있는 보모에게 또 울면 <b>+3초 연장</b> (얼린 보모는 무해)</li>
               <li><b>침대</b>에 들어가면 <b>10초 숨기</b> · 보모는 <b>5초</b> 동안 목표를 잃어요 · 숨기 종료 후 3초 쿨다운</li>
@@ -164,7 +164,7 @@
           </section>
 
           <section class="help-section">
-            <h3>💡 이기기 위한 팁</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2.8a6.2 6.2 0 0 0-3.6 11.3c.6.4 1 1 1 1.7v.4h5.2v-.4c0-.7.4-1.3 1-1.7A6.2 6.2 0 0 0 12 2.8z" fill="#ffe082"/><rect x="9.4" y="17.4" width="5.2" height="1.6" rx=".8" fill="#c98b4b"/><rect x="10" y="19.4" width="4" height="1.6" rx=".8" fill="#a86d33"/></svg> 이기기 위한 팁</h3>
             <ul class="help-list">
               <li>먼저 <b>미로 가장자리</b>를 돌며 아이템을 모으면 보모와 마주칠 일이 줄어요.</li>
               <li>모서리에서 방향을 꺾으면 추격을 끊기 쉬워요. <b>막다른 길</b>은 위험!</li>
@@ -173,7 +173,7 @@
           </section>
 
           <section class="help-section">
-            <h3>📱 휴대폰에서</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6.6" y="2.6" width="10.8" height="18.8" rx="2.6" fill="#9fdcff"/><rect x="8.2" y="5" width="7.6" height="11.6" rx="1.2" fill="#0b2545"/><circle cx="12" cy="18.6" r="1.1" fill="#0b2545"/></svg> 휴대폰에서</h3>
             <p>화면 아래 <b>D-패드</b>(▲◀▶▼ · 울기 · 소리 · 정지 · 도움말 · 재시작)가 자동으로 나타나요.
               버튼을 크게 만들고 <b>터치 인식 영역</b>을 넓혀서 손가락이 살짝 빗나가도 잘 눌려요.<br />
               <b>화면을 스와이프(드래그)</b>해도 방향이 바뀌고, 교차로 직전에 미리 입력해도 <b>1.2초</b> 기억해
@@ -182,7 +182,7 @@
           </section>
 
           <section class="help-section">
-            <h3>🤖 봇 &amp; 데모 플레이</h3>
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.4" y="6.6" width="17.2" height="12.4" rx="3.2" fill="#9fdcff"/><path d="M12 3v3.4" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="2.6" r="1.3" fill="#ffd54f"/><circle cx="9" cy="12" r="1.5" fill="#0b2545"/><circle cx="15" cy="12" r="1.5" fill="#0b2545"/><path d="M9.2 15.4h5.6" stroke="#0b2545" stroke-width="1.4" stroke-linecap="round"/><rect x="1.2" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/><rect x="21" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/></svg> 봇 &amp; 데모 플레이</h3>
             <p>PC에서는 <kbd>F2</kbd> → <b>BOT</b>으로 개발자용 자동 플레이를 켤 수 있어요.<br />
               모바일에서는 이 도움말의 <b>[데모 실행]</b> 버튼으로 봇 데모를 바로 시작할 수 있습니다.
               봇은 아이템·황금 젖병을 노리고, 정말 도망칠 수 없을 때만 <b>울기</b>를 쓰며,
@@ -194,13 +194,13 @@
 
         <footer class="help-foot">
           <div class="help-actions">
-            <button class="help-action help-start" type="button" data-help-action="start">▶ 게임 시작</button>
-            <button class="help-action help-demo" type="button" data-help-action="demo">🤖 데모 실행</button>
-            <button class="help-action help-exit" type="button" data-help-action="exit-lobby">■ 게임 종료</button>
+            <button class="help-action help-start" type="button" data-help-action="start"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4.6v14.8l12-7.4z" fill="currentColor"/></svg> 게임 시작</button>
+            <button class="help-action help-demo" type="button" data-help-action="demo"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.4" y="6.6" width="17.2" height="12.4" rx="3.2" fill="#9fdcff"/><path d="M12 3v3.4" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="2.6" r="1.3" fill="#ffd54f"/><circle cx="9" cy="12" r="1.5" fill="#0b2545"/><circle cx="15" cy="12" r="1.5" fill="#0b2545"/><path d="M9.2 15.4h5.6" stroke="#0b2545" stroke-width="1.4" stroke-linecap="round"/></svg> 데모 실행</button>
+            <button class="help-action help-exit" type="button" data-help-action="exit-lobby"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5.6" y="5.6" width="12.8" height="12.8" rx="2.4" fill="currentColor"/></svg> 게임 종료</button>
             <button id="help-leaderboard" class="help-action help-board" type="button"
-                    data-leaderboard-open aria-label="리더보드 열기">🏆 리더보드</button>
+                    data-leaderboard-open aria-label="리더보드 열기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v4.6a5 5 0 0 1-10 0z" fill="#ffd54f"/><path d="M7 5.4H4.4v1.4A3.2 3.2 0 0 0 7.6 10M17 5.4h2.6v1.4A3.2 3.2 0 0 1 16.4 10" fill="none" stroke="#ffb300" stroke-width="1.5" stroke-linecap="round"/><path d="M10.6 13.4h2.8v3.2h-2.8z" fill="#ffb300"/><rect x="7.6" y="16.4" width="8.8" height="2.4" rx="1.2" fill="#c98b4b"/><rect x="6.4" y="18.6" width="11.2" height="1.8" rx=".9" fill="#a86d33"/></svg> 리더보드</button>
           </div>
-          <p class="help-hint">이 설명서는 <kbd>H</kbd> 키(폰은 D-패드의 <b>? 도움말</b> 버튼)로 언제든 다시 볼 수 있어요.</p>
+          <p class="help-hint">이 설명서는 <kbd>H</kbd> 키(폰은 D-패드의 <b><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="#29b6f6"/><path d="M9.6 9.4a2.6 2.6 0 1 1 3.9 2.3c-.9.5-1.4 1.1-1.4 2.1" fill="none" stroke="#f4fffb" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="17" r="1.2" fill="#f4fffb"/></svg> 도움말</b> 버튼)로 언제든 다시 볼 수 있어요.</p>
         </footer>
       </section>
     </div>
@@ -212,10 +212,10 @@
                aria-labelledby="register-title" tabindex="-1">
         <header class="modal-head">
           <div>
-            <h2 id="register-title">🏆 기록 등록</h2>
+            <h2 id="register-title"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v4.6a5 5 0 0 1-10 0z" fill="#ffd54f"/><path d="M7 5.4H4.4v1.4A3.2 3.2 0 0 0 7.6 10M17 5.4h2.6v1.4A3.2 3.2 0 0 1 16.4 10" fill="none" stroke="#ffb300" stroke-width="1.5" stroke-linecap="round"/><path d="M10.6 13.4h2.8v3.2h-2.8z" fill="#ffb300"/><rect x="7.6" y="16.4" width="8.8" height="2.4" rx="1.2" fill="#c98b4b"/><rect x="6.4" y="18.6" width="11.2" height="1.8" rx=".9" fill="#a86d33"/></svg> 기록 등록</h2>
             <p class="modal-sub">이번 기록 <b id="register-score">0점</b> · <b id="register-round">ROUND 1</b></p>
           </div>
-          <button class="modal-close" type="button" data-register-close aria-label="닫기">✕</button>
+          <button class="modal-close" type="button" data-register-close aria-label="닫기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
         </header>
 
         <div class="modal-body">
@@ -228,20 +228,20 @@
           </div>
           <p id="register-status" class="modal-status" role="status" aria-live="polite"></p>
 
-          <p class="modal-label">이모지 선택</p>
-          <div id="register-avatars" class="avatar-grid" role="group" aria-label="이모지 선택">
-            <button type="button" class="avatar-btn" data-avatar-id="1">🍼</button>
-            <button type="button" class="avatar-btn" data-avatar-id="2">👶</button>
-            <button type="button" class="avatar-btn" data-avatar-id="3">🧸</button>
-            <button type="button" class="avatar-btn" data-avatar-id="4">🍭</button>
-            <button type="button" class="avatar-btn" data-avatar-id="5">🦄</button>
-            <button type="button" class="avatar-btn" data-avatar-id="6">🐣</button>
-            <button type="button" class="avatar-btn" data-avatar-id="7">🌟</button>
-            <button type="button" class="avatar-btn" data-avatar-id="8">🍪</button>
-            <button type="button" class="avatar-btn" data-avatar-id="9">🎈</button>
-            <button type="button" class="avatar-btn" data-avatar-id="10">🧦</button>
-            <button type="button" class="avatar-btn" data-avatar-id="11">🚼</button>
-            <button type="button" class="avatar-btn" data-avatar-id="12">🥛</button>
+          <p class="modal-label">아바타 선택</p>
+          <div id="register-avatars" class="avatar-grid" role="group" aria-label="아바타 선택">
+            <button type="button" class="avatar-btn" data-avatar-id="1" aria-label="아기 얼굴" aria-pressed="true"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="2" aria-label="우유컵" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="3" aria-label="사탕" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="4" aria-label="쿠키" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="5" aria-label="황금 젖병" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="6" aria-label="쪽쪽이" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="7" aria-label="곰돌이" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="8" aria-label="병아리" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="9" aria-label="구름" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="10" aria-label="별" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="11" aria-label="왕관" aria-pressed="false"></button>
+            <button type="button" class="avatar-btn" data-avatar-id="12" aria-label="하트" aria-pressed="false"></button>
           </div>
 
           <div class="modal-actions">
@@ -262,10 +262,10 @@
                aria-labelledby="leaderboard-title" tabindex="-1">
         <header class="modal-head">
           <div>
-            <h2 id="leaderboard-title">🏆 글로벌 리더보드</h2>
+            <h2 id="leaderboard-title"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v4.6a5 5 0 0 1-10 0z" fill="#ffd54f"/><path d="M7 5.4H4.4v1.4A3.2 3.2 0 0 0 7.6 10M17 5.4h2.6v1.4A3.2 3.2 0 0 1 16.4 10" fill="none" stroke="#ffb300" stroke-width="1.5" stroke-linecap="round"/><path d="M10.6 13.4h2.8v3.2h-2.8z" fill="#ffb300"/><rect x="7.6" y="16.4" width="8.8" height="2.4" rx="1.2" fill="#c98b4b"/><rect x="6.4" y="18.6" width="11.2" height="1.8" rx=".9" fill="#a86d33"/></svg> 글로벌 리더보드</h2>
             <p class="modal-sub">상위 50명 · 30초마다 갱신</p>
           </div>
-          <button class="modal-close" type="button" data-leaderboard-close aria-label="닫기">✕</button>
+          <button class="modal-close" type="button" data-leaderboard-close aria-label="닫기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
         </header>
 
         <div class="modal-body">
@@ -287,6 +287,7 @@
 
           <div class="modal-actions">
             <button id="leaderboard-register" class="modal-primary" type="button" data-register-open hidden>
+              <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v4.6a5 5 0 0 1-10 0z" fill="#ffd54f"/><path d="M7 5.4H4.4v1.4A3.2 3.2 0 0 0 7.6 10M17 5.4h2.6v1.4A3.2 3.2 0 0 1 16.4 10" fill="none" stroke="#ffb300" stroke-width="1.5" stroke-linecap="round"/><path d="M10.6 13.4h2.8v3.2h-2.8z" fill="#ffb300"/><rect x="7.6" y="16.4" width="8.8" height="2.4" rx="1.2" fill="#c98b4b"/><rect x="6.4" y="18.6" width="11.2" height="1.8" rx=".9" fill="#a86d33"/></svg>
               기록 등록하고 순위에 도전
             </button>
             <button class="modal-secondary" type="button" data-leaderboard-close>닫기</button>
