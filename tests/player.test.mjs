@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import Player from '../src/player.js';
 import {
   TILE_SIZE, TILE_MAP, PENALTY, ITEMS,
-  STEALTH_DURATION_MS, STEALTH_COOLDOWN_MS,
+  STEALTH_DURATION_MS, STEALTH_COOLDOWN_MS, FAKE_PACIFIER,
   INPUT_BUFFER_MS, TICK_RATE,
   getBabySpawn,
 } from '../src/constants.js';
@@ -180,6 +180,26 @@ test('침대 스텔스: 발동 후 10초 지속, 종료 후 3초 재사용 대�
   player.update(TILE_MAP, STEALTH_COOLDOWN_MS); // 쿨다운 해제
   assert.equal(player.stealthCooldown, 0);
   assert.equal(player.activateStealth(STEALTH_DURATION_MS), true);
+});
+
+test('아이템 스텔스(applyStealth)는 더 긴 기존 스텔스를 덮어쓰지 않는다', () => {
+  const player = new Player(SPAWN);
+
+  // 스텔스가 없을 때는 쪽쪽이 5초가 그대로 적용된다
+  assert.equal(
+    player.applyStealth(FAKE_PACIFIER.stealthDuration),
+    FAKE_PACIFIER.stealthDuration,
+  );
+  assert.equal(player.stealthTotal, FAKE_PACIFIER.stealthDuration);
+
+  // 침대 스텔스(10초)가 남아 있으면 5초로 줄지 않는다 (Math.max)
+  const bedPlayer = new Player(SPAWN);
+  assert.equal(bedPlayer.activateStealth(STEALTH_DURATION_MS), true);
+  assert.equal(
+    bedPlayer.applyStealth(FAKE_PACIFIER.stealthDuration),
+    STEALTH_DURATION_MS,
+  );
+  assert.equal(bedPlayer.stealthTotal, STEALTH_DURATION_MS);
 });
 
 test('악당에게 잡히면 -200점 후 침대로 귀환한다', () => {

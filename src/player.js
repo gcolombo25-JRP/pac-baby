@@ -39,6 +39,7 @@ export default class Player {
 
     // 침대 스텔스 (6단계 부가 기능)
     this.stealthTimer = 0;      // 남은 스텔스 시간
+    this.stealthTotal = 0;      // 이번 스텔스의 총 지속 시간 (게이지 표시 기준)
     this.stealthCooldown = 0;   // 재사용 대기 시간
 
     // 체포 연출: 잡힌 자리에서 굳어버린 상태 (이 동안 이동/입력 무시)
@@ -81,7 +82,24 @@ export default class Player {
     if (this.stealthTimer > 0) return false;    // 이미 스텔스 중
     if (this.stealthCooldown > 0) return false; // 재사용 대기 중
     this.stealthTimer = duration;
+    this.stealthTotal = duration;
     return true;
+  }
+
+  /**
+   * 아이템(가짜 젖꼭지)로 스텔스를 부여한다.
+   * - 이미 스텔스 중이면 더 긴 시간을 유지한다 (Math.max — 짧은 쪽으로 덮어쓰지 않음).
+   * - 침대 스텔스와 달리 재사용 대기 시간 중에도 발동한다 (아이템 효과).
+   * @param {number} duration 부여할 스텔스 시간(ms)
+   * @returns {number} 적용 후 남은 스텔스 시간(ms)
+   */
+  applyStealth(duration) {
+    const next = Math.max(0, Number(duration) || 0);
+    if (next > this.stealthTimer) {
+      this.stealthTimer = next;
+      this.stealthTotal = next;
+    }
+    return this.stealthTimer;
   }
 
   /** 스텔스/쿨다운 타이머 진행 */
@@ -90,6 +108,7 @@ export default class Player {
       this.stealthTimer -= dt;
       if (this.stealthTimer <= 0) {
         this.stealthTimer = 0;
+        this.stealthTotal = 0;
         this.stealthCooldown = STEALTH_COOLDOWN_MS;
       }
       return;
@@ -624,6 +643,7 @@ export default class Player {
     this.digesting = [];
     this.expelledTraps = [];
     this.stealthTimer = 0;
+    this.stealthTotal = 0;
     this.stealthCooldown = 0;
     this.stunTimer = 0;
     this.trail = [];

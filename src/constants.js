@@ -302,6 +302,39 @@ export function randomWalkableTile(map, rng = Math.random, avoid = []) {
   return null;
 }
 
+/**
+ * 가짜 젖꼭지(쪽쪽이) 전용 랜덤 스폰 타일.
+ * - 벽(1)뿐 아니라 침대(2)/보모 대기실(3)도 후보에서 제외한다.
+ * - avoid 목록(기존 아이템·플레이어/보모 인접 타일 등)도 함께 피한다.
+ * - 후보를 모두 모은 뒤 난수로 하나를 고르므로 실패 재시도 없이 균등하게 분포한다.
+ * @param {number[][]} map
+ * @param {() => number} rng 난수 함수 (테스트에서 주입 가능)
+ * @param {Array<{row: number, col: number}>} avoid 제외할 타일 목록
+ * @returns {{row: number, col: number} | null}
+ */
+export function randomPacifierTile(map, rng = Math.random, avoid = []) {
+  const blocked = new Set(avoid.map(p => `${p.row},${p.col}`));
+  const candidates = [];
+
+  for (let row = 0; row < map.length; row++) {
+    for (let col = 0; col < map[row].length; col++) {
+      const tile = map[row][col];
+      if (tile === 1 || tile === 2 || tile === 3) continue;
+      if (blocked.has(`${row},${col}`)) continue;
+      candidates.push({ row, col });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  const roll = Number(rng());
+  const index = Math.min(
+    candidates.length - 1,
+    Math.max(0, Math.floor((Number.isFinite(roll) ? roll : 0) * candidates.length)),
+  );
+  return candidates[index];
+}
+
 // ===== 특수 메커니즘: 슈가 러시 & 황금 젖병 =====
 /** 캔디(🍬) 섭취 시 3초간 이동 속도 +50% + 몸이 알록달록 깜빡이는 부스터 */
 export const SUGAR_RUSH = {
@@ -323,6 +356,22 @@ export const GOLDEN_BOTTLE = {
 
 /** 황금 젖병 스폰 — 28x28 맵의 정중앙 (터널 행의 한가운데) */
 export const GOLDEN_SPAWN = { row: 14, col: 14 };
+
+// ===== 특수 아이템: 가짜 젖꼭지(쪽쪽이) =====
+/**
+ * 라운드 중 최대 1개만 존재하는 랜덤 특수 아이템.
+ * - 라운드 클리어 필수 아이템(12개)에는 포함되지 않는다.
+ * - 아기가 먹으면 5초 스텔스, 보모가 먼저 찾으면 치워버린다.
+ */
+export const FAKE_PACIFIER = {
+  name: '쪽쪽이',
+  score: 100,                    // 소량 점수 (라운드 상한 캡은 _addScore 가 지킨다)
+  stealthDuration: 5000,         // 5초 스텔스
+  respawnMs: 30000,              // 아기 획득 후 30초 쿨타임
+  enemyClearDelayMs: 1500,       // 보모가 치운 뒤 1.5초 후 다른 빈 타일에 재등장
+  minSpawnDistanceTiles: 2,      // 플레이어/보모와 최소 2타일(체비셰프) 이상 떨어진 곳
+  color: '#f8bbd0',              // 파스텔 핑크 (방패판/링)
+};
 
 // ===== 아이템 속성 =====
 export const ITEMS = {
@@ -364,6 +413,19 @@ export const ITEMS = {
     slowDuration: 0,
     super: true,
     respawnMs: GOLDEN_BOTTLE.respawnMs,
+  },
+  // 특수 아이템: 가짜 젖꼭지(쪽쪽이). 클리어 카운트/소화/트랩 없음.
+  // symbol 은 비워 두고 item.js 에서 Canvas 2D 도형으로 직접 그린다.
+  PACIFIER: {
+    name: FAKE_PACIFIER.name,
+    symbol: '',
+    score: FAKE_PACIFIER.score,
+    digestTime: 0,
+    trapType: null,
+    slowEffect: 0,
+    slowDuration: 0,
+    super: true,
+    respawnMs: FAKE_PACIFIER.respawnMs,
   },
 };
 

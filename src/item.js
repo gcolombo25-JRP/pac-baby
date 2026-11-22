@@ -3,7 +3,7 @@
  */
 
 import {
-  TILE_SIZE, COLORS, ITEMS,
+  TILE_SIZE, COLORS, ITEMS, FAKE_PACIFIER,
   ITEM_RESPAWN_MS, TRAP_LIFE_MS, TRAP_COLORS, randomWalkableTile,
 } from './constants.js';
 
@@ -13,6 +13,7 @@ const ITEM_RING_COLORS = {
   CANDY: '#f48fb1',
   COOKIE: '#ffcc80',
   GOLDEN: '#ffd700',
+  PACIFIER: FAKE_PACIFIER.color,
 };
 
 /** 작은 4갈래 반짝이 (선 4개) */
@@ -26,13 +27,122 @@ function drawSparkle(ctx, x, y, size) {
 }
 
 /**
+ * 공갈 젖꼭지(쪽쪽이)를 Canvas 2D 도형만으로 그린다.
+ * - 실리콘 팁(위쪽 둥근 버튼) + 파스텔 방패판 + 고리 손잡이 + 외곽선
+ * - OS 이모지/roundRect/ellipse 에 의존하지 않고 arc · quadraticCurveTo ·
+ *   moveTo · lineTo 만 사용한다 (테스트 스텁 ctx 호환).
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx 중심 x
+ * @param {number} cy 중심 y
+ * @param {number} size 전체 크기(px)
+ * @param {number} timeMs 애니메이션 시간(ms)
+ */
+function drawPacifier(ctx, cx, cy, size, timeMs) {
+  const s = size;
+  const tilt = Math.sin(timeMs / 430) * 0.08; // 살짝 흔들리는 장난감 느낌
+
+  // 테스트용 최소 스텁 ctx 에 quadraticCurveTo 가 없으면 직선으로 근사한다.
+  const curveTo = typeof ctx.quadraticCurveTo === 'function'
+    ? (cpx, cpy, x, y) => ctx.quadraticCurveTo(cpx, cpy, x, y)
+    : (cpx, cpy, x, y) => ctx.lineTo(x, y);
+
+  const canTransform = typeof ctx.translate === 'function';
+  const canSave = typeof ctx.save === 'function';
+  if (canSave) ctx.save();
+  if (canTransform) {
+    ctx.translate(cx, cy);
+    if (typeof ctx.rotate === 'function') ctx.rotate(tilt);
+    ctx.translate(-cx, -cy);
+  }
+
+  // ===== 고리 손잡이 (아래쪽) =====
+  // 바깥 외곽선을 두껍게 깔고, 그 위에 밝은 링을 얹어 도넛 모양을 만든다.
+  const ringY = cy + s * 0.38;
+  const ringR = s * 0.24;
+  ctx.strokeStyle = '#c96a99';
+  ctx.lineWidth = Math.max(1, s * 0.15);
+  ctx.beginPath();
+  ctx.arc(cx, ringY, ringR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#ffd9ea';
+  ctx.lineWidth = Math.max(1, s * 0.075);
+  ctx.beginPath();
+  ctx.arc(cx, ringY, ringR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // ===== 파스텔 방패판 =====
+  const left = cx - s * 0.43;
+  const right = cx + s * 0.43;
+  const top = cy - s * 0.20;
+  const bottom = cy + s * 0.26;
+  const corner = s * 0.16;
+
+  ctx.beginPath();
+  ctx.moveTo(left + corner, top);
+  ctx.lineTo(right - corner, top);
+  curveTo(right, top, right, top + corner);
+  ctx.lineTo(right, bottom - corner);
+  curveTo(right, bottom, right - corner, bottom);
+  ctx.lineTo(left + corner, bottom);
+  curveTo(left, bottom, left, bottom - corner);
+  ctx.lineTo(left, top + corner);
+  curveTo(left, top, left + corner, top);
+  ctx.closePath();
+
+  ctx.fillStyle = '#ffd1e6';
+  ctx.fill();
+  ctx.strokeStyle = '#c96a99';
+  ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.stroke();
+
+  // 방패판 유광 하이라이트
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.beginPath();
+  ctx.arc(cx - s * 0.18, cy - s * 0.08, s * 0.075, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 방패판 가운데 작은 구멍 자국 (공기 구멍)
+  ctx.fillStyle = 'rgba(201, 106, 153, 0.35)';
+  ctx.beginPath();
+  ctx.arc(cx + s * 0.20, cy + s * 0.10, s * 0.035, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ===== 실리콘 팁 (방패판 위쪽 돌출부) =====
+  const baseY = top + s * 0.03;
+  const tipY = cy - s * 0.62;
+
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.15, baseY);
+  curveTo(cx - s * 0.22, tipY + s * 0.12, cx - s * 0.11, tipY);
+  curveTo(cx, tipY - s * 0.05, cx + s * 0.11, tipY);
+  curveTo(cx + s * 0.22, tipY + s * 0.12, cx + s * 0.15, baseY);
+  curveTo(cx, baseY + s * 0.07, cx - s * 0.15, baseY);
+  ctx.closePath();
+
+  ctx.fillStyle = '#fff7fb';
+  ctx.fill();
+  ctx.strokeStyle = '#c96a99';
+  ctx.lineWidth = Math.max(1, s * 0.08);
+  ctx.stroke();
+
+  // 팁 유광
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.beginPath();
+  ctx.arc(cx - s * 0.05, tipY + s * 0.15, s * 0.035, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (canSave) ctx.restore?.();
+}
+
+/**
  * 아이템 (맵에 놓여있는 상태)
  */
 export class Item {
   /**
    * @param {number} row
    * @param {number} col
-   * @param {'MILK'|'CANDY'|'COOKIE'|'GOLDEN'} type
+   * @param {'MILK'|'CANDY'|'COOKIE'|'GOLDEN'|'PACIFIER'} type
    * @param {{fixed?: boolean}} options fixed=true 면 리스폰도 처음 위치(황금 젖병)
    */
   constructor(row, col, type, options = {}) {
@@ -40,7 +150,7 @@ export class Item {
     this.col = col;
     this.x = col * TILE_SIZE;
     this.y = row * TILE_SIZE;
-    this.type = type;        // 'MILK' | 'CANDY' | 'COOKIE' | 'GOLDEN'
+    this.type = type;        // 'MILK' | 'CANDY' | 'COOKIE' | 'GOLDEN' | 'PACIFIER'
     this.config = ITEMS[type];
     this.collected = false;
     this.respawnTimer = 0;   // 섭취 후 다시 나타나기까지 남은 시간(ms)
@@ -51,7 +161,8 @@ export class Item {
   }
 
   /**
-   * 아이템 섭취: 숨기고 리스폰을 예약한다 (일반 15초 / 황금 젖병 20초).
+   * 아이템 섭취: 숨기고 리스폰을 예약한다.
+   * (일반 15초 / 황금 젖병 20초 / 가짜 젖꼭지 30초)
    * @returns {number} 획득 점수 (이미 먹힌 상태면 0)
    */
   collect() {
@@ -105,8 +216,10 @@ export class Item {
 
     const supportsEllipse = typeof ctx.ellipse === 'function';
     const isGolden = this.type === 'GOLDEN';
+    const isPacifier = this.type === 'PACIFIER';
     const cx = this.x + TILE_SIZE / 2;
-    const bob = Math.sin(timeMs / 320 + this.row * 0.7 + this.col * 1.1) * (isGolden ? 1.9 : 1.3);
+    const bob = Math.sin(timeMs / 320 + this.row * 0.7 + this.col * 1.1)
+      * (isGolden ? 1.9 : isPacifier ? 1.6 : 1.3);
     const cy = this.y + TILE_SIZE / 2 + bob;
     const ring = ITEM_RING_COLORS[this.type] || '#ffe082';
 
@@ -126,14 +239,18 @@ export class Item {
       const ringScale = 0.86 + breath * 0.28; // 0.86 ~ 1.14 배
       ctx.fillStyle = isGolden
         ? `rgba(255, 215, 0, ${pulse + 0.12})`
-        : `rgba(255, 236, 150, ${pulse})`;
+        : isPacifier
+          ? `rgba(255, 190, 222, ${pulse + 0.08})`
+          : `rgba(255, 236, 150, ${pulse})`;
       ctx.beginPath();
       ctx.arc(cx, cy, TILE_SIZE * 0.8 * ringScale, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.strokeStyle = isGolden
         ? 'rgba(255, 230, 120, 0.9)'
-        : 'rgba(255, 248, 190, 0.75)';
+        : isPacifier
+          ? 'rgba(255, 218, 238, 0.9)'
+          : 'rgba(255, 248, 190, 0.75)';
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.arc(cx, cy, TILE_SIZE * 0.62 * ringScale, 0, Math.PI * 2);
@@ -160,12 +277,16 @@ export class Item {
 
     // 접시 (아이보리 원판) — shadowBlur 대신 저비용 후광 원
     ctx.save?.();
-    ctx.fillStyle = isGolden ? 'rgba(255, 226, 130, 0.5)' : 'rgba(255, 244, 196, 0.20)';
+    ctx.fillStyle = isGolden
+      ? 'rgba(255, 226, 130, 0.5)'
+      : isPacifier
+        ? 'rgba(255, 228, 240, 0.34)'
+        : 'rgba(255, 244, 196, 0.20)';
     ctx.beginPath();
     ctx.arc(cx, cy, TILE_SIZE / 2 + (isGolden ? 2 : 1), 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = isGolden ? '#fff8dc' : '#f7f3e3';
+    ctx.fillStyle = isGolden ? '#fff8dc' : isPacifier ? '#fff3f8' : '#f7f3e3';
     ctx.beginPath();
     ctx.arc(cx, cy, TILE_SIZE / 2 - 2.5, 0, Math.PI * 2);
     ctx.fill();
@@ -177,24 +298,34 @@ export class Item {
     ctx.arc(cx, cy, TILE_SIZE / 2 - 4, 0, Math.PI * 2);
     ctx.stroke();
 
-    // 아이템 심볼 (크고 선명하게)
-    ctx.fillStyle = '#333';
-    ctx.font = `${TILE_SIZE * (isGolden ? 0.7 : 0.62)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(this.config.symbol, cx, cy + 0.5);
+    if (isPacifier) {
+      // OS 이모지 대신 Canvas 2D 도형으로 직접 그린다
+      drawPacifier(ctx, cx, cy, TILE_SIZE * 0.82, timeMs);
+    } else {
+      // 아이템 심볼 (크고 선명하게)
+      ctx.fillStyle = '#333';
+      ctx.font = `${TILE_SIZE * (isGolden ? 0.7 : 0.62)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this.config.symbol, cx, cy + 0.5);
+    }
 
     // 둘레를 도는 반짝이
-    ctx.strokeStyle = isGolden ? 'rgba(255, 215, 0, 0.95)' : 'rgba(255, 248, 200, 0.9)';
+    ctx.strokeStyle = isGolden
+      ? 'rgba(255, 215, 0, 0.95)'
+      : isPacifier
+        ? 'rgba(255, 214, 234, 0.95)'
+        : 'rgba(255, 248, 200, 0.9)';
     ctx.lineWidth = isGolden ? 1.3 : 1;
-    const sparkleCount = isGolden ? 6 : 3;
+    const sparkleCount = isGolden ? 6 : isPacifier ? 4 : 3;
     for (let i = 0; i < sparkleCount; i++) {
-      const angle = timeMs / (isGolden ? 420 : 620) + (Math.PI * 2 / sparkleCount) * i;
+      const angle = timeMs / (isGolden ? 420 : isPacifier ? 520 : 620)
+        + (Math.PI * 2 / sparkleCount) * i;
       drawSparkle(
         ctx,
         cx + Math.cos(angle) * (TILE_SIZE * (isGolden ? 0.56 : 0.44)),
         cy + Math.sin(angle) * (TILE_SIZE * (isGolden ? 0.46 : 0.36)),
-        isGolden ? 2.4 : 1.8,
+        isGolden ? 2.4 : isPacifier ? 2 : 1.8,
       );
     }
 

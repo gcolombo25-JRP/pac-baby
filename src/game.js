@@ -17,7 +17,7 @@ import {
   PLAYER_LIVES, ROUND_CLEAR_MODE, ROUND_TARGET_SCORE, ROUND_SPEED_STEP, HISCORE_KEY,
   SKILL_CRY, PENALTY,
   MAX_DEVICE_PIXEL_RATIO, BABY_LIGHT_RADIUS_TILES, BABY_LIGHT_FEATHER_TILES,
-  SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN,
+  SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN, FAKE_PACIFIER, randomPacifierTile,
   GATE_OPEN_MS, GATE_CLOSED_MS, GATE_WARN_MS, GATE_MAX, GATE_POSITIONS,
   VISION_START_ROUND, VISION_START_TILES, VISION_MIN_TILES,
   DARK_HEARTBEAT_WARN_TILES,
@@ -126,6 +126,10 @@ export default class Game {
     this.goldenBottle = null;
     this._initGoldenBottle();
 
+    // 특수 아이템 '가짜 젖꼭지(쪽쪽이)' — 라운드 중 최대 1개, 클리어 카운트와 분리
+    this.pacifier = null;
+    this._initPacifier();
+
     // 효과음 & 속도 단계
     // 재시작 시 같은 SoundFX 를 재사용해 AudioContext 가 누적되지 않게 한다
     this.sound = options.sound || new SoundFX();
@@ -174,7 +178,7 @@ export default class Game {
     this.caughtTimer = 0;          // 체포 연출(Oh! No~) 남은 시간 — 동안 베이비/보모 정지
     this._inRealtimeTick = false;  // 실시간 루프가 _update 를 돌리는 중인지 (연출 조건)
     this.scorePopups = [];         // { row, col, text, color, life, maxLife }
-    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
+    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0, pacifier: 0 };
     this.tester = null;            // 테스터 모드 연결 지점 (src/tester.js)
 
     // ===== 봇 / 데모 플레이 =====
@@ -445,7 +449,7 @@ export default class Game {
     this.lives = PLAYER_LIVES;
     this.round = 1;
     this.catchCount = 0;
-    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
+    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0, pacifier: 0 };
     this.newRecord = false;
     this.speedLevel = DEFAULT_SPEED_LEVEL;
     this.baseSpeedLevel = DEFAULT_SPEED_LEVEL;
@@ -500,6 +504,71 @@ export default class Game {
     this.goldenBottle = new Item(
       GOLDEN_SPAWN.row, GOLDEN_SPAWN.col, 'GOLDEN', { fixed: true },
     );
+  }
+
+  /**
+   * 쪽쪽이 스폰/리스폰 시 피해야 하는 타일 목록.
+   * - 기존 아이템/황금 젖병/닫힌 철창문
+   * - 플레이어·보모의 2타일 이내(체비셰프 거리)
+   * - 리스폰이면 방금 있던 타일 (항상 다른 빈 타일에 나타나게)
+   * @param {{includeSelf?: boolean}} [options]
+   * @returns {Array<{row: number, col: number}>}
+   */
+  _pacifierAvoid(options = {}) {
+    const includeSelf = options.includeSelf !== false;
+    const avoid = [];
+
+    for (const item of this.items || []) {
+      if (!item.collected) avoid.push({ row: item.row, col: item.col });
+    }
+    if (this.goldenBottle && !this.goldenBottle.collected) {
+      avoid.push({ row: this.goldenBottle.row, col: this.goldenBottle.col });
+    }
+    for (const gate of this.gates || []) {
+      avoid.push({ row: gate.row, col: gate.col });
+    }
+
+    // 침대(2)·보모 대기실(3) 타일은 리스폰(randomWalkableTile)에서도 제외한다
+    const sourceMap = this.map?.map || this.navMap;
+    for (let row = 0; row < sourceMap.length; row++) {
+      for (let col = 0; col < sourceMap[row].length; col++) {
+        if (sourceMap[row][col] === 2 || sourceMap[row][col] === 3) {
+          avoid.push({ row, col });
+        }
+      }
+    }
+
+    const radius = FAKE_PACIFIER.minSpawnDistanceTiles;
+    const actors = [
+      { row: this.player.row, col: this.player.col },
+      ...(this.enemies || []).map(enemy => ({ row: enemy.row, col: enemy.col })),
+    ];
+    for (const actor of actors) {
+      for (let dr = -radius; dr <= radius; dr++) {
+        for (let dc = -radius; dc <= radius; dc++) {
+          avoid.push({ row: actor.row + dr, col: actor.col + dc });
+        }
+      }
+    }
+
+    if (includeSelf && this.pacifier) {
+      avoid.push({ row: this.pacifier.row, col: this.pacifier.col });
+    }
+
+    return avoid;
+  }
+
+  /**
+   * 랜덤 빈 복도 타일에 가짜 젖꼭지(쪽쪽이) 배치 — 라운드 중 최대 1개.
+   * (벽·침대·보모 대기실·기존 아이템·플레이어/보모 인접 타일 제외)
+   * @returns {Item|null}
+   */
+  _initPacifier() {
+    const spot = randomPacifierTile(this.navMap, this.rng, this._pacifierAvoid());
+    if (!spot) return null;
+
+    this.pacifier = new Item(spot.row, spot.col, 'PACIFIER');
+    return this.pacifier;
   }
 
   // ===== 고라운드 난이도: 악당 수 / 철창문 / 시야 =====
@@ -1065,6 +1134,9 @@ export default class Game {
     // 보모(악당): 일부는 추격, 일부는 경비 순찰 (닫힌 철창문은 통과 불가)
     this.enemies.forEach(e => e.update(dt, this.navMap, this.player.row, this.player.col));
 
+    // 특수 아이템: 쪽쪽이 (아기 획득 / 보모가 치움 / 30초·1.5초 쿨타임 재등장)
+    this._updatePacifier(dt);
+
     // 트랩 수명 & 악당 감속 판정
     this._updateTraps(dt);
 
@@ -1246,6 +1318,87 @@ export default class Game {
       this._activateGoldenWalker();
       bottle.collect();
     }
+  }
+
+  /**
+   * 가짜 젖꼭지(쪽쪽이) 판정 + 리스폰 타이머.
+   * - 아기가 먼저 밟으면 5초 스텔스(기존 스텔스가 더 길면 유지) + 소량 점수.
+   * - 얼어붙지 않은 보모가 먼저 밟으면 '치웠다!' 팝업과 함께 1.5초 뒤 다른 빈 타일에서 재등장.
+   * - 일반 아이템 12개/클리어 카운트/소화/트랩과 완전히 분리된다.
+   * @param {number} dt
+   */
+  _updatePacifier(dt) {
+    const pacifier = this.pacifier;
+    if (!pacifier) return;
+
+    // 아기 획득 (같은 타일이면 보모보다 아기 우선)
+    if (!pacifier.collected
+      && pacifier.row === this.player.row
+      && pacifier.col === this.player.col) {
+      this._activatePacifier();
+      pacifier.collect(); // 30초 쿨타임 예약 (소화/클리어 카운트에는 영향 없음)
+      return;
+    }
+
+    // 보모가 먼저 찾은 경우 (얼어붙은 보모는 쪽쪽이를 치우지 못한다)
+    if (!pacifier.collected) {
+      const finder = this.enemies.find(
+        enemy => !enemy.isFrozen
+          && enemy.row === pacifier.row
+          && enemy.col === pacifier.col,
+      );
+      if (finder) {
+        this._clearPacifier(finder, pacifier);
+        return;
+      }
+    }
+
+    if (pacifier.collected) {
+      pacifier.update(dt, this.navMap, this.rng, this._pacifierAvoid());
+    }
+  }
+
+  /** 아기가 쪽쪽이를 획득: 5초 스텔스 + 소량 점수 (라운드 상한 캡 유지) */
+  _activatePacifier() {
+    const applied = this._addScore(FAKE_PACIFIER.score);
+    const remaining = this.player.applyStealth(FAKE_PACIFIER.stealthDuration);
+
+    // 침대 스텔스와 동일하게 추격 보모는 목표를 잃고 잠시 순찰한다
+    this.enemies.forEach(enemy => enemy.loseTarget(ENEMY_CONFUSE_MS));
+
+    this.stats.stealth += 1;
+    this.stats.pacifier = (this.stats.pacifier || 0) + 1;
+    this._updateHiScore();
+
+    this._addPopup(
+      this.player.row, this.player.col,
+      applied > 0 ? `+${applied}` : 'MAX',
+      FAKE_PACIFIER.color,
+    );
+    this.tester?.log?.(
+      'pacifier',
+      `쪽쪽이! ${(remaining / 1000).toFixed(1)}초 스텔스 (+${applied})`,
+    );
+    this.sound.playStealth?.();
+    this.effects.flashScreen(FAKE_PACIFIER.color, 0.16, 0.24);
+    this.effects.burstSparkle(this.player.row, this.player.col, 10);
+  }
+
+  /**
+   * 보모가 쪽쪽이를 치움: 즉시 다른 빈 타일로 옮기지 않고 짧은 딜레이(1.5초) 후 재등장.
+   * @param {object} enemy 찾은 보모
+   * @param {Item} pacifier
+   */
+  _clearPacifier(enemy, pacifier) {
+    pacifier.collect(); // 기본 30초 예약 → 아래에서 짧은 딜레이로 교체
+    pacifier.respawnTimer = FAKE_PACIFIER.enemyClearDelayMs;
+
+    this._addPopup(pacifier.row, pacifier.col, '치웠다!', FAKE_PACIFIER.color);
+    this.tester?.log?.(
+      'pacifier',
+      `보모가 쪽쪽이를 치웠다 @ (${enemy.row},${enemy.col})`,
+    );
+    this.effects.burstSparkle(pacifier.row, pacifier.col, 6);
   }
 
   /** 캔디(🍬) 섭취: 3초간 이동 속도 +50% 슈가 러시 */
@@ -1857,6 +2010,10 @@ export default class Game {
     this.goldenBottle = null;
     this._initGoldenBottle();
 
+    // 가짜 젖꼭지(쪽쪽이)도 라운드마다 랜덤 빈 타일에 1개 배치
+    this.pacifier = null;
+    this._initPacifier();
+
     this.traps = [];
     this.scorePopups = [];
     this.effects.reset();
@@ -1919,7 +2076,7 @@ export default class Game {
     this.lives = PLAYER_LIVES;
     this.round = 1;
     this.catchCount = 0;
-    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0 };
+    this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0, pacifier: 0 };
     this.newRecord = false;
     this.baseSpeedLevel = this.speedLevel; // 재도전 시 현재 속도 단계를 기준으로 유지
     this._resetBoard();
@@ -1988,6 +2145,9 @@ export default class Game {
       // 황금 젖병 (맵 중앙 슈퍼 아이템)
       this.goldenBottle?.render(ctx, this.animTime);
 
+      // 가짜 젖꼭지(쪽쪽이) — 랜덤 복도 특수 아이템
+      this.pacifier?.render(ctx, this.animTime);
+
       // 트랩 렌더링
       this.traps.forEach(trap => trap.render(ctx, this.animTime));
 
@@ -2006,6 +2166,7 @@ export default class Game {
 
       this.items.forEach(item => item.render(ctx, this.animTime, { dark: true }));
       this.goldenBottle?.render(ctx, this.animTime, { dark: true });
+      this.pacifier?.render(ctx, this.animTime, { dark: true });
       this.traps.forEach(trap => trap.render(ctx, this.animTime, { dark: true }));
 
       // 어둠 속에서도 철창문 상태를 알 수 있게 작은 표시등
@@ -2469,7 +2630,11 @@ export default class Game {
   _renderStealthGauge(ctx) {
     if (!this.player.isStealthed) return;
 
-    const ratio = this.player.stealthTimer / STEALTH_DURATION_MS;
+    // 침대(10초)든 쪽쪽이(5초)든 이번 스텔스의 총 시간을 기준으로 게이지를 채운다
+    const total = this.player.stealthTotal > 0
+      ? this.player.stealthTotal
+      : STEALTH_DURATION_MS;
+    const ratio = Math.min(1, Math.max(0, this.player.stealthTimer / total));
     const y = 44; // 소화 게이지(y=32) 아래 고정 슬롯
 
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
