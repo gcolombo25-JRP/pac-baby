@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import SoundFX from '../src/sound.js';
+import SoundFX, { stereoPanFromTiles } from '../src/sound.js';
 
 test('음향은 기본적으로 켜져 있고 토글로 꺼진다', () => {
   const sound = new SoundFX();
@@ -282,3 +282,188 @@ test('destroy 는 오디오 장치를 닫고 참조를 정리한다', () => {
     delete globalThis.window;
   }
 });
+
+/** 마스터 버스/패닝까지 지원하는 확장 Web Audio 스텁 */
+class RichAudioParam {
+  constructor(value = 0) { this.value = value; this.calls = []; }
+  setValueAtTime(value, time) { this.value = value; this.calls.push(['set', value, time]); }
+  exponentialRampToValueAtTime(value, time) { this.calls.push(['ramp', value, time]); }
+}
+
+class RichNode {
+  constructor() { this.connections = []; }
+  connect(node) { this.connections.push(node); return node; }
+}
+
+class RichGain extends RichNode {
+  constructor() { super(); this.gain = new RichAudioParam(1); }
+}
+
+class RichOscillator extends RichNode {
+  constructor() {
+    super();
+    this.type = 'sine';
+    this.frequency = new RichAudioParam(440);
+    this.startedAt = null;
+    this.stoppedAt = null;
+  }
+  start(time) { this.startedAt = time; }
+  stop(time) { this.stoppedAt = time; }
+}
+
+class RichCompressor extends RichNode {
+  constructor() {
+    super();
+    this.threshold = new RichAudioParam(-24);
+    this.knee = new RichAudioParam(30);
+    this.ratio = new RichAudioParam(12);
+    this.attack = new RichAudioParam(0.003);
+    this.release = new RichAudioParam(0.25);
+  }
+}
+
+class RichFilter extends RichNode {
+  constructor() {
+    super();
+    this.type = 'lowpass';
+    this.frequency = new RichAudioParam(350);
+    this.Q = new RichAudioParam(1);
+  }
+}
+
+class RichDelay extends RichNode {
+  constructor() { super(); this.delayTime = new RichAudioParam(0); }
+}
+
+class RichPanner extends RichNode {
+  constructor() { super(); this.pan = new RichAudioParam(0); }
+}
+
+class RichAudioContext {
+  constructor() {
+    this.state = 'running';
+    this.currentTime = 0;
+    this.destination = new RichNode();
+    this.gains = [];
+    this.oscillators = [];
+    this.compressors = [];
+    this.filters = [];
+    this.delays = [];
+    this.panners = [];
+  }
+  createGain() { const node = new RichGain(); this.gains.push(node); return node; }
+  createOscillator() { const node = new RichOscillator(); this.oscillators.push(node); return node; }
+  createDynamicsCompressor() { const node = new RichCompressor(); this.compressors.push(node); return node; }
+  createBiquadFilter() { const node = new RichFilter(); this.filters.push(node); return node; }
+  createDelay() { const node = new RichDelay(); this.delays.push(node); return node; }
+  createStereoPanner() { const node = new RichPanner(); this.panners.push(node); return node; }
+  resume() { return Promise.resolve(); }
+}
+
+test('stereoPanFromTiles 는 X 차이를 -0.8 ~ +0.8 패닝으로 변환한다', () => {
+  assert.equal(stereoPanFromTiles(0), 0);
+  assert.ok(stereoPanFromTiles(4) > 0, '오른쪽은 +');
+  assert.equal(stereoPanFromTiles(100), 0.8, '최대 +0.8 로 제한');
+  assert.equal(stereoPanFromTiles(-100), -0.8, '최대 -0.8 로 제한');
+  assert.equal(stereoPanFromTiles(Number.NaN), 0, '잘못된 값은 중앙');
+});
+
+test('마스터 버스는 컴프레서 → 로우패스 → 슬랩백 딜레이로 연결된다', () => {
+  globalThis.window = { AudioContext: RichAudioContext };
+
+  try {
+    const sound = new SoundFX();
+    sound.playItem();
+
+    assert.equal(sound.master.gain.value, 0.4, '마스터 볼륨 유지');
+    assert.equal(sound.ctx.compressors.length, 1, '클리핑 방지 컴프레서');
+    assert.equal(sound.ctx.filters.length, 1, '톤 로우패스 필터');
+    assert.equal(sound.ctx.delays.length, 1, '슬랩백 딜레이');
+
+    const [comp] = sound.ctx.compressors;
+    const [filter] = sound.ctx.filters;
+    const [delay] = sound.ctx.delays;
+
+    assert.equal(filter.type, 'lowpass');
+    assert.ok(
+      filter.frequency.value >= 4200 && filter.frequency.value <= 5000,
+      `로우패스는 4200~5000Hz (${filter.frequency.value})`,
+    );
+    assert.ok(
+      delay.delayTime.value >= 0.045 && delay.delayTime.value <= 0.065,
+      `슬랩백은 45~65ms (${delay.delayTime.value})`,
+    );
+
+    assert.equal(sound.master.connections[0], comp, 'master → 컴프레서');
+    assert.ok(comp.connections.includes(filter), '컴프레서 → 필터');
+    assert.ok(filter.connections.includes(sound.ctx.destination), '드라이 경로 유지');
+    assert.ok(filter.connections.includes(delay), '에코 샌드');
+
+    const { wet, feedback } = sound._echo;
+    assert.ok(feedback.gain.value > 0 && feedback.gain.value <= 0.3, '낮은 피드백');
+    assert.ok(delay.connections.includes(feedback));
+    assert.ok(feedback.connections.includes(delay), '피드백 루프');
+    assert.equal(wet.connections[0], sound.ctx.destination, '젖은 소리 → 출력');
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+
+test('아이템/파워업/BGM 은 삼각파·사인파 레이어만 사용한다', () => {
+  globalThis.window = { AudioContext: RichAudioContext };
+
+  try {
+    const isWarm = osc => osc.type === 'triangle' || osc.type === 'sine';
+
+    const item = new SoundFX();
+    item.playItem();
+    assert.ok(item.ctx.oscillators.length >= 3, '아이템: 여러 겹 레이어');
+    assert.ok(item.ctx.oscillators.every(isWarm), '아이템: 쨍한 사각파 없음');
+
+    const sugar = new SoundFX();
+    sugar.playSugarRush();
+    assert.ok(sugar.ctx.oscillators.length >= 3);
+    assert.ok(sugar.ctx.oscillators.every(isWarm), '슈가 러시: 삼각+사인');
+
+    const golden = new SoundFX();
+    golden.playGolden();
+    assert.ok(golden.ctx.oscillators.length >= 3);
+    assert.ok(golden.ctx.oscillators.every(isWarm), '황금 젖병: 삼각+사인');
+
+    const bgm = new SoundFX();
+    bgm.startBgm();
+    bgm.updateBgm();
+    assert.ok(bgm.ctx.oscillators.length > 0, 'BGM 음이 예약된다');
+    assert.ok(bgm.ctx.oscillators.every(isWarm), 'BGM 멜로디: 삼각+사인');
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test('트랩 적중음과 심장박동은 보모 방향으로 패닝된다', () => {
+  globalThis.window = { AudioContext: RichAudioContext };
+
+  try {
+    const trap = new SoundFX();
+    trap.playTrapHit(0.8);
+    assert.equal(trap.ctx.panners.length, 2, '두 겹 타격음 모두 패닝');
+    assert.ok(trap.ctx.panners.every(p => Math.abs(p.pan.value - 0.8) < 1e-6));
+
+    const center = new SoundFX();
+    center.playTrapHit();
+    assert.equal(center.ctx.panners.length, 0, '중앙(pan 0)은 모노로 재생');
+
+    const heart = new SoundFX();
+    assert.equal(heart.updateHeartbeat(1, 0, -0.8), true);
+    assert.equal(heart.heartbeatPan, -0.8);
+    assert.equal(heart.ctx.panners.length, 2, '쿵-덥 두 박자 모두 패닝');
+    assert.ok(heart.ctx.panners.every(p => Math.abs(p.pan.value + 0.8) < 1e-6));
+
+    heart.resetHeartbeat();
+    assert.equal(heart.heartbeatPan, 0, '초기화하면 중앙');
+  } finally {
+    delete globalThis.window;
+  }
+});
+

@@ -7,7 +7,7 @@
  * - 오디오가 없는 환경(Node 테스트 등)에서는 조용히 무시된다.
  */
 
-// ===== 8비트 BGM 설정 =====
+// ===== BGM 설정 (삼각파 + 사인 레이어링으로 따뜻하게) =====
 const BGM_STEP_SEC = 0.24;   // 8분음표 길이(초)
 const BGM_LOOKAHEAD = 0.3;   // 미리 예약해 둘 시간(초)
 
@@ -32,6 +32,32 @@ const BGM_BASS = ['C3', 'A3', 'F3', 'G3'];
 const HEARTBEAT_MAX_MS = 1100; // 시야 경계에 막 들어왔을 때의 박동 간격(ms)
 const HEARTBEAT_MIN_MS = 430;  // 바로 옆에 붙었을 때의 박동 간격(ms)
 
+// ===== 마스터 버스 (쨍한 기계음을 줄이고 입체감을 주는 출력단) =====
+const MASTER_VOLUME = 0.4;         // 전체 볼륨
+const TONE_LOWPASS_HZ = 4600;      // 4200~5000Hz: 날카로운 고음 완화
+const SLAPBACK_DELAY_SEC = 0.055;  // 45~65ms 아주 짧은 슬랩백(가벼운 공간감)
+const SLAPBACK_FEEDBACK = 0.17;    // 낮은 피드백 — 에코가 뭉개지지 않게
+const SLAPBACK_WET = 0.2;          // 에코(젖은 소리) 비중
+const PAN_RANGE_TILES = 8;         // 좌우 패닝 기준 타일 거리
+const PAN_MAX = 0.8;               // 최대 패닝 (-0.8 ~ +0.8)
+
+/**
+ * 보모와 베이비의 X(열) 차이를 스테레오 패닝 값으로 변환한다.
+ * - 화면 오른쪽(열이 더 큰 쪽)의 보모는 +, 왼쪽은 -.
+ * - PAN_RANGE_TILES 이상 떨어지면 최대치(PAN_MAX = ±0.8)로 고정한다.
+ * @param {number} deltaTiles 보모 열 - 베이비 열
+ * @param {number} [maxPan=PAN_MAX] 최대 패닝 절댓값
+ * @param {number} [rangeTiles=PAN_RANGE_TILES] 최대치에 도달하는 타일 거리
+ * @returns {number} -maxPan ~ +maxPan
+ */
+export function stereoPanFromTiles(deltaTiles, maxPan = PAN_MAX, rangeTiles = PAN_RANGE_TILES) {
+  const delta = Number.isFinite(deltaTiles) ? deltaTiles : 0;
+  const limit = Number.isFinite(maxPan) ? Math.min(1, Math.abs(maxPan)) : PAN_MAX;
+  const range = Number.isFinite(rangeTiles) && rangeTiles > 0 ? rangeTiles : PAN_RANGE_TILES;
+  const ratio = Math.max(-1, Math.min(1, delta / range));
+  return ratio * limit;
+}
+
 export default class SoundFX {
   constructor() {
     this.enabled = true;   // 음향 on/off
@@ -40,6 +66,8 @@ export default class SoundFX {
     this.stepToggle = false; // 발걸음 소리 음높이 번갈아 재생
     this._noiseBuffer = null; // 효과음용 노이즈 원본 (한 번만 생성)
     this._lastUiClickAt = 0;  // UI 클릭음 연타 제한용 타임스탬프(ms)
+    this._bus = null;         // 마스터 버스 노드 참조 (컴프레서/필터/딜레이 등)
+    this._echo = null;        // 슬랩백 딜레이 노드 묶음
 
     // BGM 루프 상태
     this.bgmRunning = false;
@@ -49,6 +77,7 @@ export default class SoundFX {
     // 어둠 모드 근접 경고(심장박동) 상태
     this.heartbeatTimer = 0;  // 다음 박동까지 남은 시간(ms)
     this.heartbeatLevel = 0;  // 0(안전) ~ 1(바로 옆)
+    this.heartbeatPan = 0;    // 가장 가까운 보모 방향 (-1 왼쪽 ~ +1 오른쪽)
   }
 
   /** 음향 켜기/끄기 토글 후 현재 상태 반환 (BGM 도 함께) */
@@ -71,7 +100,7 @@ export default class SoundFX {
     this.startBgm(); // 첫 사용자 입력에서 BGM 시작
   }
 
-  // ===== 8비트 BGM 루프 =====
+  // ===== BGM 루프 =====
 
   /** BGM 시작 (AudioContext 가 없으면 무시) */
   startBgm() {
@@ -114,17 +143,31 @@ export default class SoundFX {
     const note = BGM_MELODY[step % BGM_MELODY.length];
     const freq = NOTE_FREQ[note];
     if (freq) {
-      this._beepAt(freq, when, BGM_STEP_SEC * 0.85, 'square', 0.16);
+      // 삼각파 몸통 + 한 옥타브 위 사인 배음 → 사각파의 쨍함 없이 따뜻하고 둥근 멜로디
+      this._beepAt(freq, when, BGM_STEP_SEC * 0.9, 'triangle', 0.16);
+      this._beepAt(freq * 2, when + 0.004, BGM_STEP_SEC * 0.55, 'sine', 0.045);
     }
 
     if (step % 4 === 0) {
       const bass = NOTE_FREQ[BGM_BASS[Math.floor(step / 4) % BGM_BASS.length]];
-      if (bass) this._beepAt(bass, when, BGM_STEP_SEC * 1.6, 'triangle', 0.12);
+      if (bass) {
+        // 베이스도 삼각파 + 한 옥타브 아래 사인 서브로 두껍고 부드럽게
+        this._beepAt(bass, when, BGM_STEP_SEC * 1.75, 'triangle', 0.13);
+        this._beepAt(bass * 0.5, when, BGM_STEP_SEC * 1.6, 'sine', 0.07);
+      }
     }
   }
 
-  /** 절대 시각(when)에 한 음 예약 */
-  _beepAt(freq, when, duration, type = 'square', volume = 0.4) {
+  /**
+   * 절대 시각(when)에 한 음 예약
+   * @param {number} freq 주파수
+   * @param {number} when 재생 시각(AudioContext 시간)
+   * @param {number} duration 초
+   * @param {OscillatorType} type 파형
+   * @param {number} volume 0~1
+   * @param {number} attack 어택(초) — 조금 길면 부드럽게 스며든다
+   */
+  _beepAt(freq, when, duration, type = 'square', volume = 0.4, attack = 0.01) {
     const ctx = this.ctx;
     if (!ctx || !this.master) return;
 
@@ -135,7 +178,7 @@ export default class SoundFX {
     osc.frequency.setValueAtTime(freq, when);
 
     gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(volume, when + 0.01);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), when + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
 
     osc.connect(gain);
@@ -157,8 +200,8 @@ export default class SoundFX {
       try {
         this.ctx = new AC();
         this.master = this.ctx.createGain();
-        this.master.gain.value = 0.4; // 전체 볼륨
-        this.master.connect(this.ctx.destination);
+        this._setAudioParam(this.master.gain, MASTER_VOLUME); // 전체 볼륨
+        this._buildMasterBus(this.ctx);
       } catch (err) {
         this.enabled = false; // 오디오를 만들 수 없는 환경
         return null;
@@ -169,6 +212,101 @@ export default class SoundFX {
       this.ctx.resume().catch(() => {});
     }
     return this.ctx;
+  }
+
+  /** AudioParam 값을 안전하게 설정 (없는 스텁/읽기 전용이면 조용히 무시) */
+  _setAudioParam(param, value) {
+    if (!param || typeof param !== 'object' || !('value' in param)) return;
+    try { param.value = value; } catch (err) { /* 무시 */ }
+  }
+
+  /**
+   * 마스터 버스 구성: master → (컴프레서) → (로우패스) ─┬→ destination (드라이)
+   *                                                     └→ (슬랩백 딜레이) → destination
+   * - 컴프레서: 효과음이 겹칠 때 찌그러지지 않게 살짝 눌러 준다(클리핑 방지).
+   * - 로우패스(TONE_LOWPASS_HZ): 날카로운 고음을 부드럽게 다듬는다.
+   * - 슬랩백 딜레이(55ms, 낮은 피드백): 아주 가벼운 공간감만 더한다.
+   * - 테스트 스텁/구형 브라우저에 노드 생성 메서드가 없으면 조용히 건너뛴다.
+   * @param {AudioContext} ctx
+   */
+  _buildMasterBus(ctx) {
+    let output = this.master;
+    const chain = [];
+
+    // 1) 클리핑 방지 컴프레서
+    if (typeof ctx.createDynamicsCompressor === 'function') {
+      try {
+        const comp = ctx.createDynamicsCompressor();
+        this._setAudioParam(comp.threshold, -18); // 순간 피크만 부드럽게 누른다
+        this._setAudioParam(comp.knee, 20);
+        this._setAudioParam(comp.ratio, 3);
+        this._setAudioParam(comp.attack, 0.004);
+        this._setAudioParam(comp.release, 0.2);
+        output.connect(comp);
+        output = comp;
+        chain.push(comp);
+      } catch (err) { /* 컴프레서 없이 진행 */ }
+    }
+
+    // 2) 로우패스 톤 필터 (날카로운 고음 완화)
+    if (typeof ctx.createBiquadFilter === 'function') {
+      try {
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        this._setAudioParam(filter.frequency, TONE_LOWPASS_HZ);
+        this._setAudioParam(filter.Q, 0.7);
+        output.connect(filter);
+        output = filter;
+        chain.push(filter);
+      } catch (err) { /* 필터 없이 진행 */ }
+    }
+
+    // 3) 드라이 경로 (원음 그대로)
+    output.connect(ctx.destination);
+
+    // 4) 슬랩백 에코 (젖은 소리만 보조로 더한다)
+    if (typeof ctx.createDelay === 'function') {
+      try {
+        const delay = ctx.createDelay(0.5);
+        const wet = ctx.createGain();
+        const feedback = ctx.createGain();
+        this._setAudioParam(delay.delayTime, SLAPBACK_DELAY_SEC);
+        this._setAudioParam(wet.gain, SLAPBACK_WET);
+        this._setAudioParam(feedback.gain, SLAPBACK_FEEDBACK);
+
+        output.connect(delay);
+        delay.connect(wet);
+        wet.connect(ctx.destination);
+        delay.connect(feedback);
+        feedback.connect(delay); // 짧고 옅은 되울림
+
+        chain.push(delay, wet, feedback);
+        this._echo = { delay, wet, feedback };
+      } catch (err) {
+        this._echo = null; // 에코 없이 진행
+      }
+    }
+
+    this._bus = chain;
+  }
+
+  /**
+   * StereoPannerNode 생성 (pan 이 0 이거나 미지원 환경이면 null).
+   * @param {AudioContext} ctx
+   * @param {number} pan -1(왼쪽) ~ +1(오른쪽)
+   * @returns {StereoPannerNode|null}
+   */
+  _createPanner(ctx, pan) {
+    const value = Number.isFinite(pan) ? Math.max(-1, Math.min(1, pan)) : 0;
+    if (Math.abs(value) < 0.01) return null;
+    if (typeof ctx.createStereoPanner !== 'function') return null;
+    try {
+      const panner = ctx.createStereoPanner();
+      this._setAudioParam(panner.pan, value);
+      return panner;
+    } catch (err) {
+      return null; // 패닝 미지원 → 모노로 재생
+    }
   }
 
   /**
@@ -184,10 +322,14 @@ export default class SoundFX {
    * @param {number} options.filterFreq 필터 컷오프/중심 주파수(Hz)
    * @param {number} options.filterQ 필터 Q (포먼트 날카로움)
    * @param {{hz: number, depth: number}|null} options.vibrato 비브라토(떨림) — 아기 목소리 느낌
+   * @param {number} options.attack 어택(초) — 조금 길면 부드럽게 스며든다
+   * @param {number|null} options.sustainLevel 중간 감쇠 레벨(0~1) — 주면 벨/마림바형 ADSR
+   * @param {number} options.pan -1(왼쪽) ~ +1(오른쪽) 스테레오 패닝
    */
   _beep({
     freq = 440, toFreq = null, duration = 0.12, type = 'square', volume = 1, delay = 0,
     filterType = null, filterFreq = 0, filterQ = 1, vibrato = null,
+    attack = 0.012, sustainLevel = null, pan = 0,
   }) {
     const ctx = this._ensure();
     if (!ctx) return;
@@ -225,10 +367,21 @@ export default class SoundFX {
       }
     }
 
-    // 빠른 어택 → 지수 감쇠: 짧아도 '톡' 하고 때리는 느낌을 만든다
+    // 빠른 어택 → 지수 감쇠: 짧아도 '톡' 하고 때리는 느낌을 만든다.
+    // sustainLevel 을 주면 벨/마림바처럼 부드럽게 감쇠하는 ADSR 곡선이 된다.
+    const attackSec = Math.max(0.002, Math.min(attack, duration * 0.5));
+    const sustainAt = start + Math.max(attackSec + 0.006, duration * 0.34);
+    const canSustain = sustainLevel !== null && sustainLevel > 0
+      && sustainAt < start + duration * 0.9;
+
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + 0.012);
-    if (duration > 0.16) {
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + attackSec);
+    if (canSustain) {
+      gain.gain.exponentialRampToValueAtTime(
+        Math.max(0.0002, volume * Math.min(1, sustainLevel)),
+        sustainAt,
+      );
+    } else if (duration > 0.16) {
       gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume * 0.62), start + duration * 0.55);
     }
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
@@ -239,7 +392,15 @@ export default class SoundFX {
     } else {
       osc.connect(gain);
     }
-    gain.connect(this.master);
+
+    // 보모 위치 기반 좌우 패닝 (미지원 환경은 모노로)
+    const panner = this._createPanner(ctx, pan);
+    if (panner) {
+      gain.connect(panner);
+      panner.connect(this.master);
+    } else {
+      gain.connect(this.master);
+    }
     osc.start(start);
     osc.stop(start + duration + 0.03);
   }
@@ -254,9 +415,11 @@ export default class SoundFX {
    * @param {string} options.filterType
    * @param {number} options.filterFreq
    * @param {number} options.Q
+   * @param {number} options.pan -1(왼쪽) ~ +1(오른쪽)
    */
   _noise({
     duration = 0.08, volume = 0.2, delay = 0, filterType = 'bandpass', filterFreq = 1200, Q = 1,
+    pan = 0,
   }) {
     const ctx = this._ensure();
     if (!ctx) return;
@@ -299,7 +462,14 @@ export default class SoundFX {
     } else {
       src.connect(gain);
     }
-    gain.connect(this.master);
+
+    const panner = this._createPanner(ctx, pan);
+    if (panner) {
+      gain.connect(panner);
+      panner.connect(this.master);
+    } else {
+      gain.connect(this.master);
+    }
 
     src.start(start);
     if (typeof src.stop === 'function') src.stop(start + duration + 0.02);
@@ -484,6 +654,9 @@ export default class SoundFX {
   destroy() {
     this.stopBgm();
     this._noiseBuffer = null;
+    this._bus = null;
+    this._echo = null;
+    this.heartbeatPan = 0;
     if (!this.ctx) return;
     try {
       if (typeof this.ctx.close === 'function') this.ctx.close();
@@ -492,9 +665,24 @@ export default class SoundFX {
     this.master = null;
   }
 
-  /** 아이템 섭취 (4단계에서 사용) */
+  /**
+   * 아이템 섭취: 마림바/벨 느낌의 두 겹 상승 톤.
+   * - 삼각파 몸통 + 사인 배음으로 사각파의 쨍함 없이 따뜻하게 울린다.
+   * - 두 레이어를 살짝 좌우로 벌려 입체감을 준다.
+   */
   playItem() {
-    this._beep({ freq: 880, toFreq: 1320, duration: 0.09, type: 'triangle', volume: 0.8 });
+    // 몸통: 부드럽게 감쇠하는 삼각파 (C5 → E5)
+    this._beep({
+      freq: 523.25, toFreq: 659.25, duration: 0.34, type: 'triangle', volume: 0.46,
+      attack: 0.008, sustainLevel: 0.42, pan: -0.14,
+    });
+    // 반짝임: 한 옥타브 위 사인 배음
+    this._beep({
+      freq: 1567.98, duration: 0.26, type: 'sine', volume: 0.16,
+      attack: 0.006, sustainLevel: 0.25, pan: 0.16, delay: 0.012,
+    });
+    // 온기: 낮은 사인 서브
+    this._beep({ freq: 261.63, duration: 0.22, type: 'sine', volume: 0.14, delay: 0.004 });
   }
 
   /**
@@ -568,17 +756,56 @@ export default class SoundFX {
     this._beep({ freq: 1320, toFreq: 660, duration: 0.18, type: 'sine', volume: 0.4, delay: 0.08 });
   }
 
-  /** 슈가 러시: 통통 튀는 상승 아르페지오 */
+  /**
+   * 슈가 러시: 통통 튀는 상승 아르페지오.
+   * - 삼각파 몸통 + 사인 반짝임 레이어로 쨍함 없이 경쾌하게.
+   * - 세 음을 좌→우로 흩어 패닝해 입체적으로 들린다.
+   */
   playSugarRush() {
-    this._beep({ freq: 880, toFreq: 1320, duration: 0.08, type: 'square', volume: 0.55 });
-    this._beep({ freq: 1100, toFreq: 1760, duration: 0.1, type: 'square', volume: 0.5, delay: 0.07 });
+    const notes = [
+      { freq: 783.99, toFreq: 1046.5, delay: 0, pan: -0.28, volume: 0.4 },
+      { freq: 1046.5, toFreq: 1318.51, delay: 0.075, pan: 0.02, volume: 0.36 },
+      { freq: 1318.51, toFreq: 1567.98, delay: 0.15, pan: 0.3, volume: 0.32 },
+    ];
+
+    notes.forEach(note => {
+      this._beep({
+        freq: note.freq, toFreq: note.toFreq, duration: 0.22, type: 'triangle',
+        volume: note.volume, delay: note.delay,
+        attack: 0.008, sustainLevel: 0.4, pan: note.pan,
+      });
+      this._beep({
+        freq: note.freq * 2, duration: 0.12, type: 'sine',
+        volume: note.volume * 0.3, delay: note.delay + 0.004, pan: note.pan * 1.2,
+      });
+    });
   }
 
-  /** 황금 젖병: 반짝이는 팡파르 */
+  /**
+   * 황금 젖병: 반짝이는 팡파르.
+   * - C-E-G 마림바 화음(삼각파) 위로 사인 벨이 흩어져 반짝인다.
+   */
   playGolden() {
-    this._beep({ freq: 660, toFreq: 990, duration: 0.12, type: 'triangle', volume: 0.8 });
-    this._beep({ freq: 990, toFreq: 1480, duration: 0.16, type: 'triangle', volume: 0.7, delay: 0.1 });
-    this._beep({ freq: 1480, toFreq: 1980, duration: 0.2, type: 'sine', volume: 0.5, delay: 0.2 });
+    const chord = [523.25, 659.25, 783.99];
+
+    chord.forEach((freq, index) => {
+      this._beep({
+        freq, duration: 0.55, type: 'triangle', volume: 0.3,
+        delay: index * 0.06, attack: 0.01, sustainLevel: 0.45,
+        pan: -0.3 + index * 0.3,
+      });
+      this._beep({
+        freq: freq * 2, duration: 0.36, type: 'sine', volume: 0.14,
+        delay: index * 0.06 + 0.01, attack: 0.006, sustainLevel: 0.2,
+        pan: 0.3 - index * 0.3,
+      });
+    });
+
+    // 마지막 반짝임: 위로 미끄러지는 사인 벨
+    this._beep({
+      freq: 1046.5, toFreq: 1567.98, duration: 0.5, type: 'sine', volume: 0.2,
+      delay: 0.22, attack: 0.02, sustainLevel: 0.3,
+    });
   }
 
   /** 스테이지 클리어 (상승 팡파르) */
@@ -598,10 +825,20 @@ export default class SoundFX {
     this._beep({ freq: 200, toFreq: 90, duration: 0.16, type: 'sine', volume: 0.9 });
   }
 
-  /** 악당이 트랩을 밟음 */
-  playTrapHit() {
-    this._beep({ freq: 150, toFreq: 520, duration: 0.22, type: 'sawtooth', volume: 0.85 });
-    this._beep({ freq: 90, toFreq: 60, duration: 0.18, type: 'square', volume: 0.5, delay: 0.06 });
+  /**
+   * 악당이 트랩을 밟음 / 보행기로 날려버림.
+   * - 톱니파/사각파의 공격성은 남기되 lowpass 로 고음을 눌러 쨍함을 줄인다.
+   * @param {number} [pan=0] 보모 위치 기준 좌우 패닝 (-0.8 ~ +0.8)
+   */
+  playTrapHit(pan = 0) {
+    this._beep({
+      freq: 150, toFreq: 520, duration: 0.22, type: 'sawtooth', volume: 0.8,
+      filterType: 'lowpass', filterFreq: 1800, pan,
+    });
+    this._beep({
+      freq: 90, toFreq: 60, duration: 0.18, type: 'square', volume: 0.5,
+      delay: 0.06, filterType: 'lowpass', filterFreq: 900, pan,
+    });
   }
 
   // ===== 어둠 모드 근접 경고: 심장박동 =====
@@ -611,11 +848,13 @@ export default class SoundFX {
    * 게임 루프에서 매 tick 호출하면 내부 타이머가 박동 간격을 조절한다.
    * @param {number} intensity 0(안전) ~ 1(바로 옆)
    * @param {number} dt 경과 시간(ms)
+   * @param {number} [pan=0] 가장 가까운 보모 방향 (-0.8 왼쪽 ~ +0.8 오른쪽)
    * @returns {boolean} 이번 호출에서 박동을 냈는지
    */
-  updateHeartbeat(intensity = 0, dt = 0) {
+  updateHeartbeat(intensity = 0, dt = 0, pan = 0) {
     const level = Number.isFinite(intensity) ? Math.min(1, Math.max(0, intensity)) : 0;
     this.heartbeatLevel = level;
+    this.heartbeatPan = Number.isFinite(pan) ? Math.min(1, Math.max(-1, pan)) : 0;
 
     // 위협이 사라지면 즉시 멈추고, 다시 가까워지면 곧바로 박동을 시작한다
     if (level <= 0.02) {
@@ -628,7 +867,7 @@ export default class SoundFX {
     if (this.heartbeatTimer > 0) return false;
 
     this.heartbeatTimer = interval;
-    this.playHeartbeat(level);
+    this.playHeartbeat(level, this.heartbeatPan);
     return true;
   }
 
@@ -636,15 +875,18 @@ export default class SoundFX {
   resetHeartbeat() {
     this.heartbeatTimer = 0;
     this.heartbeatLevel = 0;
+    this.heartbeatPan = 0;
   }
 
   /**
    * "쿵-덥" 두 박자 저음 심장박동.
    * - 가까울수록 조금 더 높고 크게 울려 심리적 압박감을 준다.
    * - 저역 필터(lowpass)로 가슴을 울리는 둔탁한 느낌을 만든다.
+   * - 보모가 있는 쪽으로 살짝 패닝해 어느 쪽에서 오는지 귀로 알 수 있게 한다.
    * @param {number} intensity 0(안전) ~ 1(바로 옆)
+   * @param {number} [pan=0] 보모 방향 (-0.8 ~ +0.8)
    */
-  playHeartbeat(intensity = 0.5) {
+  playHeartbeat(intensity = 0.5, pan = 0) {
     const level = Number.isFinite(intensity) ? Math.min(1, Math.max(0, intensity)) : 0.5;
     const volume = 0.18 + 0.34 * level;
 
@@ -657,6 +899,7 @@ export default class SoundFX {
       volume,
       filterType: 'lowpass',
       filterFreq: 240 + 120 * level,
+      pan,
     });
 
     // "덥" — 살짝 약한 두 번째 박동 (심장의 이중 박동)
@@ -669,6 +912,7 @@ export default class SoundFX {
       delay: 0.16,
       filterType: 'lowpass',
       filterFreq: 220 + 90 * level,
+      pan,
     });
   }
 }

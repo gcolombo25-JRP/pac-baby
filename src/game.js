@@ -28,7 +28,7 @@ import Player from './player.js';
 import Enemy, { ENEMY_MODE, createEnemySpawnPlan } from './enemy.js';
 import { Item, Trap } from './item.js';
 import Effects from './effects.js';
-import SoundFX from './sound.js';
+import SoundFX, { stereoPanFromTiles } from './sound.js';
 
 /** 한 프레임에서 처리할 최대 tick 수 (탭 전환 후 폭주 방지) */
 const MAX_FRAME_TICKS = 3;
@@ -96,6 +96,7 @@ export default class Game {
     this.catchCount = 0;   // 체포 횟수 (HUD 표시용)
     this.cryCooldown = 0;  // 울기 재사용 대기(ms)
     this.heartbeatIntensity = 0; // 어둠 모드 보모 근접 경고 강도 (0 = 안전 ~ 1 = 바로 옆)
+    this.heartbeatPan = 0;       // 가장 가까운 보모의 좌우 방향 (-0.8 왼쪽 ~ +0.8 오른쪽)
 
     // 침대 스텔스
     this.stealthBed = null; // 스텔스에 사용 중인 침대 { row, col }
@@ -971,15 +972,26 @@ export default class Game {
       && e.prevRow === player.row && e.prevCol === player.col);
   }
 
-  /** 가장 가까운 보모까지의 거리(타일) — 얼어붙은 보모는 위협에서 제외 */
-  _nearestEnemyDistance() {
-    let nearest = Infinity;
+  /** 가장 가까운 보모 — 얼어붙은 보모는 위협에서 제외 (없으면 null) */
+  _nearestEnemy() {
+    let nearest = null;
+    let best = Infinity;
     for (const enemy of this.enemies) {
       if (enemy.isFrozen) continue;
       const distance = Math.hypot(enemy.row - this.player.row, enemy.col - this.player.col);
-      if (distance < nearest) nearest = distance;
+      if (distance < best) {
+        best = distance;
+        nearest = enemy;
+      }
     }
     return nearest;
+  }
+
+  /** 가장 가까운 보모까지의 거리(타일) — 얼어붙은 보모는 위협에서 제외 */
+  _nearestEnemyDistance() {
+    const nearest = this._nearestEnemy();
+    if (!nearest) return Infinity;
+    return Math.hypot(nearest.row - this.player.row, nearest.col - this.player.col);
   }
 
   /**
@@ -999,17 +1011,25 @@ export default class Game {
     if (silent) {
       if (this.heartbeatIntensity > 0) this.sound?.resetHeartbeat?.();
       this.heartbeatIntensity = 0;
+      this.heartbeatPan = 0;
       return 0;
     }
 
     const warningRange = this.visionTiles + DARK_HEARTBEAT_WARN_TILES;
-    const distance = this._nearestEnemyDistance();
+    const nearest = this._nearestEnemy();
+    const distance = nearest
+      ? Math.hypot(nearest.row - this.player.row, nearest.col - this.player.col)
+      : Infinity;
     const intensity = Number.isFinite(distance)
       ? Math.min(1, Math.max(0, (warningRange - distance) / Math.max(1, warningRange - 1)))
       : 0;
 
+    // 보모가 있는 좌/우 방향으로 심장박동을 패닝 (-0.8 ~ +0.8)
+    const pan = nearest ? stereoPanFromTiles(nearest.col - this.player.col) : 0;
+
     this.heartbeatIntensity = intensity;
-    this.sound?.updateHeartbeat?.(intensity, dt);
+    this.heartbeatPan = pan;
+    this.sound?.updateHeartbeat?.(intensity, dt, pan);
     return intensity;
   }
 
@@ -1182,7 +1202,8 @@ export default class Game {
       'knock',
       `악당 날려버림 @ (${hitRow},${hitCol}) +${GOLDEN_BOTTLE.knockScore}`,
     );
-    this.sound.playTrapHit();
+    // 날아가기 전 보모의 좌우 위치로 패닝해 타격이 들리는 방향을 알려준다
+    this.sound.playTrapHit(stereoPanFromTiles(hitCol - this.player.col));
     this.effects.burstSparkle(hitRow, hitCol, 16);
     this.effects.shockwave(hitRow, hitCol, COLORS.GOLDEN, TILE_SIZE * 2.8, 0.45);
     this.effects.flashScreen(COLORS.GOLDEN, 0.16, 0.2);
@@ -1238,7 +1259,8 @@ export default class Game {
       this.stats.traps += 1;
       this._addPopup(trap.row, trap.col, `+${TRAP_HIT_SCORE}`, '#ffb74d');
       this.tester?.log?.('trap', `${trap.trapType} 적중 +${TRAP_HIT_SCORE} · ${freezeMs / 1000}s 얼림`);
-      this.sound.playTrapHit();
+      // 트랩을 밟은 보모의 좌우 위치에 맞춰 타격음을 패닝 (-0.8 ~ +0.8)
+      this.sound.playTrapHit(stereoPanFromTiles(victim.col - this.player.col));
       this._updateHiScore();
     }
 
@@ -1543,6 +1565,7 @@ export default class Game {
 
     this.cryCooldown = 0;
     this.heartbeatIntensity = 0;
+    this.heartbeatPan = 0;
     this.sound?.resetHeartbeat?.();
     this.tickAccumulator = 0;
     this.caughtTimer = 0;

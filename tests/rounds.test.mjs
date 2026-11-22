@@ -429,3 +429,21 @@ test('얼어붙은 보모는 심장박동 경고에서 제외된다', () => {
   assert.equal(game.heartbeatIntensity, 0);
 });
 
+test('어둠 모드 심장박동은 보모의 좌우 위치로 패닝된다', () => {
+  const game = setup();
+  game._startRound(8);
+  game.state = 'PLAYING';
+
+  const { row, col } = game.player;
+
+  game.enemies = [{ row, col: col + 1, isFrozen: false }];
+  game._updateHeartbeat(100);
+  assert.ok(game.heartbeatPan > 0, `오른쪽 보모는 + 패닝 (${game.heartbeatPan})`);
+
+  game.sound.resetHeartbeat();
+  game.enemies = [{ row, col: col - 1, isFrozen: false }];
+  game._updateHeartbeat(100);
+  assert.ok(game.heartbeatPan < 0, `왼쪽 보모는 - 패닝 (${game.heartbeatPan})`);
+});
+
+
