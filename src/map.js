@@ -90,8 +90,37 @@ const WALL_SIDE_SHADE = TILE_SIZE * 0.09;                                   // �
 
 const WALL_WOOD_TRIM = 'rgba(201, 138, 82, 0.45)'; // 장난감 블록의 따뜻한 우드 이음선
 
-/** 블록 윗면에 새기는 애기풍 도장 순서 (섬 인덱스로 비대칭 순환) */
+/** 블록 윗면에 새기는 애기풍 도장 순서 (섬 인덱스로 비대칭 순환) — 얇은 막대 블록의 잔점 장식용 */
 const WALL_STAMP_SYMBOLS = ['cloud', 'star', 'crescent', 'heart', 'bear'];
+
+/**
+ * 벽 블록 중앙에 인쇄하는 아기방 일러스트 5종.
+ * - 라운드 시드로 섬마다 종류가 바뀌어 같은 맵이라도 라운드마다 다른 벽지가 된다.
+ * - 납작한 단색 실루엣 대신 파스텔 다색 채색 + 눈/코/볼터치 디테일을 가진다.
+ */
+const WALL_ILLUSTRATIONS = ['bear', 'cloud', 'rainbow', 'duck', 'flower'];
+
+/**
+ * 일러스트 종류별 실제 그림 크기 보정.
+ * 공통 반지름만 쓰면 실루엣 폭이 제각각이라, 이 배율로 모든 그림의 실제 폭을
+ * 약 1.3~1.6 타일로 맞춘다 (무지개는 좁게, 병아리는 넓게).
+ */
+const WALL_ART_SCALE = {
+  bear: 1.15,
+  cloud: 1.1,
+  rainbow: 0.85,
+  duck: 1.3,
+  flower: 1.2,
+};
+
+/** 일러스트는 복도 캐릭터보다 튀지 않도록 반투명하게 인쇄한다 */
+const WALL_ART_ALPHA_MIN = 0.55;
+const WALL_ART_ALPHA_MAX = 0.72;
+
+/** 일러스트 공통 잉크색 (눈/코/미소) — 파스텔 사이에서도 표정이 읽히는 정도만 */
+const WALL_ART_INK = '#5a4633';
+const WALL_ART_INK_SOFT = '#7c6650';
+const WALL_ART_BLUSH = 'rgba(246, 163, 168, 0.9)';
 
 /** 라운드 값을 1 이상의 정수로 정규화한다 (잘못된 값은 1라운드) */
 function normalizeRound(round) {
@@ -171,6 +200,37 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+/** 파스텔 원 한 점 (fillRect 없이 경로만 사용 → 캐시 fillRect 계약 유지) */
+function fillCircle(ctx, x, y, radius, color) {
+  if (!(radius > 0)) return;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, Math.max(0.1, radius), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** 둥근 캡 아크 선 (눈웃음/미소/무지개 띠) */
+function strokeArc(ctx, x, y, radius, start, end, color, width) {
+  if (!(radius > 0)) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(0.4, width);
+  ctx.beginPath();
+  ctx.arc(x, y, radius, start, end);
+  ctx.stroke();
+}
+
+/** 아래로 뾰족한 파스텔 빗방울 (구름 일러스트 전용) */
+function fillRaindrop(ctx, x, y, radius, color) {
+  if (!(radius > 0)) return;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y - radius * 2.1);
+  ctx.lineTo(x - radius, y);
+  ctx.arc(x, y, radius, Math.PI, 0);
+  ctx.closePath();
+  ctx.fill();
+}
+
 export default class MapRenderer {
   constructor() {
     this.map = TILE_MAP;
@@ -183,7 +243,7 @@ export default class MapRenderer {
     this.pixelRatio = 1;      // 캐시 해상도 배율 (레티나 선명화)
     this._islands = null;     // 연결된 벽 덩어리(Island) 메타데이터
     this._islandIndex = null; // 타일별 소속 Island id (벽이 아니면 -1)
-    this._stampRound = 1;     // 현재 도장 배치가 만들어진 라운드
+    this._stampRound = 1;     // 현재 스티치/중앙 일러스트 배치가 만들어진 라운드
   }
 
   /**
@@ -331,10 +391,12 @@ export default class MapRenderer {
       }
     }
 
-    // 연결된 벽 덩어리별 파스텔 윗면 → 애기풍 도장 → 2.5D 앞벽/그림자 → 하이라이트 림
+    // 연결된 벽 덩어리별 파스텔 윗면 → 2.5D 앞벽/그림자 → 장난감 스티치/중앙 일러스트 → 하이라이트 림
+    // (윗면 빛 번짐이 일러스트를 덮어 뿌옇게 만들지 않도록 일러스트를 그 뒤에 인쇄한다)
     this._drawWallTops(ctx, islands);
-    this._drawWallStamps(ctx, islands);
     this._drawWallExtrusion(ctx, islands);
+    this._drawWallStamps(ctx, islands);
+    this._drawWallIllustrations(ctx, islands);
     this._drawNeonWalls(ctx, islands);
 
     // 침대 가구는 벽 앞벽/그림자보다 나중에 그린다.
@@ -347,7 +409,7 @@ export default class MapRenderer {
   /**
    * 연결된 벽 타일(4방향)을 Island 로 묶고 파스텔 팔레트를 배분한다.
    * - 인접한 Island 끼리는 같은 색을 쓰지 않아 경계가 자연스럽게 드러난다.
-   * - 모든 벽 Island 에 아기방 도장(구름/별/초승달/하트/곰돌이)을 배정한다.
+   * - 모든 벽 Island 에 스티치 테두리와 중앙 일러스트(곰돌이/구름/무지개/병아리/꽃)를 배정한다.
    * - 라운드가 바뀌면 시드 기반으로 위치/종류/크기/각도를 다시 뽑는다.
    * - 맵 구조 자체는 정적이므로 Island 계산 결과만 캐시한다.
    * @returns {Array<object>}
@@ -442,10 +504,10 @@ export default class MapRenderer {
       island.palette = WALL_PALETTES[pick];
     }
 
-    // 라운드별 도장 배치 (크기/각도/종류를 달리해 블록을 촘촘히 채운다)
+    // 라운드별 도장/중앙 일러스트 배치 (가장 넓은 내부 사각형을 찾으려면 타일 인덱스가 먼저 필요하다)
+    this._islandIndex = index;
     for (const island of islands) this._assignIslandStamps(island, this._stampRound);
 
-    this._islandIndex = index;
     this._islands = islands;
     return islands;
   }
@@ -470,6 +532,11 @@ export default class MapRenderer {
     const rng = createSeededRandom(
       ((island.id + 1) * 2654435761) ^ ((roundNo * 2246822519) >>> 0),
     );
+
+    // 가장 넓은 내부 사각형을 찾아 그 정중앙에 큼직한 일러스트를 배치한다
+    island.innerRect = this._findIslandInnerRect(island);
+    island.centerpiece = this._assignIslandCenterpiece(island, roundNo);
+
     const area = tiles.length;
     const width = island.maxCol - island.minCol + 1;
     const height = island.maxRow - island.minRow + 1;
@@ -531,6 +598,115 @@ export default class MapRenderer {
   }
 
   /**
+   * Island 안에서 가장 넓은 축정렬 내부 사각형을 찾는다.
+   * - 히스토그램 최대 사각형 알고리즘으로 O(행 x 열) 에 구한다.
+   * - 한 칸 두께 막대(1xN)보다 2칸 이상 두께의 사각형을 우선해 일러스트가 놓일 자리를 고른다.
+   * @param {object} island
+   * @returns {{minRow:number,maxRow:number,minCol:number,maxCol:number,width:number,height:number,area:number}|null}
+   */
+  _findIslandInnerRect(island) {
+    const index = this._islandIndex;
+    if (!index) return null;
+
+    const width = island.maxCol - island.minCol + 1;
+    if (width <= 0) return null;
+
+    const heights = new Array(width).fill(0);
+    let bestWide = null; // 두께 2칸 이상 후보 (중앙 일러스트 자리)
+    let bestAny = null;  // 두께 1칸 포함 후보 (얇은 막대 판정용)
+
+    const record = (area, w, h, minCol, maxRow) => {
+      const rect = {
+        minRow: maxRow - h + 1,
+        maxRow,
+        minCol,
+        maxCol: minCol + w - 1,
+        width: w,
+        height: h,
+        area,
+      };
+      const isBetter = (candidate, best) => !best
+        || area > best.area
+        || (area === best.area && Math.min(w, h) > Math.min(best.width, best.height));
+
+      if (isBetter(rect, bestAny)) bestAny = rect;
+      if (Math.min(w, h) >= 2 && isBetter(rect, bestWide)) bestWide = rect;
+    };
+
+    for (let row = island.minRow; row <= island.maxRow; row++) {
+      for (let i = 0; i < width; i++) {
+        const col = island.minCol + i;
+        heights[i] = index[row]?.[col] === island.id ? heights[i] + 1 : 0;
+      }
+
+      const stack = [];
+      for (let i = 0; i <= width; i++) {
+        const current = i < width ? heights[i] : 0;
+        while (stack.length > 0 && heights[stack[stack.length - 1]] >= current) {
+          const top = stack.pop();
+          const left = stack.length > 0 ? stack[stack.length - 1] + 1 : 0;
+          const w = i - left;
+          const h = heights[top];
+          if (h > 0 && w > 0) record(w * h, w, h, island.minCol + left, row);
+        }
+        stack.push(i);
+      }
+    }
+
+    return bestWide || bestAny;
+  }
+
+  /**
+   * Island 중앙 일러스트를 라운드 시드로 배정한다.
+   * - 내부 사각형이 2x2 이상일 때만 일러스트를 놓는다 (긴 1칸 막대는 스티치 테두리로 대체).
+   * - 지름이 약 1.2~1.7 타일이 되도록 반지름을 잡고, 0.55~0.72 알파로 은은하게 인쇄한다.
+   * @param {object} island
+   * @param {number} round
+   * @returns {object|null}
+   */
+  _assignIslandCenterpiece(island, round = 1) {
+    const roundNo = normalizeRound(round);
+    const rect = island.innerRect;
+    if (!rect || rect.width < 2 || rect.height < 2) return null;
+
+    const rng = createSeededRandom(
+      ((island.id + 13) * 2654435761) ^ ((roundNo * 3266489917) >>> 0),
+    );
+
+    const minDim = Math.min(rect.width, rect.height);
+    // 2x2 → 공통 지름 1.36타일, 3칸 이상 → 1.56타일
+    // (종류별 WALL_ART_SCALE 보정 후 실제 그림 폭은 약 1.3~1.6 타일)
+    const radius = Math.min(
+      TILE_SIZE * 0.78,
+      Math.max(TILE_SIZE * 0.68, minDim * TILE_SIZE * 0.34),
+    );
+    const jitter = TILE_SIZE * 0.06;
+    const halfW = (rect.width * TILE_SIZE) / 2;
+    const halfH = (rect.height * TILE_SIZE) / 2;
+    const centerX = (rect.minCol + rect.width / 2) * TILE_SIZE;
+    const centerY = (rect.minRow + rect.height / 2) * TILE_SIZE;
+
+    // 일러스트가 사각형 밖으로 새지 않도록 중심 흔들림을 제한한다
+    const maxDx = Math.max(0, halfW - radius);
+    const maxDy = Math.max(0, halfH - radius);
+    const dx = Math.max(-maxDx, Math.min(maxDx, (rng() - 0.5) * 2 * jitter));
+    const dy = Math.max(-maxDy, Math.min(maxDy, (rng() - 0.5) * 2 * jitter));
+
+    const kind = WALL_ILLUSTRATIONS[Math.floor(rng() * WALL_ILLUSTRATIONS.length)];
+    const rotation = (rng() - 0.5) * 0.12;
+    const alpha = WALL_ART_ALPHA_MIN + rng() * (WALL_ART_ALPHA_MAX - WALL_ART_ALPHA_MIN);
+
+    return {
+      kind,
+      x: centerX + dx,
+      y: centerY + dy,
+      radius,
+      rotation,
+      alpha,
+    };
+  }
+
+  /**
    * 벽 윗면을 Island 색으로 채운다.
    * - 타일마다 0.6px 씩 겹쳐 채워 인접 타일 사이로 바닥 격자선이 비치지 않는다.
    * - fillRect 1회/타일 계약은 그대로 유지한다 (기존 캐시 테스트 호환).
@@ -553,59 +729,335 @@ export default class MapRenderer {
 
 
   /**
-   * 벽 윗면에 아기방 도장(구름/별/초승달/하트/곰돌이)을 새긴다.
-   * - 모든 도장은 **하나의 닫힌 경로(single closed path)** 로만 그려 내부 겹침 음영이 없다.
-   * - 블록 색보다 확실히 밝은 양각 면 + 1px 어긋난 진한 음각 그림자 + 1px 하이라이트 림으로
-   *   어두운 라운드에서도 장난감 블록 음각 도장처럼 또렷하게 보인다.
-   * - roundRect/ellipse/bezierCurveTo 에 의존하지 않고 기본 경로(arc/lineTo)만 쓴다.
+   * 벽 블록 윗면의 장식 레이어.
+   * - 모든 Island 안쪽 테두리를 따라 은은한 파스텔 점선 스티치를 넣어 긴 1칸 막대 구간도 비지 않게 한다.
+   * - 중앙 일러스트가 없는 얇은 블록에는 작은 파스텔 실땀(도트 + 십자 스티치)을 더한다.
+   * - setLineDash 가 없는 최소 ctx 스텁에서는 파스텔 도트로 자연스럽게 폴백한다.
    * @param {CanvasRenderingContext2D} ctx
    * @param {Array<object>} islands
    */
   _drawWallStamps(ctx, islands = this._getWallIslands()) {
     for (const island of islands) {
+      // 모든 블록 안쪽 테두리에 장난감 스티치를 넣어 긴 1칸 막대 구간도 비지 않게 한다
+      this._drawToyStitchTrim(ctx, island);
+
+      // 큰 블록은 중앙 일러스트가 본체 → 잔점 장식을 겹치지 않는다
+      if (island.centerpiece) continue;
+
       const stamps = Array.isArray(island.stamps) && island.stamps.length > 0
         ? island.stamps
         : (island.stamp ? [island.stamp] : []);
       if (stamps.length === 0) continue;
 
       const palette = island.palette || WALL_PALETTES[0];
-      const shadowColor = palette.embossDark || 'rgba(0, 0, 0, 0.42)';
-      const rimColor = palette.embossEdge || 'rgba(255, 255, 255, 0.92)';
-      const faceColor = palette.emboss || 'rgba(255, 255, 255, 0.9)';
+      const dotColor = palette.embossEdge || 'rgba(255, 255, 255, 0.6)';
+      const threadColor = palette.embossDark || 'rgba(90, 70, 51, 0.32)';
+
+      ctx.save?.();
+      ctx.globalAlpha = 0.5;
 
       for (const stamp of stamps) {
-        const radius = Math.max(1.5, Number(stamp.radius) || TILE_SIZE * 0.3);
-        const rotation = Number.isFinite(stamp.rotation) ? stamp.rotation : 0;
+        const dotRadius = Math.max(
+          1,
+          Math.min(TILE_SIZE * 0.1, (Number(stamp.radius) || TILE_SIZE * 0.3) * 0.28),
+        );
+        fillCircle(ctx, stamp.x, stamp.y, dotRadius, dotColor);
 
-        ctx.save?.();
+        // 실꿰기 바늘땀 느낌의 작은 십자 스티치
+        const s = Math.max(1.6, dotRadius * 1.8);
+        ctx.strokeStyle = threadColor;
+        ctx.lineWidth = Math.max(0.8, TILE_SIZE * 0.04);
+        ctx.beginPath();
+        ctx.moveTo(stamp.x - s, stamp.y);
+        ctx.lineTo(stamp.x + s, stamp.y);
+        ctx.moveTo(stamp.x, stamp.y - s);
+        ctx.lineTo(stamp.x, stamp.y + s);
+        ctx.stroke();
+      }
 
-        // 도장마다 각도를 살짝 달리해 손으로 찍은 듯한 리듬을 준다
-        if (rotation !== 0
-          && typeof ctx.translate === 'function'
-          && typeof ctx.rotate === 'function') {
-          ctx.translate(stamp.x, stamp.y);
-          ctx.rotate(rotation);
-          ctx.translate(-stamp.x, -stamp.y);
-        }
+      ctx.globalAlpha = 1;
+      ctx.restore?.();
+    }
+  }
 
-        // 1) 음각 그림자 — 오른쪽 아래로 1px 어긋나게
-        ctx.fillStyle = shadowColor;
-        this._traceStampPath(ctx, stamp.symbol, stamp.x + 0.9, stamp.y + 1.2, radius);
-        ctx.fill();
+  /**
+   * Island 안쪽 테두리를 따라 장난감 블록 점선 스티치를 넣는다.
+   * 통로와 맞닿은 면만 따라가므로 블록 실루엣이 그대로 살아난다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {object} island
+   */
+  _drawToyStitchTrim(ctx, island) {
+    const palette = island.palette || WALL_PALETTES[0];
+    const inset = TILE_SIZE * 0.18;
+    const segments = [];
 
-        // 2) 하이라이트 림 — 왼쪽 위로 1px 어긋나 양각 테두리를 만든다
-        ctx.fillStyle = rimColor;
-        this._traceStampPath(ctx, stamp.symbol, stamp.x - 0.8, stamp.y - 1.0, radius);
-        ctx.fill();
+    for (const { row, col } of island.tiles) {
+      const x = col * TILE_SIZE;
+      const y = row * TILE_SIZE;
+      const left = x + inset;
+      const right = x + TILE_SIZE - inset;
+      const top = y + inset;
+      const bottom = y + TILE_SIZE - inset;
 
-        // 3) 도장 면 — 불투명에 가까운 밝은 색으로 대비를 확실히 준다
-        ctx.fillStyle = faceColor;
-        this._traceStampPath(ctx, stamp.symbol, stamp.x, stamp.y, radius);
-        ctx.fill();
-
-        ctx.restore?.();
+      if (!this._isWallTile(row - 1, col) && this._isInsideMap(row - 1, col)) {
+        segments.push([left, top, right, top]);
+      }
+      if (!this._isWallTile(row + 1, col) && this._isInsideMap(row + 1, col)) {
+        segments.push([left, bottom, right, bottom]);
+      }
+      if (!this._isWallTile(row, col - 1) && this._isInsideMap(row, col - 1)) {
+        segments.push([left, top, left, bottom]);
+      }
+      if (!this._isWallTile(row, col + 1) && this._isInsideMap(row, col + 1)) {
+        segments.push([right, top, right, bottom]);
       }
     }
+    if (segments.length === 0) return;
+
+    ctx.save?.();
+    ctx.strokeStyle = palette.bevel || 'rgba(255, 255, 255, 0.55)';
+    ctx.lineWidth = Math.max(0.8, TILE_SIZE * 0.05);
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.5;
+
+    const canDash = typeof ctx.setLineDash === 'function';
+    if (canDash) ctx.setLineDash([TILE_SIZE * 0.14, TILE_SIZE * 0.13]);
+
+    ctx.beginPath();
+    for (const [x0, y0, x1, y1] of segments) {
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+    }
+
+    if (canDash) {
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      // 점선 미지원 스텁: 일정 간격 파스텔 도트로 대체
+      const step = TILE_SIZE * 0.26;
+      for (const [x0, y0, x1, y1] of segments) {
+        const length = Math.hypot(x1 - x0, y1 - y0);
+        const count = Math.max(1, Math.round(length / step));
+        for (let i = 0; i <= count; i++) {
+          const t = i / count;
+          fillCircle(
+            ctx,
+            x0 + (x1 - x0) * t,
+            y0 + (y1 - y0) * t,
+            Math.max(0.7, TILE_SIZE * 0.035),
+            palette.bevel || 'rgba(255, 255, 255, 0.55)',
+          );
+        }
+      }
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.restore?.();
+  }
+
+  /**
+   * 큰 벽 블록 중앙에 아기방 일러스트(곰돌이/구름/무지개/병아리/꽃)를 인쇄한다.
+   * - 파스텔 다색 + 눈/코/볼터치로 그려 벽지에 인쇄된 교구 그림처럼 보이게 한다.
+   * - 전체 알파 0.55~0.72 로 낮춰 복도의 캐릭터/아이템보다 튀지 않는다.
+   * - roundRect/ellipse/bezierCurveTo 없이 arc/lineTo 기본 도형만 쓴다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array<object>} islands
+   */
+  _drawWallIllustrations(ctx, islands = this._getWallIslands()) {
+    for (const island of islands) {
+      const piece = island.centerpiece;
+      if (!piece) continue;
+
+      ctx.save?.();
+
+      if (piece.rotation !== 0
+        && typeof ctx.translate === 'function'
+        && typeof ctx.rotate === 'function') {
+        ctx.translate(piece.x, piece.y);
+        ctx.rotate(piece.rotation);
+        ctx.translate(-piece.x, -piece.y);
+      }
+
+      ctx.globalAlpha = piece.alpha;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // 종류별 보정 배율을 곱해 실제 그림 폭을 1.3~1.6 타일로 통일한다
+      const artRadius = piece.radius * (WALL_ART_SCALE[piece.kind] || 1);
+
+      switch (piece.kind) {
+        case 'bear': this._drawArtBear(ctx, piece.x, piece.y, artRadius); break;
+        case 'cloud': this._drawArtCloud(ctx, piece.x, piece.y, artRadius); break;
+        case 'rainbow': this._drawArtRainbow(ctx, piece.x, piece.y, artRadius); break;
+        case 'duck': this._drawArtDuck(ctx, piece.x, piece.y, artRadius); break;
+        default: this._drawArtFlower(ctx, piece.x, piece.y, artRadius); break;
+      }
+
+      ctx.globalAlpha = 1;
+      ctx.restore?.();
+    }
+  }
+
+  /** ① 웃는 곰돌이 얼굴 — 둥근 얼굴 + 귀 안쪽 포인트 + 점눈 + 코/미소 + 볼터치 */
+  _drawArtBear(ctx, cx, cy, r) {
+    const headR = r * 0.74;
+    const headY = cy + r * 0.08;
+    const earR = r * 0.28;
+
+    fillCircle(ctx, cx - r * 0.54, cy - r * 0.5, earR, '#cf9d72');
+    fillCircle(ctx, cx + r * 0.54, cy - r * 0.5, earR, '#cf9d72');
+    fillCircle(ctx, cx - r * 0.54, cy - r * 0.5, earR * 0.5, '#f3bcc2');
+    fillCircle(ctx, cx + r * 0.54, cy - r * 0.5, earR * 0.5, '#f3bcc2');
+
+    fillCircle(ctx, cx, headY, headR, '#d8a97c');
+    fillCircle(ctx, cx, headY + headR * 0.27, headR * 0.42, '#f8e5ca');
+
+    fillCircle(ctx, cx - headR * 0.36, headY - headR * 0.14, r * 0.072, WALL_ART_INK);
+    fillCircle(ctx, cx + headR * 0.36, headY - headR * 0.14, r * 0.072, WALL_ART_INK);
+    fillCircle(ctx, cx - headR * 0.36 + r * 0.03, headY - headR * 0.2, r * 0.024, 'rgba(255, 255, 255, 0.95)');
+    fillCircle(ctx, cx + headR * 0.36 + r * 0.03, headY - headR * 0.2, r * 0.024, 'rgba(255, 255, 255, 0.95)');
+
+    fillCircle(ctx, cx, headY + headR * 0.05, r * 0.085, WALL_ART_INK);
+    strokeArc(
+      ctx, cx, headY + headR * 0.11, r * 0.14,
+      Math.PI * 0.18, Math.PI * 0.82, WALL_ART_INK, r * 0.05,
+    );
+
+    fillCircle(ctx, cx - headR * 0.56, headY + headR * 0.24, r * 0.12, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + headR * 0.56, headY + headR * 0.24, r * 0.12, WALL_ART_BLUSH);
+  }
+
+  /** ② 웃는 뭉게구름 — 크림 구름 + 눈웃음/볼터치 + 아래쪽 파스텔 빗방울 2개 */
+  _drawArtCloud(ctx, cx, cy, r) {
+    const cream = '#fdf6e3';
+
+    fillCircle(ctx, cx - r * 0.46, cy + r * 0.04, r * 0.4, cream);
+    fillCircle(ctx, cx + r * 0.46, cy + r * 0.06, r * 0.38, cream);
+    fillCircle(ctx, cx, cy - r * 0.18, r * 0.52, cream);
+    fillCircle(ctx, cx - r * 0.08, cy + r * 0.26, r * 0.44, cream);
+    fillCircle(ctx, cx + r * 0.16, cy + r * 0.24, r * 0.36, cream);
+
+    fillCircle(ctx, cx - r * 0.2, cy + r * 0.36, r * 0.18, '#f2e5cf');
+    fillCircle(ctx, cx + r * 0.24, cy + r * 0.32, r * 0.15, '#f2e5cf');
+
+    strokeArc(ctx, cx - r * 0.2, cy - r * 0.02, r * 0.1, Math.PI, Math.PI * 2, WALL_ART_INK, r * 0.055);
+    strokeArc(ctx, cx + r * 0.2, cy - r * 0.02, r * 0.1, Math.PI, Math.PI * 2, WALL_ART_INK, r * 0.055);
+
+    fillCircle(ctx, cx - r * 0.42, cy + r * 0.1, r * 0.1, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + r * 0.42, cy + r * 0.1, r * 0.1, WALL_ART_BLUSH);
+    strokeArc(ctx, cx, cy + r * 0.1, r * 0.1, Math.PI * 0.2, Math.PI * 0.8, WALL_ART_INK_SOFT, r * 0.04);
+
+    fillRaindrop(ctx, cx - r * 0.3, cy + r * 0.78, r * 0.1, '#a9d8f0');
+    fillRaindrop(ctx, cx + r * 0.32, cy + r * 0.88, r * 0.085, '#b9e3f5');
+  }
+
+  /** ③ 파스텔 무지개 — 3겹 반원 아치 + 양 끝 작은 솜구름 2개 */
+  _drawArtRainbow(ctx, cx, cy, r) {
+    const baseY = cy + r * 0.46;
+    const bands = [
+      { scale: 1.0, color: '#f6c4d5' },
+      { scale: 0.78, color: '#fbe3a6' },
+      { scale: 0.56, color: '#bfe3cf' },
+    ];
+
+    for (const band of bands) {
+      ctx.strokeStyle = band.color;
+      ctx.lineWidth = r * 0.19;
+      ctx.beginPath();
+      ctx.arc(cx, baseY, r * band.scale, Math.PI, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    this._drawArtCloudPuff(ctx, cx - r * 0.9, baseY, r * 0.26);
+    this._drawArtCloudPuff(ctx, cx + r * 0.9, baseY, r * 0.26);
+
+    fillCircle(ctx, cx - r * 0.9, baseY + r * 0.02, r * 0.08, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + r * 0.9, baseY + r * 0.02, r * 0.08, WALL_ART_BLUSH);
+  }
+
+  /** 무지개 끝 솜구름 (작은 크림 구름 덩이) */
+  _drawArtCloudPuff(ctx, cx, cy, r) {
+    const cream = '#fdf6e3';
+    fillCircle(ctx, cx - r * 0.62, cy + r * 0.18, r * 0.55, cream);
+    fillCircle(ctx, cx + r * 0.62, cy + r * 0.18, r * 0.55, cream);
+    fillCircle(ctx, cx, cy - r * 0.18, r * 0.72, cream);
+    fillCircle(ctx, cx, cy + r * 0.34, r * 0.5, cream);
+  }
+
+  /** ④ 아기 오리/병아리 — 동그란 병아리 + 주황 부리 + 날개 + 점눈 */
+  _drawArtDuck(ctx, cx, cy, r) {
+    ctx.strokeStyle = '#ecc05f';
+    ctx.lineWidth = r * 0.08;
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.12, cy - r * 0.62);
+    ctx.lineTo(cx - r * 0.04, cy - r * 0.84);
+    ctx.moveTo(cx + r * 0.08, cy - r * 0.64);
+    ctx.lineTo(cx + r * 0.2, cy - r * 0.86);
+    ctx.stroke();
+
+    fillCircle(ctx, cx, cy + r * 0.04, r * 0.68, '#fbe6a2');
+    fillCircle(ctx, cx, cy + r * 0.2, r * 0.5, '#f6d680');
+
+    fillCircle(ctx, cx + r * 0.46, cy + r * 0.24, r * 0.26, '#f3c76c');
+    strokeArc(
+      ctx, cx + r * 0.47, cy + r * 0.26, r * 0.16,
+      Math.PI * 0.15, Math.PI * 0.85, '#e0ad4f', r * 0.04,
+    );
+
+    fillCircle(ctx, cx - r * 0.2, cy - r * 0.08, r * 0.07, WALL_ART_INK);
+    fillCircle(ctx, cx + r * 0.2, cy - r * 0.08, r * 0.07, WALL_ART_INK);
+    fillCircle(ctx, cx - r * 0.17, cy - r * 0.12, r * 0.022, 'rgba(255, 255, 255, 0.95)');
+    fillCircle(ctx, cx + r * 0.23, cy - r * 0.12, r * 0.022, 'rgba(255, 255, 255, 0.95)');
+
+    ctx.fillStyle = '#f4a948';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + r * 0.3);
+    ctx.lineTo(cx - r * 0.14, cy + r * 0.12);
+    ctx.lineTo(cx + r * 0.14, cy + r * 0.12);
+    ctx.closePath();
+    ctx.fill();
+
+    fillCircle(ctx, cx - r * 0.4, cy + r * 0.06, r * 0.1, WALL_ART_BLUSH);
+    fillCircle(ctx, cx + r * 0.4, cy + r * 0.06, r * 0.1, WALL_ART_BLUSH);
+  }
+
+  /** ⑤ 파스텔 꽃 — 노란 꽃술 + 5장 파스텔 꽃잎 + 작은 연두 잎사귀 */
+  _drawArtFlower(ctx, cx, cy, r) {
+    ctx.strokeStyle = '#9ecf95';
+    ctx.lineWidth = r * 0.08;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + r * 0.24);
+    ctx.lineTo(cx, cy + r * 0.96);
+    ctx.stroke();
+
+    // 잎사귀: scale/ellipse 없이 작은 연두 원 두 개와 잎맥으로 표현한다
+    fillCircle(ctx, cx + r * 0.18, cy + r * 0.66, r * 0.11, '#b6dda6');
+    fillCircle(ctx, cx + r * 0.31, cy + r * 0.75, r * 0.095, '#a9d69a');
+    ctx.strokeStyle = '#8ec27f';
+    ctx.lineWidth = r * 0.03;
+    ctx.beginPath();
+    ctx.moveTo(cx + r * 0.06, cy + r * 0.61);
+    ctx.lineTo(cx + r * 0.36, cy + r * 0.79);
+    ctx.stroke();
+
+    const petalColors = ['#f7c6d8', '#eed2f2', '#ffd6bc', '#f7c6d8', '#eed2f2'];
+    for (let i = 0; i < 5; i++) {
+      const angle = -Math.PI / 2 + (Math.PI * 2 * i) / 5;
+      const px = cx + Math.cos(angle) * r * 0.46;
+      const py = cy + Math.sin(angle) * r * 0.46;
+      fillCircle(ctx, px, py, r * 0.34, petalColors[i]);
+    }
+
+    fillCircle(ctx, cx, cy, r * 0.36, '#fbe08a');
+    fillCircle(ctx, cx - r * 0.09, cy - r * 0.18, r * 0.026, '#e0b84f');
+    fillCircle(ctx, cx + r * 0.11, cy - r * 0.16, r * 0.022, '#e0b84f');
+
+    fillCircle(ctx, cx - r * 0.13, cy + r * 0.01, r * 0.035, WALL_ART_INK);
+    fillCircle(ctx, cx + r * 0.13, cy + r * 0.01, r * 0.035, WALL_ART_INK);
+    strokeArc(
+      ctx, cx, cy + r * 0.08, r * 0.1,
+      Math.PI * 0.15, Math.PI * 0.85, WALL_ART_INK_SOFT, r * 0.035,
+    );
   }
 
   /**
@@ -789,6 +1241,11 @@ export default class MapRenderer {
   /** 벽 타일 여부 (범위 밖은 벽으로 취급하지 않는다) */
   _isWallTile(row, col) {
     return row >= 0 && row < ROWS && col >= 0 && col < COLS && this.map[row][col] === 1;
+  }
+
+  /** 맵 안쪽 좌표 여부 (맵 바깥 경계에는 스티치를 넣지 않는다) */
+  _isInsideMap(row, col) {
+    return row >= 0 && row < ROWS && col >= 0 && col < COLS;
   }
 
   /**

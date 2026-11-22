@@ -403,3 +403,111 @@ test('라운드가 바뀌면 도장 위치/종류가 갱신되고 캐시는 라�
     delete globalThis.document;
   }
 });
+
+test('큰 벽 블록은 가장 넓은 내부 사각형 중앙에 큼직한 파스텔 일러스트를 배치한다', () => {
+  const map = new MapRenderer();
+  const islands = map._getWallIslands();
+  const kinds = new Set(['bear', 'cloud', 'rainbow', 'duck', 'flower']);
+  const usedKinds = new Set();
+
+  const illustrated = islands.filter(island => island.centerpiece);
+  assert.ok(illustrated.length >= 10, `중앙 일러스트가 배치된 블록이 충분해야 한다 (${illustrated.length})`);
+
+  for (const island of islands) {
+    const rect = island.innerRect;
+    const piece = island.centerpiece;
+
+    assert.ok(rect, `Island ${island.id} 내부 사각형 계산 실패`);
+
+    if (rect.width < 2 || rect.height < 2) {
+      assert.equal(piece, null, `얇은 1칸 블록 ${island.id} 에는 일러스트를 넣지 않는다`);
+      continue;
+    }
+
+    assert.ok(piece, `2x2 이상 블록 ${island.id} 에 중앙 일러스트가 없다`);
+    usedKinds.add(piece.kind);
+    assert.ok(kinds.has(piece.kind), `알 수 없는 일러스트 종류: ${piece.kind}`);
+    assert.ok(Number.isFinite(piece.x) && Number.isFinite(piece.y));
+    assert.ok(Number.isFinite(piece.rotation));
+
+    // 일러스트 반지름이 내부 사각형 밖으로 새지 않는다
+    assert.ok(piece.x - piece.radius >= rect.minCol * TILE_SIZE - 1e-6, `Island ${island.id} 좌측`);
+    assert.ok(piece.x + piece.radius <= (rect.maxCol + 1) * TILE_SIZE + 1e-6, `Island ${island.id} 우측`);
+    assert.ok(piece.y - piece.radius >= rect.minRow * TILE_SIZE - 1e-6, `Island ${island.id} 상단`);
+    assert.ok(piece.y + piece.radius <= (rect.maxRow + 1) * TILE_SIZE + 1e-6, `Island ${island.id} 하단`);
+
+    const diameterTiles = (piece.radius * 2) / TILE_SIZE;
+    assert.ok(
+      diameterTiles >= 1.2 && diameterTiles <= 1.7 + 1e-6,
+      `Island ${island.id} 일러스트 지름 ${diameterTiles.toFixed(2)} 타일 (1.2~1.7 필요)`,
+    );
+    assert.ok(
+      piece.alpha >= 0.55 && piece.alpha <= 0.72 + 1e-6,
+      `Island ${island.id} 일러스트 알파 ${piece.alpha} (0.55~0.72 필요)`,
+    );
+  }
+
+  assert.equal(usedKinds.size, 5, '곰돌이/구름/무지개/병아리/꽃 5종이 모두 등장해야 한다');
+});
+
+test('중앙 일러스트와 스티치 장식은 fillRect/roundRect/ellipse 없이 save/restore 균형으로 그린다', () => {
+  const map = new MapRenderer();
+  const ctx = createStubCtx();
+
+  assert.doesNotThrow(() => map._drawWallIllustrations(ctx));
+  assert.doesNotThrow(() => map._drawWallStamps(ctx));
+
+  const names = ctx.calls.map(call => call.name);
+  const count = name => names.filter(candidate => candidate === name).length;
+
+  assert.equal(count('fillRect'), 0, '새 장식은 fillRect 를 쓰지 않아 캐시 계약을 깨지 않는다');
+  for (const forbidden of ['roundRect', 'ellipse', 'bezierCurveTo', 'scale']) {
+    assert.equal(count(forbidden), 0, `${forbidden} 에 의존하지 않는다`);
+  }
+  assert.equal(count('save'), count('restore'), 'save/restore 는 항상 균형을 이룬다');
+  assert.ok(count('arc') > 0, '파스텔 일러스트는 arc 기본 경로로 그린다');
+  assert.ok(count('lineTo') > 0, '스티치/부리/잎은 lineTo 경로를 쓴다');
+});
+
+test('긴 1칸 막대 블록은 일러스트 대신 점선 스티치와 파스텔 도트로만 꾸민다', () => {
+  const map = new MapRenderer();
+  const thinIslands = map._getWallIslands().filter(
+    island => island.innerRect && Math.min(island.innerRect.width, island.innerRect.height) < 2,
+  );
+
+  assert.ok(thinIslands.length > 0, '얇은 막대 블록이 존재해야 한다');
+
+  for (const island of thinIslands) {
+    assert.equal(island.centerpiece, null, `Island ${island.id} 는 억지 일러스트를 넣지 않는다`);
+    assert.ok(island.stamps.length >= 1, `Island ${island.id} 도트 장식이 필요하다`);
+
+    const ctx = createStubCtx();
+    assert.doesNotThrow(() => map._drawToyStitchTrim(ctx, island));
+
+    const names = ctx.calls.map(call => call.name);
+    const count = name => names.filter(candidate => candidate === name).length;
+    assert.equal(count('fillRect'), 0);
+    assert.equal(count('save'), count('restore'), 'save/restore 균형');
+    assert.ok(count('lineTo') > 0, '블록 안쪽 테두리 스티치 경로');
+    assert.ok(count('setLineDash') >= 1, '장난감 블록 점선 스티치를 사용한다');
+  }
+});
+
+test('라운드가 바뀌면 중앙 일러스트 종류/위치가 갱신되고 같은 라운드는 유지된다', () => {
+  const map = new MapRenderer();
+  const snapshot = () => map._getWallIslands()
+    .map(island => (island.centerpiece
+      ? `${island.centerpiece.kind}:${island.centerpiece.x.toFixed(2)}:${island.centerpiece.y.toFixed(2)}:${island.centerpiece.radius.toFixed(2)}`
+      : '-'))
+    .join(';');
+
+  map._prepareStamps(1);
+  const round1 = snapshot();
+
+  map._prepareStamps(2);
+  const round2 = snapshot();
+  assert.notEqual(round2, round1, '2라운드는 중앙 일러스트 배치가 갱신된다');
+
+  map._prepareStamps(1);
+  assert.equal(snapshot(), round1, '같은 라운드는 같은 배치를 재현한다');
+});
