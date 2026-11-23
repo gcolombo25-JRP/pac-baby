@@ -59,11 +59,9 @@ function createDocument() {
   const overlay = createElement('overlay');
   const card = createElement('card');
   const openButtons = [createElement('fab'), createElement('pad')];
-  const closeButtons = [createElement('close'), createElement('start'), createElement('backdrop')];
-  const actionButtons = [createElement('startAction'), createElement('demoAction'), createElement('exitAction')];
+  const closeButtons = [createElement('close'), createElement('start'), createElement('backdrop'), createElement('footerClose')];
+  const actionButtons = [createElement('startAction')];
   actionButtons[0].setAttribute('data-help-action', 'start');
-  actionButtons[1].setAttribute('data-help-action', 'demo');
-  actionButtons[2].setAttribute('data-help-action', 'exit');
   const body = createElement('body');
   const documentListeners = {};
 
@@ -167,7 +165,7 @@ test('도움말을 닫으면 오버레이가 숨고 게임이 재개된다', () 
   assert.equal(help.close(), false);
 });
 
-test('도움말 모달의 게임 시작/데모/종료 버튼이 게임 액션을 호출하고 닫힌다', () => {
+test('도움말 모달의 [게임 시작/재개] 버튼이 게임 액션을 호출하고 닫힌다', () => {
   const root = createDocument();
   const game = createGameStub();
   const actions = [];
@@ -183,13 +181,34 @@ test('도움말 모달의 게임 시작/데모/종료 버튼이 게임 액션을
     autoShow: false,
   });
 
-  const expected = ['start', 'demo', 'exit'];
-  for (let i = 0; i < expected.length; i++) {
+  assert.equal(root.actionButtons.length, 1, '설명서 액션은 [게임 시작/재개] 하나만 남는다');
+
+  for (let i = 0; i < root.actionButtons.length; i++) {
     if (!help.isOpen) help.open();
     root.actionButtons[i].click();
-    assert.equal(actions.at(-1), expected[i]);
-    assert.equal(help.isOpen, false, `${expected[i]} 액션 후 모달 닫힘`);
+    assert.equal(actions.at(-1), 'start');
+    assert.equal(help.isOpen, false, 'start 액션 후 모달 닫힘');
   }
+});
+
+test('게임 종료 화면(game-exited)에서는 설명서가 열리지 않는다', () => {
+  const root = createDocument();
+  const help = new HelpOverlay({
+    game: createGameStub(),
+    root,
+    storage: createStorage(),
+    autoShow: false,
+  });
+
+  root.body.classList.add('game-exited');
+
+  assert.equal(help.open(), false);
+  assert.equal(help.isOpen, false);
+  assert.equal(root.overlay.hidden, true, '종료 화면 위로 설명서가 겹치지 않는다');
+
+  // 종료 화면을 닫으면 다시 열 수 있다
+  root.body.classList.remove('game-exited');
+  assert.equal(help.open(), true);
 });
 
 
@@ -348,12 +367,71 @@ test('아바타/UI 아이콘은 OS 이모지 없이 인라인 SVG 로 제공된�
 
 test('index.html 상단/도움말 UI 는 OS 이모지 대신 인라인 SVG 를 쓴다', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 
   assert.doesNotMatch(html, EMOJI_RE, 'index.html 에 OS 이모지가 남아 있으면 안 된다');
   assert.match(html, /id="profile-badge-emoji"[\s\S]*?<svg class="ui-icon ui-avatar"/);
   assert.match(html, /id="help-title"[\s\S]*?<svg class="ui-icon"/);
   assert.match(html, /id="leaderboard-title"[\s\S]*?<svg class="ui-icon"/);
-  assert.match(html, /data-help-action="demo"><svg class="ui-icon"/);
+  assert.match(html, /id="help-leaderboard"/);
   assert.match(html, /data-avatar-id="12" aria-label="하트"/);
   assert.doesNotMatch(html, /class="avatar-btn" data-avatar-id="1">/);
+
+  // 도움말 하단은 [게임 시작/재개] · [리더보드] · [닫기] 3개만 남는다
+  assert.match(html, /data-help-action="start">[\s\S]*?게임 시작\/재개/);
+  assert.doesNotMatch(html, /data-help-action="demo"/);
+  assert.doesNotMatch(html, /data-help-action="exit-lobby"/);
+  assert.match(html, /class="help-action help-close-action"[\s\S]*?닫기/);
+
+  // PC/터치 안내는 CSS 가 자동으로 분리한다
+  assert.match(html, /class="help-for-pc"/);
+  assert.match(html, /class="help-section help-for-touch"/);
+  assert.match(css, /\.help-for-pc/);
+  assert.match(css, /\.help-for-touch/);
+  assert.match(css, /body\.touch-active \.help-for-pc/);
+  assert.match(css, /@media \(pointer: coarse\), \(max-width: 700px\)/);
+});
+
+test('index.html 도움말은 최신 규칙(쪽쪽이 · Score Cleared · 데모/진행 안내)을 담는다', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+
+  // ① 가짜 젖꼭지(쪽쪽이)
+  assert.match(html, /가짜 젖꼭지/);
+  assert.match(html, /\+100점<\/b> · <b>5초 스텔스/);
+  assert.match(html, /30초 쿨타임/);
+  assert.match(html, /1\.5초/);
+  assert.match(html, /12개 클리어 카운트/);
+
+  // ② 라운드 점수 상한
+  assert.match(html, /라운드 점수 상한 \(Score Cleared\)/);
+  assert.match(html, /Score Cleared<\/b> 배지/);
+
+  // ③ 데모 규칙 + STAGE CLEAR 진행 키
+  assert.match(html, /한 번만 자동/);
+  assert.match(html, /메인 화면 우측 상단 <b>\[데모 실행\]<\/b> 버튼/);
+  assert.match(html, /<kbd>R<\/kbd> <kbd>Space<\/kbd> <kbd>Enter<\/kbd> STAGE CLEAR/);
+
+  // ④ D-패드 목록의 리더보드 + 트랩 표의 감속률/얼림 시간 분리
+  assert.match(html, /재시작 · 리더보드\)/);
+  assert.match(html, /<th>감속률<\/th><th>얼림 시간<\/th>/);
+});
+
+test('index.html D-패드 방향 버튼은 화살표 문자 대신 인라인 SVG 를 쓴다', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(html, /[▲◀▶▼]/, 'D-패드/도움말에 화살표 문자를 남기지 않는다');
+
+  const arrows = [
+    ['pad-up', 'ArrowUp'],
+    ['pad-left', 'ArrowLeft'],
+    ['pad-right', 'ArrowRight'],
+    ['pad-down', 'ArrowDown'],
+  ];
+  for (const [cls, key] of arrows) {
+    assert.match(
+      html,
+      new RegExp(`class="pad-btn ${cls}" data-key="${key}"[^>]*><svg class="ui-icon"`),
+      `${cls} 버튼은 인라인 SVG 화살표를 쓴다`,
+    );
+  }
 });

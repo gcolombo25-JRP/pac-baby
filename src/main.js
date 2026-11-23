@@ -200,19 +200,64 @@ function init() {
   window.__LEADERBOARD = leaderboardModal;
 
   // ===== 전역 [게임 종료] =====
-  // 타이틀/플레이/일시정지/도움말/모달 어디서든 누르면
-  // 메인 타이틀(READY 로비)로 완전 초기화되어 돌아간다.
+  // [게임 종료]는 READY 로비로 곧바로 되돌리지 않고 실제 종료 상태(EXITED)로 멈춘 뒤
+  // 전용 종료 화면(#exit-overlay)만 남긴다. 다시 하려면 종료 화면의 [다시 시작]을 누른다.
   const exitButton = document.getElementById('exit-button');
+  const exitOverlay = document.getElementById('exit-overlay');
+  const exitCard = document.getElementById('exit-card');
+  const exitRestartButton = document.getElementById('exit-restart');
+  const exitCloseWindowButton = document.getElementById('exit-close-window');
+  const exitNote = document.getElementById('exit-note');
+
+  const showExitOverlay = () => {
+    document.body.classList.add('game-exited');
+    if (exitNote) exitNote.textContent = '';
+    if (!exitOverlay) return;
+    exitOverlay.hidden = false;
+    exitOverlay.removeAttribute?.('hidden');
+    exitOverlay.setAttribute?.('aria-hidden', 'false');
+    exitCard?.focus?.();
+  };
+
+  const hideExitOverlay = () => {
+    document.body.classList.remove('game-exited');
+    if (!exitOverlay) return;
+    exitOverlay.setAttribute?.('aria-hidden', 'true');
+    exitOverlay.hidden = true;
+    exitOverlay.setAttribute?.('hidden', '');
+  };
 
   const handleExit = () => {
     // 열려 있는 모달을 먼저 닫아 UI 차단 상태가 남지 않게 한다.
     if (help.isOpen) help.close();
     if (registerModal?.isOpen) registerModal.close({ dismiss: false });
     if (leaderboardModal?.isOpen) leaderboardModal.close();
-    game.resetToLobby();
+
+    // 유효한 매뉴얼 런이면 점수를 제출하고 루프·BGM 을 정지한 뒤 EXITED 로 멈춘다.
+    game.exitGame();
+    showExitOverlay();
+  };
+
+  const handleExitRestart = () => {
+    hideExitOverlay();
+    game.resetToLobby(); // READY 로비로 초기화 + 루프 재가동
+    window.__GAME = game;
+  };
+
+  const handleExitCloseWindow = () => {
+    // 브라우저 보안상 스크립트로 연 창이 아니면 닫히지 않는다 → 안내 문구로 대체
+    try {
+      window.close();
+    } catch (err) { /* 무시 */ }
+
+    window.setTimeout(() => {
+      if (exitNote) exitNote.textContent = '브라우저 탭이나 앱을 직접 닫아 주세요';
+    }, 80);
   };
 
   exitButton?.addEventListener('click', handleExit);
+  exitRestartButton?.addEventListener('click', handleExitRestart);
+  exitCloseWindowButton?.addEventListener('click', handleExitCloseWindow);
 
   // 조건 충족 시 게임 오버에서 호출된다 (강제 가입 아님 — [나중에] 선택 가능)
   profile.onPrompt = (summary) => registerModal.open(summary);

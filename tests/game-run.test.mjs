@@ -217,3 +217,35 @@ test('0점/어시스트/데모 런은 종료·재시작에서 제출하지 않�
   demo.resetAll();
   assert.equal(demoEnds.length, 0);
 });
+
+test('[게임 종료] EXITED 로 멈춘 뒤 [다시 시작]에서만 새 런이 시작된다', () => {
+  const events = [];
+  const game = setup({
+    onRunStart: () => events.push('start'),
+    onRunEnd: summary => events.push(`end:${summary.score}`),
+  });
+
+  events.length = 0;
+  game.state = 'PLAYING';
+  game.player.score = 700;
+
+  game.exitGame();
+  assert.equal(game.state, 'EXITED');
+  assert.equal(game.running, false);
+  assert.equal(game.runEnded, true);
+  assert.deepEqual(events, ['end:700'], '종료 시에만 제출하고 새 런은 시작하지 않는다');
+
+  const originalRaf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = () => 0;
+  game._render = () => {}; // 렌더링은 이 테스트의 관심사가 아니다
+  try {
+    assert.equal(game.resetToLobby(), 'READY');
+  } finally {
+    globalThis.requestAnimationFrame = originalRaf;
+  }
+
+  assert.equal(game.state, 'READY');
+  assert.equal(game.running, true);
+  assert.equal(game.runEnded, false);
+  assert.deepEqual(events, ['end:700', 'start'], '재시작에서 새 런이 시작된다');
+});

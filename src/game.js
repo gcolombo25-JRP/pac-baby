@@ -383,11 +383,15 @@ export default class Game {
     if (this.bot.shouldCry(this)) this._useCry(true);
   }
 
-  /** 도움말 모달의 [게임 시작] / [데모 실행] / [게임 종료] */
+  /**
+   * 도움말 모달의 [게임 시작/재개] (+ 외부 호환용 demo/exit 동작)
+   * - 실제 UI 의 [게임 종료] 는 main.js 가 game.exitGame() 을 직접 호출해
+   *   전용 종료 화면(#exit-overlay)을 띄운다.
+   */
   handleHelpAction(action) {
     if (action === 'start') return this.startFromHelp();
     if (action === 'demo') return this.startDemoFromHelp();
-    // 실제 UI의 [게임 종료] 는 메인 타이틀(READY 로비)로 완전 복귀한다.
+    // 외부 호출 호환: READY 로비로 완전 복귀
     if (action === 'exit-lobby') return this.resetToLobby();
     // (기존 'exit' 동작은 단위 테스트/외부 호환을 위해 일시정지로 유지)
     if (action === 'exit') return this.pauseFromHelp();
@@ -3090,7 +3094,7 @@ export default class Game {
 
     ctx.fillStyle = '#ffe082';
     ctx.font = 'bold 18px "Segoe UI", sans-serif';
-    ctx.fillText('[SPACE] 다음 라운드', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 84);
+    ctx.fillText('[R] / [SPACE] / [ENTER] 다음 라운드', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 84);
   }
 
   /** 게임 오버 오버레이 */
@@ -3143,8 +3147,8 @@ export default class Game {
   }
 
   /**
-   * 전역 [게임 종료]: 진행 중인 루프와 BGM 을 즉시 멈춘다.
-   * 화면 안내 레이어는 main.js 가 담당한다.
+   * 전역 [게임 종료]: 진행 중인 루프와 BGM 을 즉시 멈추고 EXITED 로 전환한다.
+   * [다시 시작] 은 main.js 가 #exit-overlay 를 닫은 뒤 resetToLobby() 를 호출한다.
    */
   exitGame() {
     // [게임 종료] 로 나가더라도 진행 중인 정식 매뉴얼 런의 점수는 버리지 않는다.
@@ -3176,9 +3180,8 @@ export default class Game {
   }
 
   /**
-   * 전역 [게임 종료] → 메인 타이틀(READY 로비)로 완전 초기화.
-   * 플레이 중 / 일시정지 / 도움말 / 모달 어디서든 호출할 수 있다.
-   * 루프 중복 없이 정확히 한 번만 재가동한다.
+   * 종료 화면의 [다시 시작] → 메인 타이틀(READY 로비)로 완전 초기화 + 루프 재가동.
+   * main.js 의 [게임 종료] 는 exitGame() 만 호출하고, 이 함수는 재시작 경로에서만 쓴다.
    */
   resetToLobby() {
     this.exitGame();          // 진행 중인 루프/BGM 즉시 정지 + rAF 토큰 무효화

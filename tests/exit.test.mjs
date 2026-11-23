@@ -1,12 +1,14 @@
 /**
  * Pac-Baby: 전역 [게임 종료] 동작 테스트
- *   - 루프/사운드 즉시 정지
+ *   - 루프/사운드 즉시 정지 + EXITED 상태 유지
  *   - 종료 후 이전 rAF 프레임 무효화
  *   - [다시 시작] 시 READY 로비로 복귀
+ *   - index.html/style.css 의 종료 전용 오버레이 · 상단 액션 구조
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import Game from '../src/game.js';
 import { CANVAS_WIDTH } from '../src/constants.js';
@@ -130,4 +132,81 @@ test('[게임 종료] EXITED 가 아니면 resumeFromExit 은 상태를 바꾸�
   assert.equal(result, 'PLAYING');
   assert.equal(game.state, 'PLAYING');
   assert.equal(game.running, true);
+});
+
+test('[게임 종료] EXITED 상태에서 [다시 시작](resetToLobby) 이 READY 로비로 되돌린다', () => {
+  const { game, calls } = createGame();
+  game.running = true;
+  game.state = 'PLAYING';
+  game.player.score = 900;
+
+  game.exitGame();
+  assert.equal(game.state, 'EXITED', '곧바로 로비로 되돌리지 않고 종료 상태로 멈춘다');
+  assert.equal(game.running, false);
+
+  const originalRaf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = () => 0;
+  try {
+    const state = game.resetToLobby();
+
+    assert.equal(state, 'READY');
+    assert.equal(game.state, 'READY');
+    assert.equal(game.running, true);
+    assert.equal(game.player.score, 0, '새 게임은 0점으로 시작한다');
+    assert.equal(game.runEnded, false, '다시 시작한 런은 미종료 상태');
+    assert.ok(calls.includes('playStart'), '재시작 효과음이 재생된다');
+  } finally {
+    globalThis.requestAnimationFrame = originalRaf;
+  }
+});
+
+test('index.html 은 [게임 종료] + [데모 실행] 을 우측 상단 한 줄로 묶는다', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+
+  assert.match(html, /id="top-actions" class="top-actions"/);
+
+  // #top-actions 블록 안에 두 버튼이 함께 있어야 한다 (겹침 방지)
+  const start = html.indexOf('id="top-actions"');
+  assert.ok(start > -1, '#top-actions 컨테이너가 있어야 한다');
+  const block = html.slice(start, html.indexOf('id="game-canvas"'));
+  assert.match(block, /id="exit-button"/);
+  assert.match(block, /id="demo-button"/);
+  assert.doesNotMatch(html, /data-demo-start/, '미사용 data-demo-start 속성은 제거한다');
+
+  // 상단 액션은 모달(z-index 60~70) 아래에 둔다
+  assert.match(css, /\.top-actions\s*\{[\s\S]*?z-index:\s*25/);
+  assert.match(css, /\.top-actions \.exit-button,[\s\S]*?position:\s*static/);
+  assert.doesNotMatch(css, /\.exit-button\s*\{[^}]*z-index:\s*9\d/);
+
+  // 좁은 화면/가로 모드에서는 라벨을 숨겨 HUD 를 덮지 않게 압축한다
+  assert.match(css, /@media \(max-width: 760px\)\s*\{\s*\.top-actions/);
+  assert.match(css, /\.top-actions \.top-action-label\s*\{\s*display:\s*none/);
+  assert.match(css, /body\.touch-landscape \.top-actions/);
+});
+
+test('index.html 은 종료 전용 오버레이([다시 시작]/[창 닫기])를 제공한다', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+
+  assert.match(html, /id="exit-overlay" class="exit-overlay" hidden aria-hidden="true"/);
+  assert.match(html, /게임이 안전하게 종료되었습니다/);
+  assert.match(html, /id="exit-restart"[^>]*>다시 시작</);
+  assert.match(html, /id="exit-close-window"[^>]*>창 닫기</);
+  assert.match(html, /id="exit-note"[^>]*role="status"/);
+
+  // 종료 상태에서는 캔버스/조작/프로필/상단 액션을 숨긴다
+  assert.match(css, /body\.game-exited #game-canvas/);
+  assert.match(css, /body\.game-exited #touch-controls/);
+  assert.match(css, /body\.game-exited #profile-badge/);
+  assert.match(css, /body\.game-exited #top-actions/);
+  assert.match(css, /\.exit-overlay\[hidden\]\s*\{\s*display:\s*none/);
+
+  // src/main.js 는 resetToLobby 가 아니라 exitGame 으로 실제 종료한다
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /game\.exitGame\(\)/);
+  assert.match(main, /classList\.add\('game-exited'\)/);
+  assert.match(main, /game\.resetToLobby\(\)/);
+  assert.match(main, /window\.close\(\)/);
+  assert.match(main, /브라우저 탭이나 앱을 직접 닫아 주세요/);
 });

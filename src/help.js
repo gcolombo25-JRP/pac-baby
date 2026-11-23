@@ -57,6 +57,9 @@ export default class HelpOverlay {
   open() {
     if (this.opened) return false;
 
+    // 게임 종료 전용 화면(#exit-overlay)에서는 설명서를 겹쳐 열지 않는다.
+    if (this.root?.body?.classList?.contains?.('game-exited')) return false;
+
     this.lastFocused = this.root && this.root.activeElement ? this.root.activeElement : null;
     this.opened = true;
 
@@ -171,7 +174,7 @@ export default class HelpOverlay {
       on(button, 'click', stopAndClose);
     }
 
-    // 도움말 모달의 [게임 시작] / [데모 실행] / [게임 종료]
+    // 도움말 모달의 [게임 시작/재개]
     for (const button of this.actionButtons) {
       on(button, 'click', (event) => {
         event?.preventDefault?.();

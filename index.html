@@ -48,27 +48,32 @@
       <span id="profile-badge-name" class="profile-badge-name">GUEST</span>
     </button>
 
-    <!-- 전역 게임 종료 버튼 (타이틀/일시정지/모바일 공통) -->
-    <button id="exit-button" class="exit-button" type="button"
-            aria-label="게임 종료" title="게임 종료 (나가기)">
-      <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.4v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M7.2 6.4a8 8 0 1 0 9.6 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> 게임 종료
-    </button>
+    <!-- 우측 상단 고정 액션: [게임 종료] + [데모 실행]을 한 줄로 정렬한다.
+         z-index 는 모달(60~70)보다 아래로 두어 열린 모달 위에 떠 보이지 않게 한다. -->
+    <div id="top-actions" class="top-actions" role="group" aria-label="게임 메뉴">
+      <button id="exit-button" class="exit-button" type="button"
+              aria-label="게임 종료" title="게임 종료 (나가기)">
+        <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.4v8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M7.2 6.4a8 8 0 1 0 9.6 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span class="top-action-label">게임 종료</span>
+      </button>
 
-    <!-- 메인 화면 [데모 실행]: 접속 중 언제든 데모 플레이를 다시 볼 수 있다 -->
-    <button id="demo-button" class="demo-button" type="button" data-demo-start
-            aria-label="데모 실행" title="데모 플레이 보기">
-      <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.4" y="6.6" width="17.2" height="12.4" rx="3.2" fill="#9fdcff"/><path d="M12 3v3.4" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="2.6" r="1.3" fill="#ffd54f"/><circle cx="9" cy="12" r="1.5" fill="#0b2545"/><circle cx="15" cy="12" r="1.5" fill="#0b2545"/><path d="M9.2 15.4h5.6" stroke="#0b2545" stroke-width="1.4" stroke-linecap="round"/><rect x="1.2" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/><rect x="21" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/></svg> 데모 실행
-    </button>
+      <!-- 메인 화면 [데모 실행]: 접속 중 언제든 데모 플레이를 다시 볼 수 있다 -->
+      <button id="demo-button" class="demo-button" type="button"
+              aria-label="데모 실행" title="데모 플레이 보기">
+        <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.4" y="6.6" width="17.2" height="12.4" rx="3.2" fill="#9fdcff"/><path d="M12 3v3.4" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="2.6" r="1.3" fill="#ffd54f"/><circle cx="9" cy="12" r="1.5" fill="#0b2545"/><circle cx="15" cy="12" r="1.5" fill="#0b2545"/><path d="M9.2 15.4h5.6" stroke="#0b2545" stroke-width="1.4" stroke-linecap="round"/><rect x="1.2" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/><rect x="21" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/></svg>
+        <span class="top-action-label">데모 실행</span>
+      </button>
+    </div>
 
     <canvas id="game-canvas" width="640" height="640"></canvas>
 
     <!-- 모바일 터치 D-패드 (터치 기기/좁은 화면에서만 표시) -->
     <div id="touch-controls" class="touch-controls">
       <div class="dpad">
-        <button type="button" class="pad-btn pad-up" data-key="ArrowUp" aria-label="위">▲</button>
-        <button type="button" class="pad-btn pad-left" data-key="ArrowLeft" aria-label="왼쪽">◀</button>
-        <button type="button" class="pad-btn pad-right" data-key="ArrowRight" aria-label="오른쪽">▶</button>
-        <button type="button" class="pad-btn pad-down" data-key="ArrowDown" aria-label="아래">▼</button>
+        <button type="button" class="pad-btn pad-up" data-key="ArrowUp" aria-label="위"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5.2 19 13h-4.4v6H9.4v-6H5z" fill="currentColor"/></svg></button>
+        <button type="button" class="pad-btn pad-left" data-key="ArrowLeft" aria-label="왼쪽"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5.2 12 13 5v4.4h6v5.2h-6V19z" fill="currentColor"/></svg></button>
+        <button type="button" class="pad-btn pad-right" data-key="ArrowRight" aria-label="오른쪽"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18.8 12 11 19v-4.4H5V9.4h6V5z" fill="currentColor"/></svg></button>
+        <button type="button" class="pad-btn pad-down" data-key="ArrowDown" aria-label="아래"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 18.8 5 11h4.4V5h5.2v6H19z" fill="currentColor"/></svg></button>
       </div>
       <div class="pad-actions">
         <!-- 비상용 [울기]: 단독 강조 버튼 -->
@@ -87,6 +92,24 @@
                   aria-label="리더보드 열기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v4.6a5 5 0 0 1-10 0z" fill="#ffd54f"/><path d="M7 5.4H4.4v1.4A3.2 3.2 0 0 0 7.6 10M17 5.4h2.6v1.4A3.2 3.2 0 0 1 16.4 10" fill="none" stroke="#ffb300" stroke-width="1.5" stroke-linecap="round"/><path d="M10.6 13.4h2.8v3.2h-2.8z" fill="#ffb300"/><rect x="7.6" y="16.4" width="8.8" height="2.4" rx="1.2" fill="#c98b4b"/><rect x="6.4" y="18.6" width="11.2" height="1.8" rx=".9" fill="#a86d33"/></svg> 리더보드</button>
         </div>
       </div>
+    </div>
+
+    <!-- 게임 종료 전용 오버레이: [게임 종료] 후 캔버스/조작 UI 를 숨기고 표시한다 -->
+    <div id="exit-overlay" class="exit-overlay" hidden aria-hidden="true">
+      <div class="exit-backdrop"></div>
+      <section id="exit-card" class="exit-card" role="dialog" aria-modal="true"
+               aria-labelledby="exit-title" tabindex="-1">
+        <h2 id="exit-title">
+          <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.4v8" stroke="#ffcdd2" stroke-width="2.2" stroke-linecap="round"/><path d="M7.2 6.4a8 8 0 1 0 9.6 0" fill="none" stroke="#ffcdd2" stroke-width="2.2" stroke-linecap="round"/></svg>
+          게임이 안전하게 종료되었습니다
+        </h2>
+        <p class="exit-sub">잠시 쉬어 갈까요? 다시 달리고 싶으면 [다시 시작]을 눌러 주세요.</p>
+        <div class="exit-actions">
+          <button id="exit-restart" class="exit-action exit-restart" type="button">다시 시작</button>
+          <button id="exit-close-window" class="exit-action exit-close-window" type="button">창 닫기</button>
+        </div>
+        <p id="exit-note" class="exit-note" role="status" aria-live="polite"></p>
+      </section>
     </div>
 
     <!-- 사용 설명서 오버레이 (처음 방문 시 자동 표시) -->
@@ -113,11 +136,17 @@
           <section class="help-section">
             <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="2" y="7.4" width="20" height="9.6" rx="4.4" fill="#29b6f6"/><path d="M7.2 10.4v3.6M5.4 12.2h3.6" stroke="#f4fffb" stroke-width="1.6" stroke-linecap="round"/><circle cx="16.2" cy="11.2" r="1.2" fill="#ffd54f"/><circle cx="18.4" cy="13.6" r="1.2" fill="#ff9e8a"/></svg> 조작</h3>
             <ul class="help-list">
-              <li><span class="help-kbd-row"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span> 이동 — 미리 눌러도 <b>1.2초</b> 기억해요</li>
-              <li><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6.6" y="2.6" width="10.8" height="18.8" rx="2.6" fill="#9fdcff"/><rect x="8.2" y="5" width="7.6" height="11.6" rx="1.2" fill="#0b2545"/><circle cx="12" cy="18.6" r="1.1" fill="#0b2545"/></svg> <b>화면 스와이프(드래그)</b>로도 방향을 바꿀 수 있어요 · D-패드는 손가락이 빗나가지 않게 크게 만들었어요</li>
-              <li><kbd>Space</kbd> <b>울기</b> — 보모를 3초 얼려요 (<b class="neg">-100점</b>)</li>
-              <li><kbd>P</kbd> <kbd>Esc</kbd> 일시정지 · <kbd>M</kbd> 소리·BGM · <kbd>H</kbd> 이 설명서</li>
-              <li><kbd>R</kbd> 게임 오버 후 재도전 (폰: <b>재시작</b> 버튼) · <kbd>-</kbd><kbd>+</kbd> 또는 <kbd>1</kbd>~<kbd>0</kbd> 속도 조절</li>
+              <!-- PC(키보드) 안내: 터치 기기/좁은 화면에서는 CSS 가 자동으로 숨긴다 -->
+              <li class="help-for-pc"><span class="help-kbd-row"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span> 이동 — 미리 눌러도 <b>1.2초</b> 기억해요</li>
+              <li class="help-for-pc"><kbd>Space</kbd> <b>울기</b> — 보모를 3초 얼려요 (<b class="neg">-100점</b>)</li>
+              <li class="help-for-pc"><kbd>P</kbd> <kbd>Esc</kbd> 일시정지 · <kbd>M</kbd> 소리·BGM · <kbd>H</kbd> 이 설명서</li>
+              <li class="help-for-pc"><kbd>R</kbd> 게임 오버 후 재도전 · <kbd>R</kbd> <kbd>Space</kbd> <kbd>Enter</kbd> STAGE CLEAR 다음 라운드 · <kbd>-</kbd><kbd>+</kbd> 또는 <kbd>1</kbd>~<kbd>0</kbd> 속도 조절</li>
+
+              <!-- 휴대폰(터치) 안내: PC 에서는 CSS 가 자동으로 숨긴다 -->
+              <li class="help-for-touch"><b>화면 스와이프(드래그)</b>로 방향을 바꿔요 — 교차로 직전에 미리 밀어도 <b>1.2초</b> 기억해요</li>
+              <li class="help-for-touch"><b>D-패드 방향 버튼</b>으로 이동 · <b>울기</b>는 보모를 3초 얼려요 (<b class="neg">-100점</b>)</li>
+              <li class="help-for-touch"><b>정지</b> 일시정지 · <b>소리</b> 음향 · <b>도움말</b> 이 설명서 · <b>재시작</b> 다시 도전 · <b>리더보드</b> 순위 보기</li>
+              <li class="help-for-touch">게임 오버 뒤 <b>재시작</b>, STAGE CLEAR 에서는 화면의 <b>다음 라운드</b> 안내대로 <b>Space</b>·<b>Enter</b>·<b>재시작</b> 으로 진행할 수 있어요</li>
             </ul>
           </section>
 
@@ -126,15 +155,34 @@
             <p class="help-note">먹고 나서 일정 시간이 지나면 <b>트랩</b>을 배출해요. 보모가 밟으면 느려지고 얼어붙어요!</p>
             <table class="help-table">
               <thead>
-                <tr><th>아이템</th><th>점수</th><th>소화</th><th>트랩</th><th>감속 · 얼림</th></tr>
+                <tr><th>아이템</th><th>점수</th><th>소화</th><th>트랩</th><th>감속률</th><th>얼림 시간</th></tr>
               </thead>
               <tbody>
-                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="10.1" y="2.4" width="3.8" height="2.2" rx="1.1" fill="#ffd6ba"/><rect x="9.2" y="4.4" width="5.6" height="1.9" rx=".95" fill="#29b6f6"/><path d="M9.1 6.9h5.8a2 2 0 0 1 2 2v9.6a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4V8.9a2 2 0 0 1 2-2z" fill="#e3f7ff"/><path d="M7.1 11.6h9.8v6.9a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4z" fill="#fff8f0"/></svg> 우유병</td><td class="pos">+50</td><td>5초</td><td>오줌</td><td>10% · 3초</td></tr>
-                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.6 9.4 2.9 7.5l.7 4.5-.7 4.5 3.7-1.9z" fill="#f8bbd0"/><path d="M17.4 9.4l3.7-1.9-.7 4.5.7 4.5-3.7-1.9z" fill="#f8bbd0"/><circle cx="12" cy="12" r="5" fill="#f06292"/><path d="M12.7 8.2a3.9 3.9 0 1 0 0 7.6" fill="none" stroke="#ffd9e4" stroke-width="1.4" stroke-linecap="round"/></svg> 캔디</td><td class="pos">+70</td><td>7초</td><td>토사물</td><td>20% · 6초</td></tr>
-                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.2" fill="#c98b4b"/><circle cx="12" cy="12" r="7.4" fill="none" stroke="#e0b177" stroke-width="1.1"/><circle cx="9" cy="9.4" r="1.3" fill="#5d3a1a"/><circle cx="15" cy="10.2" r="1.15" fill="#5d3a1a"/><circle cx="11.4" cy="14.4" r="1.35" fill="#5d3a1a"/><circle cx="15.6" cy="15.4" r="1" fill="#5d3a1a"/><circle cx="7.6" cy="13.6" r=".9" fill="#5d3a1a"/></svg> 쿠키</td><td class="pos">+100</td><td>10초</td><td>똥</td><td>30% · 10초</td></tr>
+                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="10.1" y="2.4" width="3.8" height="2.2" rx="1.1" fill="#ffd6ba"/><rect x="9.2" y="4.4" width="5.6" height="1.9" rx=".95" fill="#29b6f6"/><path d="M9.1 6.9h5.8a2 2 0 0 1 2 2v9.6a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4V8.9a2 2 0 0 1 2-2z" fill="#e3f7ff"/><path d="M7.1 11.6h9.8v6.9a2.4 2.4 0 0 1-2.4 2.4H9.5a2.4 2.4 0 0 1-2.4-2.4z" fill="#fff8f0"/></svg> 우유병</td><td class="pos">+50</td><td>5초</td><td>오줌</td><td>10%</td><td>3초</td></tr>
+                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.6 9.4 2.9 7.5l.7 4.5-.7 4.5 3.7-1.9z" fill="#f8bbd0"/><path d="M17.4 9.4l3.7-1.9-.7 4.5.7 4.5-3.7-1.9z" fill="#f8bbd0"/><circle cx="12" cy="12" r="5" fill="#f06292"/><path d="M12.7 8.2a3.9 3.9 0 1 0 0 7.6" fill="none" stroke="#ffd9e4" stroke-width="1.4" stroke-linecap="round"/></svg> 캔디</td><td class="pos">+70</td><td>7초</td><td>토사물</td><td>20%</td><td>6초</td></tr>
+                <tr><td><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.2" fill="#c98b4b"/><circle cx="12" cy="12" r="7.4" fill="none" stroke="#e0b177" stroke-width="1.1"/><circle cx="9" cy="9.4" r="1.3" fill="#5d3a1a"/><circle cx="15" cy="10.2" r="1.15" fill="#5d3a1a"/><circle cx="11.4" cy="14.4" r="1.35" fill="#5d3a1a"/><circle cx="15.6" cy="15.4" r="1" fill="#5d3a1a"/><circle cx="7.6" cy="13.6" r=".9" fill="#5d3a1a"/></svg> 쿠키</td><td class="pos">+100</td><td>10초</td><td>똥</td><td>30%</td><td>10초</td></tr>
               </tbody>
             </table>
-            <p class="help-note">감속은 <b>10초</b> 지속 · 보모가 트랩을 밟으면 <b class="pos">+100점</b> · 아이템은 <b>15초</b> 뒤 새 위치에 다시 나타나요.</p>
+            <p class="help-note">감속은 <b>10초</b> 지속 · 얼림은 표의 <b>얼림 시간</b>만큼 · 보모가 트랩을 밟으면 <b class="pos">+100점</b> · 아이템은 <b>15초</b> 뒤 새 위치에 다시 나타나요.</p>
+          </section>
+
+          <section class="help-section">
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.6" fill="none" stroke="#29b6f6" stroke-width="2.2"/><path d="M7.4 10.6h9.2a1 1 0 0 1 1 1v.6a2.6 2.6 0 0 1-2.6 2.6H9a2.6 2.6 0 0 1-2.6-2.6v-.6a1 1 0 0 1 1-1z" fill="#b8f2e6"/><path d="M9.6 15.4h4.8v1.6a2.4 2.4 0 0 1-4.8 0z" fill="#ffe082"/><circle cx="12" cy="8" r="1.1" fill="#29b6f6"/></svg> 특수 아이템: 가짜 젖꼭지(쪽쪽이)</h3>
+            <ul class="help-list">
+              <li>먹으면 <b class="pos">+100점</b> · <b>5초 스텔스</b> — 보모가 잠시 베이비를 보지 못해요. (침대 스텔스가 더 길면 그대로 유지)</li>
+              <li>한 번 먹으면 <b>30초 쿨타임</b> 동안 다시 나타나지 않아요. 라운드마다 <b>최대 1개</b>만 필드에 있어요.</li>
+              <li><b>보모가 먼저 발견</b>하면 "치웠다!" 와 함께 <b>1.5초</b> 뒤 다른 빈 곳에서 다시 등장해요.</li>
+              <li>일반 아이템 <b>12개 클리어 카운트</b>와 <b>트랩 배출</b>에는 포함되지 않아요.</li>
+            </ul>
+          </section>
+
+          <section class="help-section">
+            <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="2.6" fill="none" stroke="#8bc34a" stroke-width="1.8"/><path d="M7.6 12.4l2.6 2.6 5.4-5.4" fill="none" stroke="#8bc34a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> 라운드 점수 상한 (Score Cleared)</h3>
+            <ul class="help-list">
+              <li>한 라운드에서 얻을 수 있는 점수에는 <b>상한</b>이 있어요. 상한에 닿으면 화면에 <b>Score Cleared</b> 배지가 뜨고 점수는 <b>그 자리에서 멈춥니다</b>.</li>
+              <li>점수가 멈춰도 라운드는 계속돼요. <b>남은 아이템</b>을 모두 모으면 <b class="pos">STAGE CLEAR</b>!</li>
+              <li>상한을 넘는 점수는 쌓이지 않으니, 남은 아이템을 <b>빠르게</b> 모으는 데 집중하세요.</li>
+            </ul>
           </section>
 
           <section class="help-section">
@@ -172,9 +220,9 @@
             </ul>
           </section>
 
-          <section class="help-section">
+          <section class="help-section help-for-touch">
             <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="6.6" y="2.6" width="10.8" height="18.8" rx="2.6" fill="#9fdcff"/><rect x="8.2" y="5" width="7.6" height="11.6" rx="1.2" fill="#0b2545"/><circle cx="12" cy="18.6" r="1.1" fill="#0b2545"/></svg> 휴대폰에서</h3>
-            <p>화면 아래 <b>D-패드</b>(▲◀▶▼ · 울기 · 소리 · 정지 · 도움말 · 재시작)가 자동으로 나타나요.
+            <p>화면 아래 <b>D-패드</b>(방향 · 울기 · 소리 · 정지 · 도움말 · 재시작 · 리더보드)가 자동으로 나타나요.
               버튼을 크게 만들고 <b>터치 인식 영역</b>을 넓혀서 손가락이 살짝 빗나가도 잘 눌려요.<br />
               <b>화면을 스와이프(드래그)</b>해도 방향이 바뀌고, 교차로 직전에 미리 입력해도 <b>1.2초</b> 기억해
               모퉁이를 부드럽게 꺾을 수 있어요. 게임 오버 뒤에는 <b>재시작</b> 버튼으로 바로 다시 시작!
@@ -184,21 +232,20 @@
           <section class="help-section">
             <h3><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.4" y="6.6" width="17.2" height="12.4" rx="3.2" fill="#9fdcff"/><path d="M12 3v3.4" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="2.6" r="1.3" fill="#ffd54f"/><circle cx="9" cy="12" r="1.5" fill="#0b2545"/><circle cx="15" cy="12" r="1.5" fill="#0b2545"/><path d="M9.2 15.4h5.6" stroke="#0b2545" stroke-width="1.4" stroke-linecap="round"/><rect x="1.2" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/><rect x="21" y="10.4" width="1.8" height="4.6" rx=".9" fill="#29b6f6"/></svg> 봇 &amp; 데모 플레이</h3>
             <p>PC에서는 <kbd>F2</kbd> → <b>BOT</b>으로 개발자용 자동 플레이를 켤 수 있어요.<br />
-              모바일에서는 이 도움말의 <b>[데모 실행]</b> 버튼으로 봇 데모를 바로 시작할 수 있습니다.
+              게임을 처음 열면 <b>5초</b> 동안 조작이 없을 때 데모 플레이가 <b>한 번만 자동</b>으로 시작됩니다.
+              그 뒤에는 메인 화면 우측 상단 <b>[데모 실행]</b> 버튼(PC·모바일 공통)으로 언제든 다시 볼 수 있어요.<br />
               봇은 아이템·황금 젖병을 노리고, 정말 도망칠 수 없을 때만 <b>울기</b>를 쓰며,
               얼어붙은 보모는 위협으로 보지 않아요.<br />
-              시작 후 <b>5초 동안 조작하지 않으면</b> 데모 플레이가 자동으로 시작됩니다.
               데모 중 키를 누르거나 화면을 터치하면 즉시 <b>MANUAL</b>로 복귀합니다.</p>
           </section>
         </div>
 
         <footer class="help-foot">
           <div class="help-actions">
-            <button class="help-action help-start" type="button" data-help-action="start"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4.6v14.8l12-7.4z" fill="currentColor"/></svg> 게임 시작</button>
-            <button class="help-action help-demo" type="button" data-help-action="demo"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.4" y="6.6" width="17.2" height="12.4" rx="3.2" fill="#9fdcff"/><path d="M12 3v3.4" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="2.6" r="1.3" fill="#ffd54f"/><circle cx="9" cy="12" r="1.5" fill="#0b2545"/><circle cx="15" cy="12" r="1.5" fill="#0b2545"/><path d="M9.2 15.4h5.6" stroke="#0b2545" stroke-width="1.4" stroke-linecap="round"/></svg> 데모 실행</button>
-            <button class="help-action help-exit" type="button" data-help-action="exit-lobby"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5.6" y="5.6" width="12.8" height="12.8" rx="2.4" fill="currentColor"/></svg> 게임 종료</button>
+            <button class="help-action help-start" type="button" data-help-action="start"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 4.6v14.8l12-7.4z" fill="currentColor"/></svg> 게임 시작/재개</button>
             <button id="help-leaderboard" class="help-action help-board" type="button"
                     data-leaderboard-open aria-label="리더보드 열기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v4.6a5 5 0 0 1-10 0z" fill="#ffd54f"/><path d="M7 5.4H4.4v1.4A3.2 3.2 0 0 0 7.6 10M17 5.4h2.6v1.4A3.2 3.2 0 0 1 16.4 10" fill="none" stroke="#ffb300" stroke-width="1.5" stroke-linecap="round"/><path d="M10.6 13.4h2.8v3.2h-2.8z" fill="#ffb300"/><rect x="7.6" y="16.4" width="8.8" height="2.4" rx="1.2" fill="#c98b4b"/><rect x="6.4" y="18.6" width="11.2" height="1.8" rx=".9" fill="#a86d33"/></svg> 리더보드</button>
+            <button class="help-action help-close-action" type="button" data-help-close aria-label="설명서 닫기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg> 닫기</button>
           </div>
           <p class="help-hint">이 설명서는 <kbd>H</kbd> 키(폰은 D-패드의 <b><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="#29b6f6"/><path d="M9.6 9.4a2.6 2.6 0 1 1 3.9 2.3c-.9.5-1.4 1.1-1.4 2.1" fill="none" stroke="#f4fffb" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="17" r="1.2" fill="#f4fffb"/></svg> 도움말</b> 버튼)로 언제든 다시 볼 수 있어요.</p>
         </footer>
