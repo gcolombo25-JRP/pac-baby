@@ -160,26 +160,35 @@ test('[게임 종료] EXITED 상태에서 [다시 시작](resetToLobby) 이 READ
   }
 });
 
-test('index.html 은 [게임 종료] + [데모 실행] 을 우측 상단 한 줄로 묶는다', () => {
+test('index.html 은 [게임 종료] + [데모 실행] 을 캔버스 바깥 헤더(#game-header)에 둔다', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 
+  assert.match(html, /id="game-header" class="game-header"/);
   assert.match(html, /id="top-actions" class="top-actions"/);
 
-  // #top-actions 블록 안에 두 버튼이 함께 있어야 한다 (겹침 방지)
-  const start = html.indexOf('id="top-actions"');
-  assert.ok(start > -1, '#top-actions 컨테이너가 있어야 한다');
-  const block = html.slice(start, html.indexOf('id="game-canvas"'));
-  assert.match(block, /id="exit-button"/);
-  assert.match(block, /id="demo-button"/);
+  // #game-header 는 캔버스보다 앞(위)에 있고, 프로필/액션/기록을 모두 담는다
+  const headerStart = html.indexOf('id="game-header"');
+  const canvasStart = html.indexOf('id="game-canvas"');
+  assert.ok(headerStart > -1, '#game-header 컨테이너가 있어야 한다');
+  assert.ok(canvasStart > headerStart, '#game-header 는 캔버스 위에 있어야 한다');
+
+  const headerBlock = html.slice(headerStart, canvasStart);
+  assert.match(headerBlock, /id="profile-badge"/);
+  assert.match(headerBlock, /id="top-actions"/);
+  assert.match(headerBlock, /id="exit-button"/);
+  assert.match(headerBlock, /id="demo-button"/);
+  assert.match(headerBlock, /id="my-best-score"/);
+  assert.match(headerBlock, /id="top-score"/);
   assert.doesNotMatch(html, /data-demo-start/, '미사용 data-demo-start 속성은 제거한다');
 
-  // 상단 액션은 모달(z-index 60~70) 아래에 둔다
-  assert.match(css, /\.top-actions\s*\{[\s\S]*?z-index:\s*25/);
+  // 헤더/액션은 일반 문서 흐름(flex)에 두어 fixed/absolute 로 캔버스 HUD 를 덮지 않는다
+  assert.match(css, /\.game-header\s*\{[^}]*display:\s*flex/);
+  assert.match(css, /\.top-actions\s*\{[^}]*position:\s*static/);
   assert.match(css, /\.top-actions \.exit-button,[\s\S]*?position:\s*static/);
-  assert.doesNotMatch(css, /\.exit-button\s*\{[^}]*z-index:\s*9\d/);
+  assert.doesNotMatch(css, /\.top-actions\s*\{[^}]*position:\s*fixed/);
 
-  // 좁은 화면/가로 모드에서는 라벨을 숨겨 HUD 를 덮지 않게 압축한다
+  // 좁은 화면/가로 모드에서는 라벨을 숨겨 압축한다
   assert.match(css, /@media \(max-width: 760px\)\s*\{\s*\.top-actions/);
   assert.match(css, /\.top-actions \.top-action-label\s*\{\s*display:\s*none/);
   assert.match(css, /body\.touch-landscape \.top-actions/);
@@ -195,9 +204,10 @@ test('index.html 은 종료 전용 오버레이([다시 시작]/[창 닫기])를
   assert.match(html, /id="exit-close-window"[^>]*>창 닫기</);
   assert.match(html, /id="exit-note"[^>]*role="status"/);
 
-  // 종료 상태에서는 캔버스/조작/프로필/상단 액션을 숨긴다
+  // 종료 상태에서는 캔버스/조작/헤더(프로필·액션)를 숨긴다
   assert.match(css, /body\.game-exited #game-canvas/);
   assert.match(css, /body\.game-exited #touch-controls/);
+  assert.match(css, /body\.game-exited #game-header/);
   assert.match(css, /body\.game-exited #profile-badge/);
   assert.match(css, /body\.game-exited #top-actions/);
   assert.match(css, /\.exit-overlay\[hidden\]\s*\{\s*display:\s*none/);

@@ -259,6 +259,53 @@ test('리더보드는 30초 캐시를 사용하고 force 시 갱신한다', asyn
   assert.equal(api.calls.leaderboard, 3, '캐시 만료 후 갱신');
 });
 
+test('저장된 리더보드 캐시로 전체 1위 점수/라운드를 즉시 표시한다', () => {
+  const store = createStore();
+  store.data.cache = {
+    rows: [{ rank: 1, nickname: 'baby', high_score: 1234, max_round: 3 }],
+    at: 1000,
+  };
+
+  const { manager } = createManager({ store });
+  const snapshot = manager.getSnapshot();
+
+  assert.equal(snapshot.topScore, 1234);
+  assert.equal(snapshot.topRound, 3);
+  assert.equal(snapshot.topUpdatedAt, 1000);
+});
+
+test('loadLeaderboard 는 전체 1위 점수/라운드를 스냅샷에 채운다', async () => {
+  const { manager, api } = createManager();
+  await manager.init();
+
+  const snapshot = await manager.loadLeaderboard();
+
+  assert.equal(api.calls.leaderboard, 1);
+  assert.equal(snapshot.topScore, 500);
+  assert.equal(snapshot.topRound, 2);
+});
+
+test('loadLeaderboard 는 오프라인/미설정이면 null(화면 "-")로 두고 게임을 막지 않는다', async () => {
+  const { manager, api } = createManager({ apiOptions: { session: null } });
+  await manager.init();
+
+  const snapshot = await manager.loadLeaderboard();
+
+  assert.equal(api.calls.leaderboard, 0, 'LOCAL 모드에서는 원격 조회를 하지 않는다');
+  assert.equal(snapshot.topScore, null);
+  assert.equal(snapshot.topRound, null);
+});
+
+test('리더보드를 열어 fetchLeaderboard 를 호출해도 전체 1위 표시가 최신화된다', async () => {
+  const { manager } = createManager();
+  await manager.init();
+
+  await manager.fetchLeaderboard();
+
+  assert.equal(manager.getSnapshot().topScore, 500);
+  assert.equal(manager.getSnapshot().topRound, 2);
+});
+
 test('게임 오버 직후 재도전해도 이전 제출이 새 런 토큰을 지우지 않는다', async () => {
   const { manager, api } = createManager({ apiOptions: { session: { access_count: 1 } } });
 

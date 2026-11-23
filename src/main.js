@@ -142,6 +142,49 @@ function init() {
     game.setUiBlocked(true);
   };
 
+  // ===== 최상단 기록 줄 (내 최고 / 전체 1위) =====
+  // - #game-header 의 2칸 배지에만 표시하고, 캔버스 내부 HUD 는 그대로 둔다.
+  // - 전체 1위 조회가 실패/오프라인이면 '-' 로 두고 게임을 절대 막지 않는다.
+  const topRecordEls = {
+    mineScore: document.getElementById('my-best-score'),
+    mineRound: document.getElementById('my-best-round'),
+    topScore: document.getElementById('top-score'),
+    topRound: document.getElementById('top-round'),
+  };
+
+  const formatRecordScore = (value) => {
+    if (value === null || value === undefined) return '-';
+    const number = Math.floor(Number(value));
+    return Number.isFinite(number) ? Math.max(0, number).toLocaleString('ko-KR') : '-';
+  };
+
+  const formatRecordRound = (value) => {
+    if (value === null || value === undefined) return '-';
+    const number = Math.floor(Number(value));
+    return Number.isFinite(number) && number > 0 ? `R${number}` : '-';
+  };
+
+  const renderTopRecords = (snapshot) => {
+    const current = snapshot || profile.getSnapshot();
+    if (topRecordEls.mineScore) topRecordEls.mineScore.textContent = formatRecordScore(current.highScore);
+    if (topRecordEls.mineRound) topRecordEls.mineRound.textContent = formatRecordRound(current.maxRound);
+    if (topRecordEls.topScore) topRecordEls.topScore.textContent = formatRecordScore(current.topScore);
+    if (topRecordEls.topRound) topRecordEls.topRound.textContent = formatRecordRound(current.topRound);
+  };
+
+  // 여러 경로(초기화/점수 갱신/리더보드 열기)에서 호출돼도 요청은 1번만 나가게 한다.
+  let topRecordsPromise = null;
+  const refreshTopRecords = () => {
+    if (topRecordsPromise) return topRecordsPromise;
+    topRecordsPromise = profile.loadLeaderboard()
+      .then((snapshot) => { renderTopRecords(snapshot); return snapshot; })
+      .catch(() => null)
+      .finally(() => { topRecordsPromise = null; });
+    return topRecordsPromise;
+  };
+
+  let lastBestScore = null;
+
   const updateProfileBadge = (snapshot) => {
     const badge = document.getElementById('profile-badge');
     const emoji = document.getElementById('profile-badge-emoji');
@@ -164,6 +207,17 @@ function init() {
           window.localStorage.setItem(HISCORE_KEY, String(game.hiScore));
         } catch (err) { /* 저장 실패 무시 */ }
       }
+    }
+
+    renderTopRecords(snapshot);
+
+    // 내 최고점이 올라가면(서버 병합/점수 제출) 전체 1위도 조용히 새로 고친다.
+    const bestScore = Math.max(0, Math.floor(Number(snapshot?.highScore) || 0));
+    if (lastBestScore === null) {
+      lastBestScore = bestScore;
+    } else if (bestScore > lastBestScore) {
+      lastBestScore = bestScore;
+      refreshTopRecords();
     }
   };
   profile.subscribe(updateProfileBadge);
@@ -288,8 +342,20 @@ function init() {
   };
 
   // 원격 초기화는 비동기. env 가 없거나 네트워크가 실패해도 LOCAL 모드로 게임은 계속된다.
-  profile.init();
+  const profileInit = profile.init();
   profile.beginRun();
+
+  // 원격 초기화 완료 후 백그라운드로 '전체 1위'를 1회 가볍게 조회한다.
+  // (기존 30초 캐시를 활용하며, 실패해도 표시만 '-' 로 두고 게임은 그대로 진행)
+  profileInit
+    .then(() => {
+      lastBestScore = Math.max(
+        lastBestScore ?? 0,
+        Math.floor(Number(profile.getSnapshot().highScore) || 0),
+      );
+      refreshTopRecords();
+    })
+    .catch(() => { /* LOCAL/오프라인: '-' 유지 */ });
 
   // ===== 테스터 모드 (F2 또는 ?test=1 로 지연 로딩) =====
   const restart = () => {

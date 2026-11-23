@@ -77,6 +77,10 @@ function defaultSnapshot(deviceType) {
     avatarEmojiId: 1,
     highScore: 0,
     maxRound: 1,
+    // 전체 1위 기록 (리더보드 캐시/조회로 채운다 — 없으면 null → 화면 '-')
+    topScore: null,
+    topRound: null,
+    topUpdatedAt: 0,
     accessCount: 0,
     isRegistered: false,
     deviceType,
@@ -136,6 +140,15 @@ export default class ProfileManager {
     }
     this.snapshot.deviceType = this.deviceType;
     this.snapshot.country = this.countryHint || this.snapshot.country;
+
+    // 저장된 리더보드 캐시가 있으면 전체 1위를 즉시 보여 준다 (오프라인 폴백).
+    const cachedBoard = this.store.loadLeaderboardCache?.();
+    const cachedTop = Array.isArray(cachedBoard?.rows) ? cachedBoard.rows[0] : null;
+    if (cachedTop) {
+      this.snapshot.topScore = safeInt(cachedTop.high_score, 0);
+      this.snapshot.topRound = Math.max(1, safeInt(cachedTop.max_round, 1));
+      this.snapshot.topUpdatedAt = safeInt(cachedBoard.at, 0);
+    }
 
     this.promptState = this.store.loadPromptState();
     this.remote = false;
@@ -678,7 +691,12 @@ export default class ProfileManager {
     const cacheFresh = cache && (this.now() - safeInt(cache.at, 0)) < this.cacheMs;
 
     if (!force && cacheFresh) {
-      return { rows: cache.rows, cached: true, offline: false, at: cache.at };
+      return this._leaderboardResult({
+        rows: cache.rows,
+        cached: true,
+        offline: false,
+        at: cache.at,
+      });
     }
 
     const waitMs = Number.isFinite(timeoutMs) ? timeoutMs : this.leaderboardTimeoutMs;
@@ -689,28 +707,68 @@ export default class ProfileManager {
     }
 
     if (!this.remote) {
-      return {
+      return this._leaderboardResult({
         rows: cache?.rows || [],
         cached: !!cache,
         offline: true,
         at: cache?.at || 0,
-      };
+      });
     }
 
     try {
       const rows = await this._withTimeout(this.api.getLeaderboard(limit, 0), waitMs);
       const at = this.now();
       this.store.saveLeaderboardCache({ rows, at });
-      return { rows, cached: false, offline: false, at };
+      return this._leaderboardResult({ rows, cached: false, offline: false, at });
     } catch (err) {
-      return {
+      return this._leaderboardResult({
         rows: cache?.rows || [],
         cached: !!cache,
         offline: true,
         reason: err?.code || 'NETWORK_ERROR',
         at: cache?.at || 0,
-      };
+      });
     }
+  }
+
+  /**
+   * 리더보드 1위 기록을 스냅샷(topScore/topRound)에 채운다.
+   * - 내 최고/전체 1위 헤더 표시용. 기존 30초 캐시를 그대로 활용한다.
+   * - 오프라인/미설정/조회 실패에도 절대 throw 하지 않아 게임 시작을 막지 않는다.
+   * @param {{ force?: boolean, limit?: number, timeoutMs?: number }} options
+   */
+  async loadLeaderboard({ force = false, limit, timeoutMs } = {}) {
+    try {
+      await this.fetchLeaderboard({ force, limit, timeoutMs });
+    } catch (err) {
+      // 예상 밖 오류: 표시용 1위 기록만 비우고 게임 흐름은 유지한다.
+      this._applyLeaderboardTop([], 0);
+    }
+    return this.getSnapshot();
+  }
+
+  /** 리더보드 응답을 표시용 결과로 감싸고 1위 기록을 스냅샷에 반영한다 */
+  _leaderboardResult({ rows = [], cached = false, offline = false, at = 0, reason } = {}) {
+    this._applyLeaderboardTop(rows, at);
+    const result = { rows, cached, offline, at };
+    if (reason) result.reason = reason;
+    return result;
+  }
+
+  /** 첫 번째(1위) 행의 점수/라운드를 스냅샷에 반영 (변화 시에만 구독자 알림) */
+  _applyLeaderboardTop(rows, at = 0) {
+    const list = Array.isArray(rows) ? rows : [];
+    const top = list.find(row => row && Number.isFinite(Number(row.high_score))) || null;
+    const score = top ? safeInt(top.high_score, 0) : null;
+    const round = top ? Math.max(1, safeInt(top.max_round, 1)) : null;
+    const changed = score !== this.snapshot.topScore || round !== this.snapshot.topRound;
+
+    this.snapshot.topScore = score;
+    this.snapshot.topRound = round;
+    this.snapshot.topUpdatedAt = safeInt(at, 0);
+
+    if (changed) this._emit();
+    return this.snapshot;
   }
 
   /** Promise 가 너무 오래 걸리면 TIMEOUT 코드로 거절한다 (모바일 네트워크 대비) */

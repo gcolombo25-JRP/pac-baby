@@ -20,6 +20,8 @@ html, body {
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  /* 캔버스 바깥 헤더가 차지하는 높이 — 캔버스 크기 계산에도 반영한다 */
+  --game-header-h: 60px;
   gap: 10px;
   width: 100%;
   height: 100%;
@@ -32,7 +34,7 @@ html, body {
   /* 터치 기기(아래 D-패드)에서는 컨트롤 공간을 더 확보한다 */
   --controls-space: 24px;
   /* 내부 해상도는 devicePixelRatio 배율로 커지지만, 화면 크기는 CSS 로 고정한다 */
-  width: min(640px, calc(100vw - 24px), calc(100vh - var(--controls-space)));
+  width: min(640px, calc(100vw - 24px), calc(100vh - var(--controls-space) - var(--game-header-h)));
   height: auto;
   aspect-ratio: 1 / 1;
   /* 고해상도 캔버스는 부드럽게 축소해야 텍스트/라인이 선명하다 */
@@ -46,23 +48,101 @@ html, body {
   touch-action: none;
 }
 
+/* ============================================================
+   최상단 헤더 (캔버스 바깥) — 프로필 · 액션 · 기록
+   - fixed/absolute 대신 일반 문서 흐름(flex)에 두어
+     PC·세로/가로 폰·태블릿에서 캔버스 상단 HUD 를 가리지 않는다.
+   - 캔버스와 같은 폭 공식을 써서 위아래가 정확히 정렬된다.
+   ============================================================ */
+.game-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+  width: min(640px, calc(100vw - 24px), calc(100vh - 24px - var(--game-header-h)));
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+.game-header-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 내 최고 / 전체 1위 — 모바일에서도 넘치지 않는 2칸 배지 */
+.game-records {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+.record-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid rgba(41, 182, 246, 0.32);
+  border-radius: 8px;
+  background: rgba(8, 18, 36, 0.74);
+  color: #cfe8ff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.record-label {
+  flex: 0 0 auto;
+  color: rgba(207, 232, 255, 0.7);
+}
+
+.record-score {
+  overflow: hidden;
+  color: #ffe082;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+
+.record-top .record-score {
+  color: #ffd54f;
+}
+
+.record-round {
+  flex: 0 0 auto;
+  color: #29b6f6;
+}
+
 /* ===== 터치/모바일: 게임 화면 최대화 =====
    D-패드가 실제로 차지하는 높이(--touch-controls-h)만 남기고
    캔버스를 화면 폭/높이에 맞춰 최대한 크게 그린다.
    변수는 src/touch.js 가 실제 렌더링 크기를 측정해 설정한다. */
 body.touch-active #game-container {
+  --game-header-h: 56px;
   padding: 4px;
   gap: 6px;
+}
+
+body.touch-active #game-header {
+  width: min(
+    calc(100vw - 8px),
+    calc(100dvh - var(--touch-controls-h, 244px) - 24px - var(--game-header-h))
+  );
 }
 
 body.touch-active #game-canvas {
   width: min(
     calc(100vw - 8px),
-    calc(100vh - var(--touch-controls-h, 244px) - 24px)
+    calc(100vh - var(--touch-controls-h, 244px) - 24px - var(--game-header-h))
   );
   width: min(
     calc(100vw - 8px),
-    calc(100dvh - var(--touch-controls-h, 244px) - 24px)
+    calc(100dvh - var(--touch-controls-h, 244px) - 24px - var(--game-header-h))
   );
   height: auto;
   max-width: none;
@@ -73,18 +153,37 @@ body.touch-active #game-canvas {
 /* ===== 모바일 레이아웃 (D-패드 공간만 남기고 캔버스 최대화) ===== */
 @media (max-width: 700px) {
   #game-container {
+    --game-header-h: 56px;
     padding: 4px;
     gap: 6px;
+  }
+
+  .game-header {
+    width: min(
+      calc(100vw - 8px),
+      calc(100dvh - var(--touch-controls-h, 244px) - 24px - var(--game-header-h))
+    );
+    gap: 4px;
+  }
+
+  .game-records {
+    gap: 4px;
+  }
+
+  .record-badge {
+    gap: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
   }
 
   #game-canvas {
     width: min(
       calc(100vw - 8px),
-      calc(100vh - var(--touch-controls-h, 244px) - 24px)
+      calc(100vh - var(--touch-controls-h, 244px) - 24px - var(--game-header-h))
     );
     width: min(
       calc(100vw - 8px),
-      calc(100dvh - var(--touch-controls-h, 244px) - 24px)
+      calc(100dvh - var(--touch-controls-h, 244px) - 24px - var(--game-header-h))
     );
     height: auto;
     max-width: none;
@@ -763,11 +862,11 @@ body.touch-landscape .pad-restart {
    글로벌 프로필 / 등록 모달 / 리더보드 / 토스트
    ============================================================ */
 
-/* 캔버스 위 프로필 배지 (게스트/등록 유저 공용) */
+/* 캔버스 바깥 헤더 안의 프로필 배지 (게스트/등록 유저 공용) */
 .profile-badge {
-  position: absolute;
-  top: 12px;
-  left: 12px;
+  position: static;
+  flex: 0 1 auto;
+  min-width: 0;
   z-index: 20;
   display: inline-flex;
   align-items: center;
@@ -1211,8 +1310,6 @@ body.touch-landscape .pad-restart {
   }
 
   .profile-badge {
-    top: 6px;
-    left: 6px;
     padding: 4px 9px;
     font-size: 11px;
   }
@@ -1579,16 +1676,16 @@ body.touch-landscape .touch-controls {
   }
 }
 
-/* 7) 프로필 배지도 노치/안전 영역 안쪽에 둔다. */
-.profile-badge {
-  top: calc(env(safe-area-inset-top, 0px) + 12px);
-  left: calc(env(safe-area-inset-left, 0px) + 12px);
+/* 7) 헤더는 노치/안전 영역 안쪽에서만 그려지게 한다. */
+.game-header {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 @media (max-width: 700px) {
-  .profile-badge {
-    top: calc(env(safe-area-inset-top, 0px) + 6px);
-    left: calc(env(safe-area-inset-left, 0px) + 6px);
+  .game-header {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
   }
 }
 
@@ -2079,22 +2176,22 @@ body.touch-landscape .pad-actions .pad-skill {
 }
 
 /* ============================================================
-   우측 상단 액션 정렬 ([게임 종료] + [데모 실행])
-   - #top-actions 하나로 묶어 gap 으로 정렬한다 (버튼이 서로 겹치지 않음)
+   상단 액션 정렬 ([게임 종료] + [데모 실행])
+   - #game-header 안에서 일반 흐름(flex)으로 정렬한다 (캔버스를 덮지 않음)
    - z-index 25: 도움말/리더보드/등록 모달(60~70) 아래
-   - 좁은 화면/가로 모드에서는 라벨을 숨기고 아이콘만 남겨
-     캔버스 우상단 HUD(사운드/부스트 배지)를 덮지 않게 한다
+   - 좁은 화면/가로 모드에서는 라벨을 숨기고 아이콘만 남긴다
    ============================================================ */
 .top-actions {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 8px);
-  right: calc(env(safe-area-inset-right, 0px) + 8px);
+  position: static;
+  top: auto;
+  right: auto;
   z-index: 25;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  max-width: calc(100vw - 24px);
+  max-width: 100%;
 }
 
 .top-actions .exit-button,
@@ -2170,8 +2267,6 @@ body.touch-active .help-for-touch {
    ============================================================ */
 @media (max-width: 760px) {
   .top-actions {
-    top: calc(env(safe-area-inset-top, 0px) + 4px);
-    right: calc(env(safe-area-inset-right, 0px) + 4px);
     gap: 4px;
   }
 
@@ -2198,8 +2293,7 @@ body.touch-active .help-for-touch {
 }
 
 body.touch-landscape .top-actions {
-  top: calc(env(safe-area-inset-top, 0px) + 3px);
-  right: calc(env(safe-area-inset-right, 0px) + 3px);
+  gap: 3px;
 }
 
 body.touch-landscape .top-actions .exit-button,
@@ -2214,6 +2308,7 @@ body.touch-landscape .top-actions .demo-button {
    ============================================================ */
 body.game-exited #game-canvas,
 body.game-exited #touch-controls,
+body.game-exited #game-header,
 body.game-exited #profile-badge,
 body.game-exited #top-actions,
 body.game-exited .toast {

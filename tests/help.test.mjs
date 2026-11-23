@@ -390,6 +390,9 @@ test('index.html 상단/도움말 UI 는 OS 이모지 대신 인라인 SVG 를 �
   assert.match(css, /\.help-for-touch/);
   assert.match(css, /body\.touch-active \.help-for-pc/);
   assert.match(css, /@media \(pointer: coarse\), \(max-width: 700px\)/);
+
+  // F2 → BOT 안내도 PC 전용(.help-for-pc)으로 감싸 모바일에서 숨긴다
+  assert.match(html, /<span class="help-for-pc">PC에서는 <kbd>F2<\/kbd>/);
 });
 
 test('index.html 도움말은 최신 규칙(쪽쪽이 · Score Cleared · 데모/진행 안내)을 담는다', () => {

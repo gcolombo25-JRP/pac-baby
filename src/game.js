@@ -2570,16 +2570,14 @@ export default class Game {
     ctx.font = '12px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
 
-    // PC(키보드)에서만 H:도움말 안내 (폰은 D-패드 도움말 버튼 사용)
-    const coarsePointer = typeof window !== 'undefined'
-      && typeof window.matchMedia === 'function'
-      && window.matchMedia('(pointer: coarse)').matches;
-    const touchActive = typeof document !== 'undefined'
-      && document.body?.classList?.contains?.('touch-active');
-    const helpHint = (coarsePointer || touchActive) ? '' : ' · H:도움말';
+    // 터치/모바일에서는 키보드 안내 없이 게임 정보만 표시한다.
+    // (PC 에서만 ←↑↓→ SPACE P R M · H:도움말 안내)
+    const keyboardHint = detectTouchDevice()
+      ? ''
+      : '  |  ←↑↓→ SPACE P R M · H:도움말';
 
     ctx.fillText(
-      `체포 ${this.catchCount} · 속도 ${this.speedLevel}/10 · 아이템 ${this.itemCount}/${this.items.length} · 트랩 ${this.traps.length}  |  ←↑↓→ SPACE P R M${helpHint}`,
+      `체포 ${this.catchCount} · 속도 ${this.speedLevel}/10 · 아이템 ${this.itemCount}/${this.items.length} · 트랩 ${this.traps.length}${keyboardHint}`,
       CANVAS_WIDTH / 2,
       CANVAS_HEIGHT - 11,
     );

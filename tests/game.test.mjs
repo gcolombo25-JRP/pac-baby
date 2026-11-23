@@ -148,6 +148,34 @@ test('렌더링 파이프라인이 예외 없이 실행되고 HUD 에 점수를 
   );
 });
 
+test('터치 환경에서는 하단 HUD 키보드 안내를 숨기고 게임 정보만 표시한다', () => {
+  const canvas = createStubCanvas();
+  const game = new Game(canvas, createStubInput());
+
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    matchMedia: query => ({ matches: query === '(pointer: coarse)' }),
+  };
+
+  try {
+    game._render(0);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+
+  const texts = canvas.ctx.calls
+    .filter(call => call.name === 'fillText')
+    .map(call => String(call.args[0]));
+  const hint = texts.find(text => text.includes('체포'));
+
+  assert.ok(hint, '하단 게임 정보 줄이 그려져야 한다');
+  assert.ok(hint.includes('아이템') && hint.includes('트랩'), '게임 정보는 유지');
+  assert.equal(hint.includes('←↑↓→'), false, '터치에서는 방향키 안내를 숨긴다');
+  assert.equal(hint.includes('SPACE'), false, '터치에서는 키보드 안내를 숨긴다');
+  assert.equal(hint.includes('H:도움말'), false, '터치에서는 H:도움말 안내를 숨긴다');
+});
+
 test('게임 캔버스의 HUD/오버레이는 OS 이모지 없이 벡터 아이콘만 쓴다', () => {
   const canvas = createStubCanvas();
   const game = new Game(canvas, createStubInput());
