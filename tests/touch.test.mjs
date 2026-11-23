@@ -4,6 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import TouchControls, { TouchSwipe } from '../src/touch.js';
 
@@ -148,6 +149,76 @@ test('DOM 이 없는 환경에서도 생성이 실패하지 않는다', () => {
   assert.doesNotThrow(() => new TouchControls(input, null));
 });
 
+test('BOT 치트 상태를 켜면 D-패드 자리 배지가 표시되고 body.bot-cheat 이 켜진다', () => {
+  const classes = new Set();
+  const body = {
+    classList: {
+      add: name => classes.add(name),
+      remove: name => classes.delete(name),
+      contains: name => classes.has(name),
+      toggle(name, force) {
+        const on = force === undefined ? !classes.has(name) : !!force;
+        if (on) classes.add(name); else classes.delete(name);
+        return on;
+      },
+    },
+  };
+
+  const originalDocument = globalThis.document;
+  globalThis.document = { body };
+
+  const attrs = {};
+  const bar = {
+    hidden: true,
+    setAttribute(name, value) { attrs[name] = String(value); },
+    removeAttribute(name) { delete attrs[name]; },
+    getAttribute(name) { return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null; },
+  };
+  const root = {
+    querySelectorAll: () => [],
+    querySelector: selector => (selector === '#bot-cheat-bar' ? bar : null),
+  };
+
+  try {
+    const touch = new TouchControls(createFakeInput(), root);
+    assert.equal(touch.cheatMode, false);
+
+    assert.equal(touch.setCheatMode(true), true);
+    assert.equal(touch.cheatMode, true);
+    assert.equal(classes.has('bot-cheat'), true, 'body.bot-cheat 으로 CSS 전환');
+    assert.equal(bar.hidden, false, '배지 표시');
+    assert.equal(attrs['aria-hidden'], 'false');
+
+    assert.equal(touch.setCheatMode(false), false);
+    assert.equal(touch.cheatMode, false);
+    assert.equal(classes.has('bot-cheat'), false);
+    assert.equal(bar.hidden, true, '배지 숨김');
+    assert.equal(attrs['aria-hidden'], 'true');
+
+    // 정리(destroy) 후에도 body 클래스/배지가 남지 않는다
+    touch.setCheatMode(true);
+    touch.destroy();
+    assert.equal(classes.has('bot-cheat'), false);
+    assert.equal(bar.hidden, true);
+    assert.equal(touch.cheatMode, false);
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
+});
+
+test('index.html/style.css 에 D-패드 자리 BOT 치트 배지와 [BOT 종료] 가 있다', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /id="touch-controls"[\s\S]*?id="bot-cheat-bar"/);
+  assert.match(html, /id="bot-cheat-bar"[\s\S]*?BOT 치트 실행 중[\s\S]*?랭킹 제외/);
+  assert.match(html, /id="bot-cheat-exit"[\s\S]*?BOT 종료/);
+
+  const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.bot-cheat-bar\s*\{[\s\S]*?display:\s*none/);
+  assert.match(css, /body\.bot-cheat \.bot-cheat-bar\s*\{[\s\S]*?display:\s*flex/);
+  assert.match(css, /body\.bot-cheat #touch-controls \.dpad/);
+});
+
 /** 스와이프 대상(캔버스) 스텁 */
 function createFakeTarget() {
   const listeners = {};
@@ -235,6 +306,36 @@ test('destroy 후에는 스와이프가 입력을 주입하지 않는다', () =>
   target.dispatch('pointermove', { clientX: 0, clientY: -100 });
 
   assert.equal(input.pressed.length, 0);
+});
+
+test('게임 화면 첫 접촉은 마우스 클릭 포함해 콜백으로 알린다 (BOT 종료용)', () => {
+  const target = createFakeTarget();
+  const input = createFakeInput();
+  const seen = [];
+  const swipe = new TouchSwipe(input, target, {
+    threshold: 24,
+    onPointerDown: event => seen.push(event.pointerType),
+  });
+
+  target.dispatch('pointerdown', { pointerType: 'touch', clientX: 10, clientY: 10 });
+  target.dispatch('pointerup', { pointerType: 'touch', clientX: 10, clientY: 10 });
+  target.dispatch('pointerdown', { pointerType: 'mouse', clientX: 30, clientY: 30 });
+
+  assert.deepEqual(seen, ['touch', 'mouse'], '마우스 클릭도 알린다');
+  assert.equal(input.pressed.length, 0, '짧은 클릭은 방향 입력을 만들지 않는다');
+
+  // 콜백 예외가 스와이프 입력을 막지 않는다
+  const broken = new TouchSwipe(createFakeInput(), target, {
+    threshold: 24,
+    onPointerDown: () => { throw new Error('boom'); },
+  });
+  const safeInput = broken.input;
+  target.dispatch('pointerdown', { clientX: 100, clientY: 100 });
+  target.dispatch('pointermove', { clientX: 100, clientY: 60 });
+  assert.deepEqual(safeInput.pressed, ['ArrowUp']);
+
+  swipe.destroy();
+  broken.destroy();
 });
 
 test('폰의 재시작 버튼(data-key=KeyR)이 입력으로 연결된다', () => {

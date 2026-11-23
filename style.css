@@ -320,6 +320,102 @@ body.touch-active .touch-controls {
   }
 }
 
+/* ===== BOT 치트: D-패드 자리에 상태 배지 + [BOT 종료] =====
+   - PC(데스크톱)에서 프로필 배지 3연타로 치트를 켜도 바로 보이도록 노출한다.
+   - D-패드/액션 버튼은 숨겨 터치 실수로 입력이 섞이지 않게 한다. */
+.bot-cheat-bar {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: rgba(255, 224, 130, 0.12);
+  border: 1px solid rgba(255, 224, 130, 0.55);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+
+.bot-cheat-bar[hidden] {
+  display: none !important;
+}
+
+body.bot-cheat #touch-controls {
+  display: flex;
+}
+
+body.bot-cheat .bot-cheat-bar {
+  display: flex;
+}
+
+body.bot-cheat #touch-controls .dpad,
+body.bot-cheat #touch-controls .pad-actions {
+  display: none;
+}
+
+.bot-cheat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffe082;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.bot-cheat-badge .ui-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.bot-cheat-text b {
+  color: #ffd54f;
+}
+
+.bot-cheat-exit {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(239, 83, 80, 0.92);
+  color: #fff8f0;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.4);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bot-cheat-exit:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.bot-cheat-exit:focus-visible {
+  outline: 2px solid #ffe082;
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .bot-cheat-bar {
+    gap: 8px;
+    padding: 6px 9px;
+  }
+
+  .bot-cheat-badge {
+    font-size: 12px;
+  }
+
+  .bot-cheat-exit {
+    padding: 7px 12px;
+    font-size: 12.5px;
+  }
+}
+
 /* 좁은 화면: 액션 버튼을 1열로 배치해 큰 D-패드를 유지한다 */
 @media (max-width: 620px) {
   .touch-controls {

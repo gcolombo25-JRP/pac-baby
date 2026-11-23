@@ -165,6 +165,30 @@ test('테스터를 끄면 치트와 입력 개입이 모두 해제된다', () =>
   assert.equal(tester.resolveDirection(game), undefined);
 });
 
+test('BOT 종료는 테스터 BOT 과 치트 개입을 함께 해제하고 READY 매뉴얼로 돌려놓는다', () => {
+  const { game, tester } = setup();
+
+  tester.toggleFlag('freezeAll');
+  tester.startBot();
+  assert.equal(tester.mode, 'BOT');
+  assert.equal(game.isBotCheatActive, true, 'F2 테스터 BOT 도 치트 UI 대상');
+
+  game.player.score = 800;
+  tester.teleport(1, 9);
+
+  assert.equal(game.exitBotToManual(), 'READY');
+
+  assert.equal(tester.mode, 'MANUAL');
+  assert.equal(game.isBotActive, false);
+  assert.equal(game.isBotCheatActive, false);
+  assert.equal(game.state, 'READY');
+  assert.equal(game.round, 1);
+  assert.equal(game.player.score, 0);
+  assert.equal(game.runAssisted, false);
+  assert.equal(game.player.row, game.map.babySpawn.row, '베이비는 침대로 귀환');
+  assert.equal(game.player.col, game.map.babySpawn.col);
+});
+
 test('상태 라벨 오버레이가 예외 없이 그려진다', () => {
   const { game, tester } = setup();
 

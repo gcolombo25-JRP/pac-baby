@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import Game from '../src/game.js';
+import Game, { isTouchUiActive } from '../src/game.js';
 import {
   TILE_MAP, TILE_SIZE, CANVAS_WIDTH, TICK_RATE,
   SPEED_LEVELS, DEFAULT_SPEED_LEVEL, CHASE_ENEMY_COUNT, ITEM_RESPAWN_MS,
@@ -148,21 +148,11 @@ test('렌더링 파이프라인이 예외 없이 실행되고 HUD 에 점수를 
   );
 });
 
-test('터치 환경에서는 하단 HUD 키보드 안내를 숨기고 게임 정보만 표시한다', () => {
+test('PC 데스크톱에서는 하단 HUD 에 키보드 단축키 안내를 표시한다', () => {
   const canvas = createStubCanvas();
-  const game = new Game(canvas, createStubInput());
+  const game = new Game(canvas, createStubInput(), { touchUi: false });
 
-  const originalWindow = globalThis.window;
-  globalThis.window = {
-    matchMedia: query => ({ matches: query === '(pointer: coarse)' }),
-  };
-
-  try {
-    game._render(0);
-  } finally {
-    if (originalWindow === undefined) delete globalThis.window;
-    else globalThis.window = originalWindow;
-  }
+  game._render(0);
 
   const texts = canvas.ctx.calls
     .filter(call => call.name === 'fillText')
@@ -171,9 +161,46 @@ test('터치 환경에서는 하단 HUD 키보드 안내를 숨기고 게임 정
 
   assert.ok(hint, '하단 게임 정보 줄이 그려져야 한다');
   assert.ok(hint.includes('아이템') && hint.includes('트랩'), '게임 정보는 유지');
-  assert.equal(hint.includes('←↑↓→'), false, '터치에서는 방향키 안내를 숨긴다');
-  assert.equal(hint.includes('SPACE'), false, '터치에서는 키보드 안내를 숨긴다');
-  assert.equal(hint.includes('H:도움말'), false, '터치에서는 H:도움말 안내를 숨긴다');
+  assert.ok(hint.includes('←↑↓→'), 'PC 에서는 방향키 안내를 표시한다');
+  assert.ok(hint.includes('SPACE'), 'PC 에서는 SPACE 안내를 표시한다');
+  assert.ok(hint.includes('P R M'), 'PC 에서는 P R M 안내를 표시한다');
+  assert.ok(hint.includes('H:도움말'), 'PC 에서는 H:도움말 안내를 표시한다');
+});
+
+test('터치 D-패드가 화면에 표시 중일 때만 하단 HUD 키보드 안내를 숨긴다', () => {
+  const canvas = createStubCanvas();
+  const game = new Game(canvas, createStubInput(), { touchUi: true });
+
+  game._render(0);
+
+  const texts = canvas.ctx.calls
+    .filter(call => call.name === 'fillText')
+    .map(call => String(call.args[0]));
+  const hint = texts.find(text => text.includes('체포'));
+
+  assert.ok(hint, '하단 게임 정보 줄이 그려져야 한다');
+  assert.ok(hint.includes('아이템') && hint.includes('트랩'), '게임 정보는 유지');
+  assert.equal(hint.includes('←↑↓→'), false, 'D-패드 표시 중에는 방향키 안내를 숨긴다');
+  assert.equal(hint.includes('SPACE'), false, 'D-패드 표시 중에는 키보드 안내를 숨긴다');
+  assert.equal(hint.includes('H:도움말'), false, 'D-패드 표시 중에는 H:도움말 안내를 숨긴다');
+});
+
+test('하단 키 안내 분기는 body.touch-active(D-패드 표시)만 본다', () => {
+  // Windows 터치스크린 PC: maxTouchPoints/ontouchstart 신호만 있고 D-패드는 숨김 → 안내 유지
+  assert.equal(
+    isTouchUiActive({ document: { body: { classList: { contains: () => false } } } }),
+    false,
+    'D-패드가 표시되지 않으면 PC 로 취급',
+  );
+  assert.equal(
+    isTouchUiActive({
+      document: { body: { classList: { contains: name => name === 'touch-active' } } },
+    }),
+    true,
+    'body.touch-active 는 D-패드 표시 중',
+  );
+  assert.equal(isTouchUiActive({ touchUi: true }), true);
+  assert.equal(isTouchUiActive({ touchUi: false }), false);
 });
 
 test('게임 캔버스의 HUD/오버레이는 OS 이모지 없이 벡터 아이콘만 쓴다', () => {

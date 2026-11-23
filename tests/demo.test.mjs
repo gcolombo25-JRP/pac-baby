@@ -164,7 +164,7 @@ test('매뉴얼 플레이를 시작한 뒤에는 5초를 멈춰 있어도 자동
   assert.equal(game.autoDemoConsumed, true);
 });
 
-test('명시적 BOT 토글은 사용자 입력으로 꺼지지 않고 버튼으로만 종료된다', () => {
+test('명시적 BOT 은 키 입력으로 꺼지지 않고 [BOT 종료]·화면 터치로만 매뉴얼로 돌아간다', () => {
   const game = new Game(createStubCanvas(), createStubInput());
   game.state = 'PLAYING';
 
@@ -175,13 +175,77 @@ test('명시적 BOT 토글은 사용자 입력으로 꺼지지 않고 버튼으�
   assert.equal(game.botMode, true);
   assert.equal(game.demoArmed, false);
 
+  // 키 입력(noteUserActivity)은 명시적 BOT 을 유지한다
   game.noteUserActivity();
-  assert.equal(game.botMode, true, '명시적 BOT은 유지');
+  assert.equal(game.botMode, true, '명시적 BOT은 키 입력으로 꺼지지 않는다');
 
-  assert.equal(game.toggleBot(), false);
+  // [BOT 종료] 버튼 / 게임 화면 터치 → 매뉴얼 READY 복귀
+  game.player.score = 400;
+  assert.equal(game.exitBotToManual(), 'READY');
   assert.equal(game.botMode, false);
+  assert.equal(game.state, 'READY');
+  assert.equal(game.runAssisted, false, '복귀 후에는 정식 매뉴얼 런');
   assert.ok(states.some(state => state.active === true));
   assert.equal(states[states.length - 1].active, false);
+  assert.equal(states[states.length - 1].cheatActive, false);
+});
+
+test('프로필 배지 3연타 BOT 치트는 랭킹 제외 런으로 즉시 시작한다', () => {
+  const starts = [];
+  const game = new Game(createStubCanvas(), createStubInput(), {
+    onRunStart: event => starts.push(event),
+  });
+  game.state = 'PLAYING';
+
+  const beforeStarts = starts.length;
+  assert.equal(game.startBotCheat(), true);
+
+  assert.equal(game.botMode, true);
+  assert.equal(game.demoMode, false, 'DEMO 오버레이가 아닌 BOT 배지로 표시');
+  assert.equal(game.isBotActive, true);
+  assert.equal(game.isBotCheatActive, true);
+  assert.equal(game.state, 'PLAYING', 'READY 카운트다운 없이 바로 플레이');
+  assert.equal(game.round, 1);
+  assert.equal(game.player.score, 0);
+  assert.equal(game.lives, PLAYER_LIVES);
+  assert.equal(game.runAssisted, true, 'BOT 치트 런은 랭킹 제외');
+  assert.equal(game.getRunSummary().assisted, true);
+  assert.equal(starts.length, beforeStarts, 'BOT 치트는 서버 런을 시작하지 않는다');
+});
+
+test('BOT 종료는 F2 테스터 BOT 까지 함께 끄고 READY 매뉴얼 게임으로 재구성한다', () => {
+  const starts = [];
+  const ends = [];
+  const game = new Game(createStubCanvas(), createStubInput(), {
+    onRunStart: event => starts.push(event),
+  });
+  game.onRunEnd = summary => ends.push(summary);
+  const tester = new Tester({ game, input: game.input, ui: false });
+
+  game.startBotCheat();
+  tester.startBot(); // F2 테스터 BOT 도 켜진 상황
+  assert.equal(game.isBotActive, true);
+  assert.equal(tester.mode, 'BOT');
+
+  // BOT 이 벌어들인 점수는 제출되면 안 된다
+  game.player.score = 1234;
+  const beforeStarts = starts.length;
+
+  assert.equal(game.exitBotToManual(), 'READY');
+
+  assert.equal(tester.mode, 'MANUAL', 'F2 테스터 BOT 도 함께 종료');
+  assert.equal(game.isBotActive, false);
+  assert.equal(game.isBotCheatActive, false);
+  assert.equal(game.botMode, false);
+  assert.equal(game.demoMode, false);
+  assert.equal(game.state, 'READY');
+  assert.ok(game.readyTimer > 0, 'READY 카운트다운');
+  assert.equal(game.round, 1);
+  assert.equal(game.player.score, 0);
+  assert.equal(game.lives, PLAYER_LIVES);
+  assert.equal(game.runAssisted, false, '새 매뉴얼 런');
+  assert.equal(ends.length, 0, 'BOT 점수는 제출하지 않는다');
+  assert.equal(starts.length, beforeStarts + 1, '새 매뉴얼 런 시작');
 });
 
 test('모바일 BOT 토글은 F2 테스터의 BOT 모드도 함께 종료한다', () => {

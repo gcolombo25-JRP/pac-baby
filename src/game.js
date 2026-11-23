@@ -102,6 +102,20 @@ export function detectTouchDevice(options = {}) {
   return false;
 }
 
+/**
+ * 터치 D-패드가 실제로 화면에 떠 있는지 판별 (순수 함수).
+ * - 하단 HUD 의 키보드 안내는 "D-패드가 보일 때"만 숨긴다.
+ * - Windows 터치스크린 PC 처럼 `maxTouchPoints`/`ontouchstart` 신호만 있고
+ *   D-패드가 표시되지 않는 환경에서 키 안내가 사라지는 버그를 막는다.
+ * @param {{touchUi?: boolean, document?: object}} [options]
+ * @returns {boolean}
+ */
+export function isTouchUiActive(options = {}) {
+  if (typeof options.touchUi === 'boolean') return options.touchUi;
+  const doc = options.document || (typeof document !== 'undefined' ? document : null);
+  return !!doc?.body?.classList?.contains?.('touch-active');
+}
+
 export default class Game {
   constructor(canvas, inputManager, options = {}) {
     this.canvas = canvas;
@@ -195,6 +209,8 @@ export default class Game {
     // 테스트용 기기 판별 오버라이드 (true=터치 기기 / false=PC, undefined=자동 감지)
     this.demoTouchOverride = typeof options.demoTouch === 'boolean' ? options.demoTouch : null;
     this.demoTouchDetected = undefined; // 자동 감지 결과 캐시 (렌더마다 matchMedia 조회 방지)
+    // 하단 HUD 키 안내 표시용: D-패드(body.touch-active) 오버라이드 (테스트/외부 제어)
+    this.touchUiOverride = typeof options.touchUi === 'boolean' ? options.touchUi : null;
     this.lastInputActivitySeq = Number.isFinite(this.input?.activitySeq)
       ? this.input.activitySeq
       : 0;
@@ -230,6 +246,20 @@ export default class Game {
     return this.botMode || this.demoMode || this.tester?.mode === 'BOT';
   }
 
+  /**
+   * BOT 치트(D-패드 자리 배지/[BOT 종료] 표시 대상)가 실행 중인지.
+   * - 자동/버튼 데모(DEMO 오버레이)는 제외하고 명시적 BOT · F2 테스터 BOT 만 포함한다.
+   */
+  get isBotCheatActive() {
+    return this.botMode || this.tester?.mode === 'BOT';
+  }
+
+  /** 하단 HUD 키보드 안내를 숨겨야 하는지 (D-패드가 실제 표시 중일 때만 true) */
+  isTouchUiVisible() {
+    if (typeof this.touchUiOverride === 'boolean') return this.touchUiOverride;
+    return isTouchUiActive();
+  }
+
   /** 데모 안내 문구용 터치 기기 판별 (테스트 오버라이드 우선) */
   isTouchDemoDevice() {
     if (typeof this.demoTouchOverride === 'boolean') return this.demoTouchOverride;
@@ -257,7 +287,14 @@ export default class Game {
       botMode: !!this.botMode,
       demoMode: !!this.demoMode,
       active: this.isBotActive,
+      cheatActive: this.isBotCheatActive,
     });
+  }
+
+  /** 외부(테스터 등)에서 봇 상태 변경을 알릴 때 쓰는 공개 훅 */
+  notifyBotState() {
+    this._notifyBotState();
+    return this.isBotActive;
   }
 
   /**
@@ -332,6 +369,64 @@ export default class Game {
     this.tester?.log?.('bot', 'BOT 모드 시작 (외부 버튼)');
     this._notifyBotState();
     return true;
+  }
+
+  /**
+   * 프로필 배지 3연타 → BOT 치트 즉시 실행.
+   * - 1라운드 · 0점 · 목숨 3의 새 판을 READY 없이 바로 PLAYING 으로 시작한다.
+   * - 서버 런(onRunStart)은 시작하지 않고 `runAssisted = true` 로 랭킹에서 제외한다.
+   * - F2 테스터의 BOT/REPLAY 가 켜져 있으면 먼저 정리한다.
+   * @returns {boolean} 항상 true
+   */
+  startBotCheat() {
+    // 진행 중인 정식 매뉴얼 런의 점수는 버리지 않고 먼저 제출한다.
+    if (!this.runAssisted && !this.runEnded && this.player.score > 0) this._endRun();
+
+    if (this.tester && this.tester.mode !== 'MANUAL') this.tester.stopAll?.();
+
+    // 새 판(1라운드·0점·목숨 3) + READY 없이 바로 플레이 + assisted
+    this._resetDemoBoard();
+    this.demoMode = false;   // 큰 DEMO 오버레이 대신 BOT 배지로 표시
+    this.botMode = true;
+    this.runAssisted = true; // 랭킹 제외
+    this.demoArmed = false;
+    this.autoDemoConsumed = true;
+    this.demoIdleMs = 0;
+
+    this.tester?.log?.('bot', '프로필 배지 3연타 → BOT 치트 시작 (랭킹 제외)');
+    this._notifyBotState();
+    return true;
+  }
+
+  /**
+   * BOT(및 F2 테스터 BOT)을 종료하고 매뉴얼 READY 대기 모드로 복귀한다.
+   * - 1라운드 · 0점 · 목숨 3 · `runAssisted = false` 의 새 매뉴얼 런을 시작한다.
+   * - 봇이 만든 점수는 제출하지 않는다 (자산이 아니라 치트 기록).
+   * @returns {string} 전환 후 상태 ('READY')
+   */
+  exitBotToManual() {
+    const hadBot = this.isBotActive;
+
+    // 봇이 만든 점수가 resetAll 에서 제출되지 않도록 assisted 로 표시
+    if (hadBot) this.runAssisted = true;
+
+    this.botMode = false;
+    this.demoMode = false;
+    if (this.tester && this.tester.mode !== 'MANUAL') this.tester.stopAll?.();
+
+    this.demoArmed = false;
+    this.autoDemoConsumed = true;
+    this.demoIdleMs = 0;
+
+    // resetAll 이 새 매뉴얼 런(onRunStart, runAssisted=false)과 READY 보드를 구성한다
+    this.resetAll();
+    this.state = 'READY';
+    this.readyTimer = READY_COUNTDOWN_MS;
+    this.tickAccumulator = 0;
+
+    this.tester?.log?.('bot', 'BOT 종료 → 매뉴얼 READY 복귀');
+    this._notifyBotState();
+    return this.state;
   }
 
   /**
@@ -2570,9 +2665,9 @@ export default class Game {
     ctx.font = '12px "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
 
-    // 터치/모바일에서는 키보드 안내 없이 게임 정보만 표시한다.
-    // (PC 에서만 ←↑↓→ SPACE P R M · H:도움말 안내)
-    const keyboardHint = detectTouchDevice()
+    // 터치/모바일에서 D-패드가 실제로 표시 중일 때만 키보드 안내를 숨긴다.
+    // (Windows 터치스크린 PC 처럼 터치 신호만 있는 데스크톱에서도 안내는 그대로 표시)
+    const keyboardHint = this.isTouchUiVisible()
       ? ''
       : '  |  ←↑↓→ SPACE P R M · H:도움말';
 

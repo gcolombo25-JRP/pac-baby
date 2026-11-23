@@ -114,8 +114,16 @@ function init() {
   // D-패드와 UI 버튼(도움말/리더보드/종료/모달 등)의 클릭음은
   // TouchControls 가 pointerdown 에서 직접 재생한다 (중복 리스너 없음).
 
-  // 화면 스와이프/드래그로 방향 전환 (터치/펜 전용, 마우스는 무시)
-  const touchSwipe = new TouchSwipe(input, canvas);
+  // 화면 스와이프/드래그로 방향 전환 (터치/펜 전용, 마우스는 방향 입력으로 쓰지 않는다)
+  // 단, 첫 접촉은 마우스 포함해 콜백으로 알려 BOT 치트 종료에 사용한다.
+  const touchSwipe = new TouchSwipe(input, canvas, {
+    onPointerDown: (event) => {
+      if (!game.isBotCheatActive) return;
+      if (typeof event.button === 'number' && event.button !== 0) return; // 우클릭 등 제외
+      event.preventDefault?.();
+      exitBotCheat('canvas');
+    },
+  });
   window.__SWIPE = touchSwipe;
 
   // 사용 설명서(도움말): 첫 방문 시 자동 표시, H / F1 / ❔ 버튼으로 열고 닫기
@@ -252,6 +260,95 @@ function init() {
 
   window.__REGISTER = registerModal;
   window.__LEADERBOARD = leaderboardModal;
+
+  // ===== BOT 치트 (프로필 배지 3연타 → 즉시 BOT, 랭킹 제외) =====
+  // 1탭: 리더보드 (기존 동작) / 3연타(350ms 이내): 리더보드를 닫고 BOT 치트 실행.
+  // - 첫 탭에 리더보드가 바로 깔리면 2·3번째 탭이 모달 배경에 막히므로,
+  //   단일 탭 열기를 260ms 늦춰 3연타 판정을 먼저 끝낸다.
+  const PROFILE_BADGE_TRIPLE_MS = 350;
+  const PROFILE_BADGE_SINGLE_DELAY_MS = 260;
+  let profileBadgeTaps = [];
+  let profileBadgeTimer = null;
+
+  // [BOT 종료] 버튼/캔버스 터치가 함께 쓰는 UI 동기화
+  const syncBotCheatUi = (state) => {
+    const active = state && typeof state.cheatActive === 'boolean'
+      ? state.cheatActive
+      : game.isBotCheatActive;
+    touchControls.setCheatMode(active);
+  };
+
+  const enterBotCheat = () => {
+    // 모달이 게임을 막고 있으면 먼저 닫아 캔버스 터치가 바로 먹게 한다.
+    if (help.isOpen) help.close();
+    if (registerModal?.isOpen) registerModal.close({ dismiss: false });
+    if (leaderboardModal?.isOpen) leaderboardModal.close();
+
+    game.startBotCheat();
+    syncBotCheatUi({ cheatActive: true });
+    showToast(
+      'BOT 치트 실행 중 · 랭킹 제외 — 화면을 터치하거나 [BOT 종료]로 매뉴얼 복귀',
+      { duration: 3600 },
+    );
+  };
+
+  const exitBotCheat = (reason = 'button') => {
+    if (!game.isBotCheatActive) return false;
+
+    game.exitBotToManual();
+    syncBotCheatUi({ cheatActive: false });
+
+    if (reason === 'canvas') {
+      showToast('BOT을 종료하고 매뉴얼 대기 모드(READY)로 돌아왔어요', { duration: 2800 });
+    }
+    return true;
+  };
+
+  // 프로필 배지 클릭: window 캡처 단계에서 가로채 리더보드 모달(버튼 클릭 핸들러)보다
+  // 먼저 3연타를 판정한다. 1~2탭은 260ms 뒤 기존처럼 리더보드를 연다.
+  window.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!target || typeof target.closest !== 'function') return;
+    if (!target.closest('#profile-badge')) return;
+
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    event.stopImmediatePropagation?.();
+
+    const now = Date.now();
+    profileBadgeTaps = profileBadgeTaps.filter(stamp => now - stamp <= PROFILE_BADGE_TRIPLE_MS);
+    profileBadgeTaps.push(now);
+
+    if (profileBadgeTaps.length >= 3) {
+      profileBadgeTaps = [];
+      if (profileBadgeTimer !== null) {
+        window.clearTimeout(profileBadgeTimer);
+        profileBadgeTimer = null;
+      }
+      enterBotCheat();
+      return;
+    }
+
+    if (profileBadgeTimer !== null) window.clearTimeout(profileBadgeTimer);
+    profileBadgeTimer = window.setTimeout(() => {
+      profileBadgeTimer = null;
+      profileBadgeTaps = [];
+      if (leaderboardModal?.isOpen) {
+        leaderboardModal.refresh?.();
+        return;
+      }
+      leaderboardModal?.open?.();
+    }, PROFILE_BADGE_SINGLE_DELAY_MS);
+  }, true);
+
+  // 게임/테스터 쪽에서 BOT 상태가 바뀌면 D-패드 자리 배지를 즉시 동기화한다.
+  game.setBotStateListener(syncBotCheatUi);
+
+  const botCheatExitButton = document.getElementById('bot-cheat-exit');
+  botCheatExitButton?.addEventListener('click', () => {
+    botCheatExitButton.blur?.(); // 포커스가 Space 입력을 가로채지 않게
+    exitBotCheat('button');
+  });
 
   // ===== 전역 [게임 종료] =====
   // [게임 종료]는 READY 로비로 곧바로 되돌리지 않고 실제 종료 상태(EXITED)로 멈춘 뒤

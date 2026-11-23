@@ -28,6 +28,12 @@ export default class TouchControls {
     this.handlers = [];
     this.held = new Set(); // 현재 눌린 키 (중복 press/release 방지)
 
+    // BOT 치트 상태 배지 (D-패드 자리 #bot-cheat-bar)
+    this.cheatMode = false;
+    this._cheatBar = typeof this.root?.querySelector === 'function'
+      ? this.root.querySelector('#bot-cheat-bar')
+      : null;
+
     // 게임 화면 최대화용 레이아웃 상태
     this._controlsEl = null;
     this._layoutObserver = null;
@@ -111,6 +117,46 @@ export default class TouchControls {
     };
 
     this.root.addEventListener('pointerdown', this._onUiPointerDown, true);
+  }
+
+  // ===== BOT 치트 상태 UI =====
+
+  /**
+   * BOT 치트 실행 중 표시/숨김.
+   * - D-패드 자리(`#bot-cheat-bar`)에 `BOT 치트 실행 중 · 랭킹 제외` 배지와
+   *   `[BOT 종료]` 버튼을 보여 준다.
+   * - `body.bot-cheat` 클래스로 D-패드 대신 배지가 보이도록 CSS 를 전환한다.
+   *   (PC 에서도 3연타로 치트를 켜면 종료 버튼이 즉시 보인다)
+   * @param {boolean} active
+   * @returns {boolean} 반영된 상태
+   */
+  setCheatMode(active) {
+    const on = !!active;
+    this.cheatMode = on;
+
+    if (typeof document !== 'undefined' && document?.body?.classList) {
+      document.body.classList.toggle('bot-cheat', on);
+    }
+
+    if (!this._cheatBar && typeof this.root?.querySelector === 'function') {
+      this._cheatBar = this.root.querySelector('#bot-cheat-bar');
+    }
+
+    const bar = this._cheatBar;
+    if (bar) {
+      bar.hidden = !on;
+      if (on) {
+        bar.removeAttribute?.('hidden');
+        bar.setAttribute?.('aria-hidden', 'false');
+      } else {
+        bar.setAttribute?.('hidden', '');
+        bar.setAttribute?.('aria-hidden', 'true');
+      }
+    }
+
+    // 배지 영역이 생기거나 사라지면 캔버스가 쓸 남은 높이를 다시 측정한다
+    this._scheduleLayout();
+    return on;
   }
 
   // ===== 게임 화면 최대화용 레이아웃 측정 =====
@@ -216,7 +262,16 @@ export default class TouchControls {
     this._layoutObserver = null;
     this._controlsEl = null;
 
+    // BOT 치트 상태 UI 정리
+    this.cheatMode = false;
+    if (this._cheatBar) {
+      this._cheatBar.hidden = true;
+      this._cheatBar.setAttribute?.('aria-hidden', 'true');
+    }
+    this._cheatBar = null;
+
     if (typeof document !== 'undefined') {
+      document.body?.classList?.remove?.('bot-cheat');
       document.body?.classList?.remove?.('touch-landscape');
       const rootStyle = document.documentElement?.style;
       rootStyle?.removeProperty?.('--touch-controls-h');
@@ -243,6 +298,8 @@ export class TouchSwipe {
     this.threshold = options.threshold || TOUCH_SWIPE_THRESHOLD;
     this.axisRatio = options.axisRatio || 1.2; // 대각선 흔들림 방지
     this.pointerTypes = options.pointerTypes || ['touch', 'pen'];
+    // 게임 화면 첫 접촉 알림 (마우스 클릭 포함) — BOT 종료 같은 UI 전환용
+    this.onPointerDown = typeof options.onPointerDown === 'function' ? options.onPointerDown : null;
 
     this.active = false;          // 현재 스와이프 중인지
     this.pointerId = null;
@@ -271,6 +328,16 @@ export class TouchSwipe {
 
   _handleDown(event) {
     if (!event || this.active) return;
+
+    // 첫 접촉을 외부에 알린다 (마우스도 포함 — BOT 치트 종료 등)
+    if (typeof this.onPointerDown === 'function') {
+      try {
+        this.onPointerDown(event);
+      } catch (err) {
+        /* UI 콜백 오류가 스와이프 입력을 막지 않게 무시 */
+      }
+    }
+
     if (this.pointerTypes.length > 0 && !this.pointerTypes.includes(event.pointerType)) return;
 
     if (typeof event.preventDefault === 'function') event.preventDefault();
