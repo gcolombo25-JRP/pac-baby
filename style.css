@@ -981,6 +981,10 @@ body.touch-landscape .pad-restart {
   -webkit-backdrop-filter: blur(4px);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
   -webkit-tap-highlight-color: transparent;
+  /* 길게 누르기(Long Press) 시 텍스트 선택/복사 메뉴가 뜨지 않게 한다 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .profile-badge:hover,

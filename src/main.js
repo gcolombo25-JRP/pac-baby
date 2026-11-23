@@ -261,14 +261,28 @@ function init() {
   window.__REGISTER = registerModal;
   window.__LEADERBOARD = leaderboardModal;
 
-  // ===== BOT 치트 (프로필 배지 3연타 → 즉시 BOT, 랭킹 제외) =====
-  // 1탭: 리더보드 (기존 동작) / 3연타(350ms 이내): 리더보드를 닫고 BOT 치트 실행.
-  // - 첫 탭에 리더보드가 바로 깔리면 2·3번째 탭이 모달 배경에 막히므로,
-  //   단일 탭 열기를 260ms 늦춰 3연타 판정을 먼저 끝낸다.
-  const PROFILE_BADGE_TRIPLE_MS = 350;
-  const PROFILE_BADGE_SINGLE_DELAY_MS = 260;
-  let profileBadgeTaps = [];
-  let profileBadgeTimer = null;
+  // ===== BOT 치트 (프로필 배지 길게 누르기 → 즉시 BOT, 랭킹 제외) =====
+  // - 짧게 1번 클릭/탭: 지연 없이 바로 리더보드 (기존 동작 그대로)
+  // - 0.75초 이상 꾹 누르기(pointerdown 유지): 리더보드를 열지 않고 즉시 BOT 치트 실행
+  // - BOT 진입 후 손을 뗄 때 따라오는 click 이벤트는 차단해 리더보드가 열리지 않게 한다.
+  const PROFILE_BADGE_LONG_PRESS_MS = 750;
+  let profileBadgePressTimer = null;
+  let profileBadgeReleaseTimer = null;
+  let profileBadgeLongPress = false;
+
+  /** 프로필 배지(또는 그 자식)를 향한 포인터 이벤트인지 */
+  const isProfileBadgePointer = (event) => {
+    const target = event?.target;
+    return !!target && typeof target.closest === 'function' && !!target.closest('#profile-badge');
+  };
+
+  /** 진행 중인 길게 누르기 타이머 해제 */
+  const clearProfileBadgePress = () => {
+    if (profileBadgePressTimer !== null) {
+      window.clearTimeout(profileBadgePressTimer);
+      profileBadgePressTimer = null;
+    }
+  };
 
   // [BOT 종료] 버튼/캔버스 터치가 함께 쓰는 UI 동기화
   const syncBotCheatUi = (state) => {
@@ -304,41 +318,68 @@ function init() {
     return true;
   };
 
-  // 프로필 배지 클릭: window 캡처 단계에서 가로채 리더보드 모달(버튼 클릭 핸들러)보다
-  // 먼저 3연타를 판정한다. 1~2탭은 260ms 뒤 기존처럼 리더보드를 연다.
+  // 프로필 배지 pointerdown 유지 750ms → BOT 치트.
+  // 타이머는 pointerup / pointercancel / pointerleave 에서 즉시 해제한다.
+  window.addEventListener('pointerdown', (event) => {
+    if (!isProfileBadgePointer(event)) return;
+    if (typeof event.button === 'number' && event.button !== 0) return; // 우클릭 등 제외
+
+    if (profileBadgeReleaseTimer !== null) {
+      window.clearTimeout(profileBadgeReleaseTimer);
+      profileBadgeReleaseTimer = null;
+    }
+    clearProfileBadgePress();
+    profileBadgeLongPress = false;
+    profileBadgePressTimer = window.setTimeout(() => {
+      profileBadgePressTimer = null;
+      profileBadgeLongPress = true;
+      enterBotCheat();
+    }, PROFILE_BADGE_LONG_PRESS_MS);
+  }, true);
+
+  const endProfileBadgePress = () => {
+    clearProfileBadgePress();
+    // 길게 누르기로 BOT 에 진입했다면 손을 뗄 때 오는 click 은 무시해야 한다.
+    // click 이 오지 않는 브라우저에서도 플래그가 남지 않도록 잠시 뒤 스스로 해제한다.
+    if (!profileBadgeLongPress) return;
+    if (profileBadgeReleaseTimer !== null) window.clearTimeout(profileBadgeReleaseTimer);
+    profileBadgeReleaseTimer = window.setTimeout(() => {
+      profileBadgeReleaseTimer = null;
+      profileBadgeLongPress = false;
+    }, 500);
+  };
+
+  window.addEventListener('pointerup', endProfileBadgePress, true);
+  window.addEventListener('pointercancel', endProfileBadgePress, true);
+  window.addEventListener('pointerleave', (event) => {
+    if (!isProfileBadgePointer(event)) return;
+    endProfileBadgePress();
+  }, true);
+
+  // 프로필 배지 클릭: window 캡처 단계에서 가로채 모달의 자체 버튼 핸들러보다 먼저 처리한다.
+  // - 짧은 1회 클릭/탭: 지연 없이 즉시 리더보드
+  // - 길게 누르기였던 경우: BOT 로 이미 진입했으므로 click 을 차단하고 리더보드를 열지 않는다
   window.addEventListener('click', (event) => {
-    const target = event.target;
-    if (!target || typeof target.closest !== 'function') return;
-    if (!target.closest('#profile-badge')) return;
+    if (!isProfileBadgePointer(event)) return;
 
     event.preventDefault?.();
     event.stopPropagation?.();
     event.stopImmediatePropagation?.();
 
-    const now = Date.now();
-    profileBadgeTaps = profileBadgeTaps.filter(stamp => now - stamp <= PROFILE_BADGE_TRIPLE_MS);
-    profileBadgeTaps.push(now);
-
-    if (profileBadgeTaps.length >= 3) {
-      profileBadgeTaps = [];
-      if (profileBadgeTimer !== null) {
-        window.clearTimeout(profileBadgeTimer);
-        profileBadgeTimer = null;
+    if (profileBadgeLongPress) {
+      profileBadgeLongPress = false;
+      if (profileBadgeReleaseTimer !== null) {
+        window.clearTimeout(profileBadgeReleaseTimer);
+        profileBadgeReleaseTimer = null;
       }
-      enterBotCheat();
       return;
     }
 
-    if (profileBadgeTimer !== null) window.clearTimeout(profileBadgeTimer);
-    profileBadgeTimer = window.setTimeout(() => {
-      profileBadgeTimer = null;
-      profileBadgeTaps = [];
-      if (leaderboardModal?.isOpen) {
-        leaderboardModal.refresh?.();
-        return;
-      }
-      leaderboardModal?.open?.();
-    }, PROFILE_BADGE_SINGLE_DELAY_MS);
+    if (leaderboardModal?.isOpen) {
+      leaderboardModal.refresh?.();
+      return;
+    }
+    leaderboardModal?.open?.();
   }, true);
 
   // 게임/테스터 쪽에서 BOT 상태가 바뀌면 D-패드 자리 배지를 즉시 동기화한다.

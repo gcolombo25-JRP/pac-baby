@@ -87,6 +87,7 @@ const WALL_SHADOW_DEPTH = TILE_SIZE * 0.17;                                 // �
 const WALL_TOP_LIGHT_DEPTH = TILE_SIZE * 0.5;                               // 윗면 하이라이트
 const WALL_SEAM_OVERLAP = 0.6;                                              // 인접 타일 안티앨리어싱 틈 제거
 const WALL_SIDE_SHADE = TILE_SIZE * 0.09;                                   // 앞벽 좌우 세로 음영 폭
+const WALL_CORNER_RADIUS = TILE_SIZE * 0.2;                                 // 바깥으로 노출된 볼록 모서리 라운드 (≈4.6px)
 
 const WALL_WOOD_TRIM = 'rgba(201, 138, 82, 0.45)'; // 장난감 블록의 따뜻한 우드 이음선
 
@@ -225,6 +226,84 @@ function fillRects(ctx, fillStyle, rects) {
   }
 
   ctx.fill();
+}
+
+/**
+ * 아래쪽 두 모서리를 둥글게 깎은 가로 막대 경로 (앞벽 전용).
+ * - roundRect 없이 moveTo/lineTo/arc 만 사용한다 (렌더 계약 유지).
+ * - rLeft/rRight 가 0 이면 그 모서리는 기존처럼 각지게 남는다 (안쪽 계단 모서리).
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} x
+ * @param {number} y
+ * @param {number} w
+ * @param {number} h
+ * @param {number} rLeft
+ * @param {number} rRight
+ */
+function runBoxPath(ctx, x, y, w, h, rLeft, rRight) {
+  const left = Math.max(0, Math.min(rLeft, w / 2, h));
+  const right = Math.max(0, Math.min(rRight, w / 2, h));
+
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + w, y);
+
+  if (right > 0) {
+    ctx.lineTo(x + w, y + h - right);
+    ctx.arc(x + w - right, y + h - right, right, 0, Math.PI / 2);
+  } else {
+    ctx.lineTo(x + w, y + h);
+  }
+
+  if (left > 0) {
+    ctx.lineTo(x + left, y + h);
+    ctx.arc(x + left, y + h - left, left, Math.PI / 2, Math.PI);
+  } else {
+    ctx.lineTo(x, y + h);
+  }
+
+  ctx.closePath();
+}
+
+/**
+ * 앞벽 하단 라운드와 같은 반경으로 모서리를 다듬은 드롭 섀도우 경로.
+ * - 위쪽 두 모서리는 앞벽이 둥글게 파인 만큼 안쪽에서 시작해 어긋남을 줄인다.
+ * - quadraticCurveTo 가 없는 최소 ctx 스텁에서는 lineTo 로 근사한다.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} x
+ * @param {number} y
+ * @param {number} w
+ * @param {number} h
+ * @param {number} rLeft
+ * @param {number} rRight
+ */
+function shadowRunPath(ctx, x, y, w, h, rLeft, rRight) {
+  const maxRadius = Math.min(w / 2, h / 2);
+  const left = Math.max(0, Math.min(rLeft, maxRadius));
+  const right = Math.max(0, Math.min(rRight, maxRadius));
+  const curve = typeof ctx.quadraticCurveTo === 'function'
+    ? (cpx, cpy, px, py) => ctx.quadraticCurveTo(cpx, cpy, px, py)
+    : (cpx, cpy, px, py) => ctx.lineTo(px, py);
+
+  ctx.beginPath();
+  ctx.moveTo(x + left, y);
+  ctx.lineTo(x + w - right, y);
+  if (right > 0) curve(x + w, y, x + w, y + right);
+  else ctx.lineTo(x + w, y);
+
+  ctx.lineTo(x + w, y + h - right);
+  if (right > 0) curve(x + w, y + h, x + w - right, y + h);
+  else ctx.lineTo(x + w, y + h);
+
+  ctx.lineTo(x + left, y + h);
+  if (left > 0) curve(x, y + h, x, y + h - left);
+  else ctx.lineTo(x, y + h);
+
+  ctx.lineTo(x, y + left);
+  if (left > 0) curve(x, y, x + left, y);
+  else ctx.lineTo(x, y);
+
+  ctx.closePath();
 }
 
 /**
@@ -482,6 +561,7 @@ export default class MapRenderer {
     this._drawWallStamps(ctx, islands);
     this._drawWallIllustrations(ctx, islands);
     this._drawNeonWalls(ctx, islands);
+    this._drawWallCorners(ctx, islands);
 
     // 침대 가구는 벽 앞벽/그림자보다 나중에 그린다.
     // → 위쪽 벽의 앞벽·드롭 섀도우가 침대 상단을 덮어 뭉개지 않는다.
@@ -2228,11 +2308,23 @@ export default class MapRenderer {
         const baseY = (row + 1) * TILE_SIZE;
         const bottomY = baseY + WALL_DEPTH;
 
+        // 블록 덩어리의 바깥으로 노출된 볼록 모서리만 라운드한다.
+        // - 왼쪽/오른쪽 타일이 벽이면 안쪽 계단 모서리이므로 그대로 각지게 남긴다.
+        const roundLeft = !this._isWallTile(row, start - 1) ? WALL_CORNER_RADIUS : 0;
+        const roundRight = !this._isWallTile(row, end + 1) ? WALL_CORNER_RADIUS : 0;
+
         const face = safeLinearGradient(ctx, 0, baseY, 0, bottomY, [
           [0, palette.frontTop],
           [0.55, palette.frontMid],
           [1, palette.frontBottom],
         ]) || palette.frontMid;
+
+        // 앞벽 + 베벨 + 좌우 음영 + 1px 구분선을 모두 같은 라운드 실루엣으로 자른다.
+        // → 레이어마다 모서리가 따로 놀지 않고 한 덩어리로 둥글게 마감된다.
+        ctx.save?.();
+        runBoxPath(ctx, runX, baseY, runW, WALL_DEPTH, roundLeft, roundRight);
+        ctx.clip?.();
+
         fillRects(ctx, face, [[runX, baseY, runW, WALL_DEPTH]]);
 
         // 윗면↔앞벽 경계의 밝은 베벨 + 원목 이음선
@@ -2255,13 +2347,28 @@ export default class MapRenderer {
           [runX, bottomY - 1, runW, 1],
         ]);
 
+        ctx.restore?.();
+
         // ③ 앞벽 밑면 바로 아래로 짧게 떨어지는 드롭 섀도우
+        //   - 앞벽 하단 라운드와 같은 반경으로 모서리를 다듬어 어긋남을 없앤다.
+        const shadowRadius = Math.min(WALL_CORNER_RADIUS, WALL_SHADOW_DEPTH / 2);
         const shadow = safeLinearGradient(ctx, 0, bottomY, 0, bottomY + WALL_SHADOW_DEPTH, [
           [0, 'rgba(0, 0, 0, 0.5)'],
           [0.5, 'rgba(0, 0, 0, 0.2)'],
           [1, 'rgba(0, 0, 0, 0)'],
         ]) || 'rgba(0, 0, 0, 0.24)';
-        fillRects(ctx, shadow, [[runX, bottomY, runW, WALL_SHADOW_DEPTH]]);
+
+        ctx.fillStyle = shadow;
+        shadowRunPath(
+          ctx,
+          runX,
+          bottomY,
+          runW,
+          WALL_SHADOW_DEPTH,
+          roundLeft > 0 ? shadowRadius : 0,
+          roundRight > 0 ? shadowRadius : 0,
+        );
+        ctx.fill();
       },
     );
   }
@@ -2373,6 +2480,138 @@ export default class MapRenderer {
       ctx.shadowColor = 'transparent';
       ctx.restore?.();
     }
+  }
+
+  /**
+   * 벽 Island 의 바깥으로 노출된 볼록 모서리만 둥글게 다듬는다.
+   * - 타일마다 모서리를 깎으면 인접 타일 사이에 안쪽 틈새가 생기므로,
+   *   위 + 옆이 동시에 뚫린 ㄱ자 모서리에서만 노치를 만든다.
+   * - 노치는 바깥 바닥색으로 채워 윗면/톤 다운/광택/직선 림을 한 번에 정리하고,
+   *   같은 반경의 파스텔 림 아크를 다시 그려 하이라이트가 끊기지 않게 한다.
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array<object>} islands
+   */
+  _drawWallCorners(ctx, islands = this._getWallIslands()) {
+    // shadowBlur 는 CTM 의 영향을 받지 않으므로 DPR 만큼 키워 논리 크기를 유지한다
+    const blurScale = this.pixelRatio > 0 ? this.pixelRatio : 1;
+
+    for (const island of islands) {
+      const palette = island.palette || WALL_PALETTES[0];
+
+      for (const { row, col } of island.tiles) {
+        if (this._isWallTile(row - 1, col)) continue; // 위가 막혀 있으면 볼록 모서리가 아니다
+
+        const x = col * TILE_SIZE;
+        const y = row * TILE_SIZE;
+
+        if (!this._isWallTile(row, col - 1)) {
+          this._trimTopCorner(ctx, x, y, 'tl', row, col);
+          this._strokeCornerRim(ctx, x, y, 'tl', palette, blurScale);
+        }
+        if (!this._isWallTile(row, col + 1)) {
+          this._trimTopCorner(ctx, x + TILE_SIZE, y, 'tr', row, col);
+          this._strokeCornerRim(ctx, x + TILE_SIZE, y, 'tr', palette, blurScale);
+        }
+      }
+    }
+  }
+
+  /**
+   * 윗면 바깥 볼록 모서리의 각진 부분을 바깥 바닥색으로 덮어 라운드 실루엣을 만든다.
+   * - 인접 타일 겹침(0.6px)까지 함께 덮어 작은 사각 턱이 남지 않게 한다.
+   * - fillRect 를 추가하지 않고 path fill 만 사용한다 (캐시 렌더 계약 유지).
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} x 모서리 x (타일 경계)
+   * @param {number} y 모서리 y (타일 경계)
+   * @param {'tl'|'tr'} corner
+   * @param {number} row
+   * @param {number} col
+   */
+  _trimTopCorner(ctx, x, y, corner, row, col) {
+    const color = this._cornerFloorColor(row, col, corner);
+    if (!color) return;
+
+    const radius = WALL_CORNER_RADIUS;
+    const bleed = WALL_SEAM_OVERLAP;
+    const arcRadius = radius + bleed;
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+
+    if (corner === 'tl') {
+      const cx = x + radius;
+      const cy = y + radius;
+      ctx.moveTo(x - bleed, y - bleed);
+      ctx.lineTo(cx, y - bleed);
+      ctx.arc(cx, cy, arcRadius, -Math.PI / 2, Math.PI, true);
+    } else {
+      const cx = x - radius;
+      const cy = y + radius;
+      ctx.moveTo(x + bleed, y - bleed);
+      ctx.lineTo(cx, y - bleed);
+      ctx.arc(cx, cy, arcRadius, -Math.PI / 2, 0, false);
+    }
+
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** 둥글게 깎은 모서리를 따라 파스텔 림 아크를 다시 그린다 */
+  _strokeCornerRim(ctx, x, y, corner, palette, blurScale = 1) {
+    const radius = WALL_CORNER_RADIUS;
+
+    ctx.save?.();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = palette.rim;
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = palette.rimGlow;
+    ctx.shadowBlur = Math.max(3, TILE_SIZE * 0.26) * blurScale;
+
+    ctx.beginPath();
+    if (corner === 'tl') {
+      ctx.arc(x + radius, y + radius, radius, -Math.PI / 2, Math.PI, true);
+    } else {
+      ctx.arc(x - radius, y + radius, radius, -Math.PI / 2, 0, false);
+    }
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+    ctx.restore?.();
+  }
+
+  /**
+   * 모서리 바깥(위/옆 타일)의 바닥색.
+   * - 두 이웃이 같은 색이면 그 색을 그대로 쓰고, 다르면 체크 패턴 바닥색으로 폴백한다.
+   * @param {number} row
+   * @param {number} col
+   * @param {'tl'|'tr'} corner
+   * @returns {string|null}
+   */
+  _cornerFloorColor(row, col, corner) {
+    const north = this._floorBaseColor(row - 1, col);
+    const side = this._floorBaseColor(row, corner === 'tl' ? col - 1 : col + 1);
+    if (north && side) return north === side ? north : this._plainFloorColor(row, col);
+    return north || side || this._plainFloorColor(row, col);
+  }
+
+  /** 벽이 아닌 타일의 기본 바닥색 (빈 바닥/아이템 패드/침대/스폰) */
+  _floorBaseColor(row, col) {
+    if (!this._isInsideMap(row, col)) return null;
+
+    const tile = this.map[row][col];
+    if (tile === 1) return null;
+    if (tile === 4) return COLORS.ITEM_SPOT;
+    if (tile === 2 || tile === 3) return COLORS.FLOOR;
+    return this._plainFloorColor(row, col);
+  }
+
+  /**
+   * 체크 패턴 바닥색.
+   * - 벽 타일 좌표로 호출하면 인접 바닥 타일과 같은 톤이 되도록 한 단계 반대 색을 돌려준다.
+   */
+  _plainFloorColor(row, col) {
+    return (row + col) % 2 === 0 ? COLORS.FLOOR_ALT : COLORS.FLOOR;
   }
 
   /** 아이템 스폰 타일 (바닥 + 은은한 금빛 패드) */
