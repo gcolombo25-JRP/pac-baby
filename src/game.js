@@ -1391,7 +1391,7 @@ export default class Game {
         this.roundItemsEaten += 1;
         this._addPopup(item.row, item.col, applied > 0 ? `+${applied}` : 'MAX', '#8bc34a');
         this.tester?.log?.('item', `${item.config.name} +${gained}`);
-        this.sound.playItem();
+        this.sound.playItem(item.type); // 'MILK' | 'CANDY' | 'COOKIE' 별 먹는 소리
         this.effects.burstSparkle(item.row, item.col); // 노란 반짝이
         this._updateHiScore();
 
@@ -1481,7 +1481,9 @@ export default class Game {
       'pacifier',
       `쪽쪽이! ${(remaining / 1000).toFixed(1)}초 스텔스 (+${applied})`,
     );
-    this.sound.playStealth?.();
+    // 침대 스텔스(playStealth)와 구분되는 쪽쪽이 빠는 소리
+    if (typeof this.sound.playPacifier === 'function') this.sound.playPacifier();
+    else this.sound.playStealth?.();
     this.effects.flashScreen(FAKE_PACIFIER.color, 0.16, 0.24);
     this.effects.burstSparkle(this.player.row, this.player.col, 10);
   }
@@ -1673,7 +1675,7 @@ export default class Game {
         this.player.row, this.player.col,
         trap.trapType, trap.slowEffect, trap.slowDuration,
       ));
-      this.sound.playTrap();
+      this.sound.playTrap(trap.trapType); // 'PEE' | 'VOMIT' | 'POOP' 별 배출음
       this.effects.burstDrops(this.player.row, this.player.col, TRAP_COLORS[trap.trapType]);
     }
   }
