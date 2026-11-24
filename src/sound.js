@@ -33,11 +33,13 @@ const HEARTBEAT_MAX_MS = 1100; // 시야 경계에 막 들어왔을 때의 박�
 const HEARTBEAT_MIN_MS = 430;  // 바로 옆에 붙었을 때의 박동 간격(ms)
 
 // ===== 마스터 버스 (쨍한 기계음을 줄이고 입체감을 주는 출력단) =====
-const MASTER_VOLUME = 0.4;         // 전체 볼륨
-const TONE_LOWPASS_HZ = 4600;      // 4200~5000Hz: 날카로운 고음 완화
+const MASTER_VOLUME = 0.4;         // 전체 볼륨 (테스트 고정값)
+const TONE_LOWPASS_HZ = 5000;      // 4200~5000Hz: 고역 선명도를 살리는 상한
 const SLAPBACK_DELAY_SEC = 0.055;  // 45~65ms 아주 짧은 슬랩백(가벼운 공간감)
-const SLAPBACK_FEEDBACK = 0.17;    // 낮은 피드백 — 에코가 뭉개지지 않게
-const SLAPBACK_WET = 0.2;          // 에코(젖은 소리) 비중
+const SLAPBACK_FEEDBACK = 0.1;     // 낮은 피드백 — 짧은 연타가 잔향에 번지지 않게
+const SLAPBACK_WET = 0.045;        // 에코(젖은 소리) 비중 — 효과음 존재감 유지
+const BGM_GAIN = 0.48;             // BGM 버스 게인 (효과음보다 한 발 뒤로)
+const SFX_GAIN = 1.65;             // 효과음 버스 게인 (BGM 을 뚫고 선명하게)
 const PAN_RANGE_TILES = 8;         // 좌우 패닝 기준 타일 거리
 const PAN_MAX = 0.8;               // 최대 패닝 (-0.8 ~ +0.8)
 
@@ -68,6 +70,8 @@ export default class SoundFX {
     this._lastUiClickAt = 0;  // UI 클릭음 연타 제한용 타임스탬프(ms)
     this._bus = null;         // 마스터 버스 노드 참조 (컴프레서/필터/딜레이 등)
     this._echo = null;        // 슬랩백 딜레이 노드 묶음
+    this._bgmGain = null;     // BGM 전용 게인 (master 앞단)
+    this._sfxGain = null;     // 효과음 전용 게인 (master 앞단)
 
     // BGM 루프 상태
     this.bgmRunning = false;
@@ -182,7 +186,8 @@ export default class SoundFX {
     gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
 
     osc.connect(gain);
-    gain.connect(this.master);
+    // BGM 은 전용 게인을 거쳐 master 로 — 효과음보다 한 발 뒤에서 깔린다.
+    gain.connect(this._bgmGain || this.master);
     osc.start(when);
     osc.stop(when + duration + 0.02);
   }
@@ -202,6 +207,16 @@ export default class SoundFX {
         this.master = this.ctx.createGain();
         this._setAudioParam(this.master.gain, MASTER_VOLUME); // 전체 볼륨
         this._buildMasterBus(this.ctx);
+
+        // BGM/SFX 게인 분리: 마스터 버스 '뒤'가 아니라 master 앞단에 붙인다.
+        // → master.gain 은 0.4 그대로 두고도 BGM 은 낮게, 효과음은 높게 섞을 수 있다.
+        this._bgmGain = this.ctx.createGain();
+        this._setAudioParam(this._bgmGain.gain, BGM_GAIN);
+        this._bgmGain.connect(this.master);
+
+        this._sfxGain = this.ctx.createGain();
+        this._setAudioParam(this._sfxGain.gain, SFX_GAIN);
+        this._sfxGain.connect(this.master);
       } catch (err) {
         this.enabled = false; // 오디오를 만들 수 없는 환경
         return null;
@@ -237,12 +252,12 @@ export default class SoundFX {
     if (typeof ctx.createDynamicsCompressor === 'function') {
       try {
         const comp = ctx.createDynamicsCompressor();
-        // 효과음이 BGM 위에서도 또렷하게 들리도록 문턱을 높게 둔다 (순간 피크만 살짝 누름)
-        this._setAudioParam(comp.threshold, -8);
-        this._setAudioParam(comp.knee, 16);
-        this._setAudioParam(comp.ratio, 2.5);
-        this._setAudioParam(comp.attack, 0.004);
-        this._setAudioParam(comp.release, 0.2);
+        // 순간 피크 클리핑만 잡고 평소 다이내믹은 그대로 남긴다 (선명도 유지)
+        this._setAudioParam(comp.threshold, -6);
+        this._setAudioParam(comp.knee, 12);
+        this._setAudioParam(comp.ratio, 3);
+        this._setAudioParam(comp.attack, 0.002);
+        this._setAudioParam(comp.release, 0.14);
         output.connect(comp);
         output = comp;
         chain.push(comp);
@@ -255,7 +270,7 @@ export default class SoundFX {
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
         this._setAudioParam(filter.frequency, TONE_LOWPASS_HZ);
-        this._setAudioParam(filter.Q, 0.7);
+        this._setAudioParam(filter.Q, 0.5); // 완만한 감쇠 — 5kHz 까지 고역을 열어 둔다
         output.connect(filter);
         output = filter;
         chain.push(filter);
@@ -331,7 +346,7 @@ export default class SoundFX {
   _beep({
     freq = 440, toFreq = null, duration = 0.12, type = 'square', volume = 1, delay = 0,
     filterType = null, filterFreq = 0, filterToFreq = 0, filterQ = 1, vibrato = null,
-    attack = 0.012, sustainLevel = null, pan = 0,
+    attack = 0.004, sustainLevel = null, pan = 0,
   }) {
     const ctx = this._ensure();
     if (!ctx) return;
@@ -380,15 +395,24 @@ export default class SoundFX {
     const canSustain = sustainLevel !== null && sustainLevel > 0
       && sustainAt < start + duration * 0.9;
 
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + attackSec);
+    const peak = Math.max(0.0002, volume);
+    // 어택: 0.0001 에서 지수로 올리면 첫 순간이 사실상 무음이라 타격감이 죽는다.
+    // 선형 램프가 있으면 '이미 18%만큼 차 있는' 상태에서 곧바로 피크까지 밀어 올린다.
+    if (typeof gain.gain.linearRampToValueAtTime === 'function') {
+      gain.gain.setValueAtTime(peak * 0.18, start);
+      gain.gain.linearRampToValueAtTime(peak, start + attackSec);
+    } else {
+      // 선형 램프 미지원 스텁/구형 구현 폴백 (테스트 스텁은 exponential 만 있다)
+      gain.gain.setValueAtTime(peak * 0.25, start);
+      gain.gain.exponentialRampToValueAtTime(peak, start + attackSec);
+    }
     if (canSustain) {
       gain.gain.exponentialRampToValueAtTime(
-        Math.max(0.0002, volume * Math.min(1, sustainLevel)),
+        Math.max(0.0002, peak * Math.min(1, sustainLevel)),
         sustainAt,
       );
     } else if (duration > 0.16) {
-      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume * 0.62), start + duration * 0.55);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak * 0.62), start + duration * 0.55);
     }
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
 
@@ -400,12 +424,13 @@ export default class SoundFX {
     }
 
     // 보모 위치 기반 좌우 패닝 (미지원 환경은 모노로)
+    // 효과음은 전용 SFX 게인을 거쳐 master 로 — BGM 위에서도 또렷하게 들린다.
     const panner = this._createPanner(ctx, pan);
     if (panner) {
       gain.connect(panner);
-      panner.connect(this.master);
+      panner.connect(this._sfxGain || this.master);
     } else {
-      gain.connect(this.master);
+      gain.connect(this._sfxGain || this.master);
     }
     osc.start(start);
     osc.stop(start + duration + 0.03);
@@ -447,15 +472,22 @@ export default class SoundFX {
     const src = ctx.createBufferSource();
     src.buffer = this._noiseBuffer;
 
-    // 짧은 노이즈도 '사각' 하고 들리도록 어택 후 35% 지점까지 볼륨을 유지한다.
+    // 짧은 노이즈도 '사각' 하고 들리도록 어택 후 한동안 볼륨을 유지한다.
     const attack = Math.min(0.008, duration * 0.4);
     const holdAt = start + Math.max(attack + 0.004, duration * 0.35);
 
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + attack);
+    const peak = Math.max(0.0002, volume);
+    // 무음(0.0001) 출발 대신 이미 차 있는 레벨에서 선형으로 밀어 올려 '사각/바삭' 타격감을 살린다.
+    if (typeof gain.gain.linearRampToValueAtTime === 'function') {
+      gain.gain.setValueAtTime(peak * 0.18, start);
+      gain.gain.linearRampToValueAtTime(peak, start + attack);
+    } else {
+      gain.gain.setValueAtTime(peak * 0.25, start);
+      gain.gain.exponentialRampToValueAtTime(peak, start + attack);
+    }
     if (holdAt < start + duration * 0.9) {
-      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume * 0.55), holdAt);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak * 0.7), holdAt);
     }
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
 
@@ -479,9 +511,9 @@ export default class SoundFX {
     const panner = this._createPanner(ctx, pan);
     if (panner) {
       gain.connect(panner);
-      panner.connect(this.master);
+      panner.connect(this._sfxGain || this.master);
     } else {
-      gain.connect(this.master);
+      gain.connect(this._sfxGain || this.master);
     }
 
     src.start(start);
@@ -669,6 +701,8 @@ export default class SoundFX {
     this._noiseBuffer = null;
     this._bus = null;
     this._echo = null;
+    this._bgmGain = null;
+    this._sfxGain = null;
     this.heartbeatPan = 0;
     if (!this.ctx) return;
     try {
@@ -710,7 +744,7 @@ export default class SoundFX {
   /**
    * 우유 '뽀글-뽀글-뽀글': 노트북/폰 스피커가 잘 내는 420 → 920Hz 대역의 밝은 거품음 3연타.
    * - 예전의 좁은 밴드패스(Q=6)를 걷어내고 사인 글라이드 + 삼각파 몸통을 그대로 내보낸다.
-   * - 한 타 75~90ms, 충분한 음량(≈0.35)으로 BGM 위에서도 또렷하게 들린다.
+   * - 한 타 75~90ms, 충분한 음량(≈0.46)으로 BGM 위에서도 또렷하게 들린다.
    */
   _playMilk() {
     for (let i = 0; i < 3; i++) {
@@ -718,7 +752,7 @@ export default class SoundFX {
       const toFreq = 920 - i * 20;       // 920 / 900 / 880Hz 로 통통 튄다
       const duration = 0.09 - i * 0.007; // 90 / 83 / 76ms
       const delay = i * 0.105;
-      const volume = 0.35 - i * 0.015;
+      const volume = 0.46 - i * 0.015;
 
       // 거품이 목구멍을 타고 올라오는 '뽀글' — 필터 없이 밝게
       this._beep({
@@ -728,8 +762,8 @@ export default class SoundFX {
         type: 'sine',
         volume,
         delay,
-        attack: 0.006,
-        sustainLevel: 0.6,
+        attack: 0.003,
+        sustainLevel: 0.72,
         pan: i % 2 === 0 ? -0.1 : 0.1,
       });
 
@@ -739,7 +773,7 @@ export default class SoundFX {
         toFreq,
         duration: duration * 0.9,
         type: 'triangle',
-        volume: 0.13,
+        volume: 0.24,
         delay: delay + 0.004,
         attack: 0.005,
         sustainLevel: 0.5,
@@ -760,21 +794,22 @@ export default class SoundFX {
   _playCandy() {
     // 1) "쪽~" — 짧고 귀여운 상승 사인 팝
     this._beep({
-      freq: 620, toFreq: 1180, duration: 0.075, type: 'sine', volume: 0.46,
+      freq: 620, toFreq: 1180, duration: 0.075, type: 'sine', volume: 0.54,
       attack: 0.005, sustainLevel: 0.5, pan: -0.12,
     });
     // 2) 반짝이는 삼각파 배음 — 쨍하지 않은 단맛
     this._beep({
-      freq: 1240, toFreq: 1860, duration: 0.055, type: 'triangle', volume: 0.2,
+      freq: 1240, toFreq: 1860, duration: 0.055, type: 'triangle', volume: 0.28,
       delay: 0.012, pan: 0.16,
     });
     // 3) "아작!" — 고주파 대역의 날카롭고 경쾌한 노이즈 스냅
     this._noise({
-      duration: 0.045, volume: 0.16, delay: 0.052,
-      filterType: 'bandpass', filterFreq: 4200, Q: 1.1,
+      duration: 0.045, volume: 0.24, delay: 0.052,
+      // 4kHz 중심: 마스터 로우패스(5kHz) 안에서 가장 타격감이 큰 지점
+      filterType: 'bandpass', filterFreq: 4000, Q: 1.1,
     });
     this._noise({
-      duration: 0.028, volume: 0.11, delay: 0.086,
+      duration: 0.028, volume: 0.17, delay: 0.086,
       filterType: 'highpass', filterFreq: 5200,
     });
   }
@@ -786,9 +821,9 @@ export default class SoundFX {
    */
   _playCookie() {
     const crunches = [
-      { delay: 0, noiseFreq: 1800, volume: 0.3, duration: 0.07, tone: 550 },
-      { delay: 0.084, noiseFreq: 2400, volume: 0.26, duration: 0.066, tone: 780 },
-      { delay: 0.162, noiseFreq: 1500, volume: 0.24, duration: 0.06, tone: 640 },
+      { delay: 0, noiseFreq: 1800, volume: 0.38, duration: 0.07, tone: 550 },
+      { delay: 0.084, noiseFreq: 2400, volume: 0.34, duration: 0.066, tone: 780 },
+      { delay: 0.162, noiseFreq: 1500, volume: 0.32, duration: 0.06, tone: 640 },
     ];
 
     crunches.forEach(crunch => {
@@ -808,10 +843,10 @@ export default class SoundFX {
         toFreq: crunch.tone * 0.78,
         duration: 0.06,
         type: 'triangle',
-        volume: 0.18,
+        volume: 0.32,
         delay: crunch.delay + 0.004,
-        attack: 0.004,
-        sustainLevel: 0.35,
+        attack: 0.002,
+        sustainLevel: 0.45,
       });
     });
   }
@@ -819,7 +854,7 @@ export default class SoundFX {
   /**
    * 쪽쪽이 '쪽! 쪽! 쪽!' — 480 → 1220Hz 로 시원하게 올라가는 사인 팝 + 삼각 배음 3연타.
    * - 예전의 낮은 220Hz / 41ms 대신 스피커가 잘 내는 음역과 75~90ms 길이로 키웠다.
-   * - 0.15초 간격, 높은 음량(≈0.35)으로 누구 귀에도 똑똑히 들린다.
+   * - 0.15초 간격, 높은 음량(≈0.46)으로 누구 귀에도 똑똑히 들린다.
    * - 침대 스텔스(880Hz 하강)와 시작 음역이 달라 소리가 확실히 구분된다.
    */
   playPacifier() {
@@ -831,7 +866,7 @@ export default class SoundFX {
       const freq = 480 + i * 15;
       const toFreq = 1220 + i * 30;
       const duration = 0.09 - i * 0.007; // 90 / 83 / 76ms
-      const volume = 0.35 - i * 0.02;
+      const volume = 0.46 - i * 0.02;
 
       // "쪽!" — 입술이 떨어지며 시원하게 올라가는 사인
       this._beep({
@@ -841,8 +876,8 @@ export default class SoundFX {
         type: 'sine',
         volume,
         delay,
-        attack: 0.006,
-        sustainLevel: 0.55,
+        attack: 0.003,
+        sustainLevel: 0.65,
         pan: i % 2 === 0 ? -0.12 : 0.12,
       });
 
@@ -852,14 +887,14 @@ export default class SoundFX {
         toFreq: toFreq * 1.4,
         duration: duration * 0.85,
         type: 'triangle',
-        volume: 0.12,
+        volume: 0.24,
         delay: delay + 0.003,
         pan: i % 2 === 0 ? 0.12 : -0.12,
       });
 
       // 빨아들이는 짧은 공기 노이즈 — 넓게
       this._noise({
-        duration: 0.035, volume: 0.05, delay: delay + 0.03,
+        duration: 0.035, volume: 0.09, delay: delay + 0.03,
         filterType: 'lowpass', filterFreq: 3200, Q: 0.7,
       });
     }
@@ -1022,12 +1057,12 @@ export default class SoundFX {
    */
   _playPee() {
     const drops = [
-      { delay: 0, freq: 520, toFreq: 1400, volume: 0.28 },
-      { delay: 0.055, freq: 545, toFreq: 1385, volume: 0.265 },
-      { delay: 0.108, freq: 570, toFreq: 1370, volume: 0.25 },
-      { delay: 0.163, freq: 595, toFreq: 1355, volume: 0.235 },
-      { delay: 0.216, freq: 620, toFreq: 1340, volume: 0.22 },
-      { delay: 0.268, freq: 640, toFreq: 1325, volume: 0.205 },
+      { delay: 0, freq: 520, toFreq: 1400, volume: 0.38 },
+      { delay: 0.055, freq: 545, toFreq: 1385, volume: 0.364 },
+      { delay: 0.108, freq: 570, toFreq: 1370, volume: 0.348 },
+      { delay: 0.163, freq: 595, toFreq: 1355, volume: 0.332 },
+      { delay: 0.216, freq: 620, toFreq: 1340, volume: 0.316 },
+      { delay: 0.268, freq: 640, toFreq: 1325, volume: 0.3 },
     ];
 
     drops.forEach((drop, index) => {
@@ -1043,17 +1078,37 @@ export default class SoundFX {
       });
     });
 
+    // 삼각파 배음 3발 — 같은 물방울 음역을 배음으로 받쳐 BGM 위에서도 존재감을 준다.
+    const harmonics = [
+      { delay: 0.015, freq: 540, toFreq: 1390, duration: 0.065 },
+      { delay: 0.12, freq: 590, toFreq: 1355, duration: 0.06 },
+      { delay: 0.22, freq: 640, toFreq: 1320, duration: 0.055 },
+    ];
+
+    harmonics.forEach(harmonic => {
+      this._beep({
+        freq: harmonic.freq,
+        toFreq: harmonic.toFreq,
+        duration: harmonic.duration,
+        type: 'triangle',
+        volume: 0.18,
+        delay: harmonic.delay,
+        attack: 0.003,
+        sustainLevel: 0.4,
+      });
+    });
+
     // 물줄기 — 부드러운 로우패스 노이즈
     this._noise({
-      duration: 0.26, volume: 0.1, delay: 0.02,
+      duration: 0.26, volume: 0.16, delay: 0.02,
       filterType: 'lowpass', filterFreq: 3000, Q: 0.7,
     });
   }
 
   /**
    * 토사물 '우웨엑-꿀렁~': 380 → 145Hz 삼각파+사인파 하강에 빠른 LFO 떨림.
-   * - 예전의 낮은 260→110Hz / 좁은 밴드패스 대신 넓은 로우패스(1400→450Hz)를 스윕해 에너지를 살린다.
-   * - 높은 음량(≈0.38)으로 코믹한 울렁임이 확실히 들린다.
+   * - 예전의 낮은 260→110Hz / 좁은 밴드패스 대신 넓은 로우패스(1550→450Hz)를 스윕해 에너지를 살린다.
+   * - 높은 음량(≈0.5)으로 코믹한 울렁임이 확실히 들린다.
    */
   _playVomit() {
     this._beep({
@@ -1061,9 +1116,9 @@ export default class SoundFX {
       toFreq: 145,
       duration: 0.6,
       type: 'triangle',
-      volume: 0.38,
+      volume: 0.5,
       filterType: 'lowpass',
-      filterFreq: 1400,
+      filterFreq: 1550,
       filterToFreq: 450,
       filterQ: 0.9,
       vibrato: { hz: 16, depth: 0.1 },
@@ -1076,10 +1131,10 @@ export default class SoundFX {
       toFreq: 120,
       duration: 0.55,
       type: 'sine',
-      volume: 0.26,
+      volume: 0.36,
       delay: 0.03,
       filterType: 'lowpass',
-      filterFreq: 1100,
+      filterFreq: 1250,
       filterToFreq: 380,
       filterQ: 0.8,
       vibrato: { hz: 12, depth: 0.08 },
@@ -1088,13 +1143,14 @@ export default class SoundFX {
 
     // 마무리 '꿀렁' — 축축한 노이즈
     this._noise({
-      duration: 0.16, volume: 0.12, delay: 0.34,
+      duration: 0.16, volume: 0.2, delay: 0.34,
       filterType: 'lowpass', filterFreq: 900, Q: 0.8,
     });
   }
 
   /**
    * 똥 '뿡~! / 뿌직!': 낮은 톱니파(68→38Hz) + 20~24Hz 빠른 떨림 + 하강 로우패스 스윕.
+   * - 폰/노트북 소형 스피커가 못 내는 68Hz 대신, 가청 대역의 210→115Hz 삼각파 포먼트 배음을 얹는다.
    * - 짧은 노이즈 퍼프를 얹어 귀엽고 유쾌한 방귀 느낌을 완성한다.
    */
   _playPoop() {
@@ -1124,9 +1180,25 @@ export default class SoundFX {
       vibrato: { hz: 20, depth: 0.1 },
     });
 
+    // 폰/노트북 소형 스피커에서도 들리는 포먼트 배음 — 210→115Hz 삼각파 + 하강 로우패스
+    this._beep({
+      freq: 210,
+      toFreq: 115,
+      duration: 0.36,
+      type: 'triangle',
+      volume: 0.36,
+      delay: 0.01,
+      filterType: 'lowpass',
+      filterFreq: 950,
+      filterToFreq: 360,
+      filterQ: 0.9,
+      vibrato: { hz: 22, depth: 0.12 },
+      sustainLevel: 0.5,
+    });
+
     // 처음 퍼프 + 끝 '뿌직'
-    this._noise({ duration: 0.12, volume: 0.09, delay: 0.02, filterType: 'lowpass', filterFreq: 800 });
-    this._noise({ duration: 0.05, volume: 0.06, delay: 0.3, filterType: 'bandpass', filterFreq: 480, Q: 1.4 });
+    this._noise({ duration: 0.12, volume: 0.16, delay: 0.02, filterType: 'lowpass', filterFreq: 800 });
+    this._noise({ duration: 0.05, volume: 0.12, delay: 0.3, filterType: 'bandpass', filterFreq: 480, Q: 1.4 });
   }
 
   /**
