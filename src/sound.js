@@ -237,9 +237,10 @@ export default class SoundFX {
     if (typeof ctx.createDynamicsCompressor === 'function') {
       try {
         const comp = ctx.createDynamicsCompressor();
-        this._setAudioParam(comp.threshold, -18); // 순간 피크만 부드럽게 누른다
-        this._setAudioParam(comp.knee, 20);
-        this._setAudioParam(comp.ratio, 3);
+        // 효과음이 BGM 위에서도 또렷하게 들리도록 문턱을 높게 둔다 (순간 피크만 살짝 누름)
+        this._setAudioParam(comp.threshold, -8);
+        this._setAudioParam(comp.knee, 16);
+        this._setAudioParam(comp.ratio, 2.5);
         this._setAudioParam(comp.attack, 0.004);
         this._setAudioParam(comp.release, 0.2);
         output.connect(comp);
@@ -446,9 +447,16 @@ export default class SoundFX {
     const src = ctx.createBufferSource();
     src.buffer = this._noiseBuffer;
 
+    // 짧은 노이즈도 '사각' 하고 들리도록 어택 후 35% 지점까지 볼륨을 유지한다.
+    const attack = Math.min(0.008, duration * 0.4);
+    const holdAt = start + Math.max(attack + 0.004, duration * 0.35);
+
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + 0.008);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + attack);
+    if (holdAt < start + duration * 0.9) {
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume * 0.55), holdAt);
+    }
     gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
 
     let filter = null;
@@ -700,45 +708,48 @@ export default class SoundFX {
   }
 
   /**
-   * 우유 '꿀꺽꿀꺽': 둥근 공명(bandpass)을 통과한 짧은 거품음 3연타.
-   * - 피치가 위로 볼록하게 튀는 사인 글라이드 + 낮은 삼각파 목울림.
-   * - 마지막에 물방울 노이즈를 살짝 얹어 삼킨 느낌을 준다.
+   * 우유 '뽀글-뽀글-뽀글': 노트북/폰 스피커가 잘 내는 420 → 920Hz 대역의 밝은 거품음 3연타.
+   * - 예전의 좁은 밴드패스(Q=6)를 걷어내고 사인 글라이드 + 삼각파 몸통을 그대로 내보낸다.
+   * - 한 타 75~90ms, 충분한 음량(≈0.35)으로 BGM 위에서도 또렷하게 들린다.
    */
   _playMilk() {
     for (let i = 0; i < 3; i++) {
-      const base = 300 + i * 70;
-      const delay = i * 0.088;
+      const freq = 420 + i * 25;         // 420 / 445 / 470Hz 에서 출발
+      const toFreq = 920 - i * 20;       // 920 / 900 / 880Hz 로 통통 튄다
+      const duration = 0.09 - i * 0.007; // 90 / 83 / 76ms
+      const delay = i * 0.105;
+      const volume = 0.35 - i * 0.015;
 
-      // 거품이 목구멍을 타고 올라오는 '꿀꺽' — 위로 볼록한 상승 피치
+      // 거품이 목구멍을 타고 올라오는 '뽀글' — 필터 없이 밝게
       this._beep({
-        freq: base,
-        toFreq: base * (1.95 - i * 0.12),
-        duration: 0.1 - i * 0.012,
+        freq,
+        toFreq,
+        duration,
         type: 'sine',
-        volume: 0.42 - i * 0.07,
+        volume,
         delay,
         attack: 0.006,
-        sustainLevel: 0.55,
-        filterType: 'bandpass',
-        filterFreq: 760 + i * 130,
-        filterQ: 6,
+        sustainLevel: 0.6,
+        pan: i % 2 === 0 ? -0.1 : 0.1,
       });
 
-      // 목울림: 낮은 삼각파 몸통
+      // 몸통: 같은 음역의 삼각파 — 작은 스피커에서도 두께가 느껴진다
       this._beep({
-        freq: base * 0.5,
-        toFreq: base * 0.82,
-        duration: 0.085,
+        freq,
+        toFreq,
+        duration: duration * 0.9,
         type: 'triangle',
-        volume: 0.16,
+        volume: 0.13,
         delay: delay + 0.004,
+        attack: 0.005,
+        sustainLevel: 0.5,
       });
     }
 
-    // 마지막 물방울 — 삼킨 뒤 남는 짧은 노이즈
+    // 마지막 물방울 — 넓은 로우패스로 부드럽게
     this._noise({
-      duration: 0.05, volume: 0.05, delay: 0.245,
-      filterType: 'bandpass', filterFreq: 950, Q: 1.4,
+      duration: 0.055, volume: 0.09, delay: 0.255,
+      filterType: 'lowpass', filterFreq: 2600, Q: 0.7,
     });
   }
 
@@ -769,80 +780,87 @@ export default class SoundFX {
   }
 
   /**
-   * 쿠키 '바삭바삭': 1800~3400Hz 밴드패스 노이즈를 25~35ms 간격으로 어긋나게 4번 끊어 친다.
-   * - 잔향 없이 아주 짧게 끊어 건조한 과자 부스러기 식감을 만든다.
+   * 쿠키 '타닥-딱-탁!': 900~2800Hz 넓은 대역의 묵직한 바삭 노이즈 3타 + 550/780/640Hz 삼각파 타격.
+   * - 예전의 22~32ms 얇은 고주파 대신 60~75ms 넓은 밴드(Q≈0.7) 노이즈로 스피커에서도 확실히 들린다.
+   * - 짧은 삼각파 타격음을 함께 얹어 경쾌한 과자 씹는 소리를 만든다.
    */
   _playCookie() {
     const crunches = [
-      { delay: 0, freq: 2400, volume: 0.2, duration: 0.03 },
-      { delay: 0.028, freq: 3100, volume: 0.16, duration: 0.024 },
-      { delay: 0.061, freq: 1950, volume: 0.18, duration: 0.032 },
-      { delay: 0.09, freq: 2800, volume: 0.13, duration: 0.022 },
+      { delay: 0, noiseFreq: 1800, volume: 0.3, duration: 0.07, tone: 550 },
+      { delay: 0.084, noiseFreq: 2400, volume: 0.26, duration: 0.066, tone: 780 },
+      { delay: 0.162, noiseFreq: 1500, volume: 0.24, duration: 0.06, tone: 640 },
     ];
 
-    crunches.forEach((crunch, index) => {
-      // 부서지는 소리 — 중고역 밴드패스 노이즈
+    crunches.forEach(crunch => {
+      // 과자 부스러기가 부서지는 묵직한 바삭 소리 — 좁지 않은 밴드패스(Q 0.7)
       this._noise({
         duration: crunch.duration,
         volume: crunch.volume,
         delay: crunch.delay,
         filterType: 'bandpass',
-        filterFreq: crunch.freq,
-        Q: 1.8,
+        filterFreq: crunch.noiseFreq,
+        Q: 0.7,
       });
 
-      // 과자 알갱이가 부스러지는 아주 짧은 삼각파 틱
+      // 경쾌한 과자 타격음 — 짧은 삼각파
       this._beep({
-        freq: 760 + index * 180,
-        toFreq: 460 + index * 120,
-        duration: 0.026,
+        freq: crunch.tone,
+        toFreq: crunch.tone * 0.78,
+        duration: 0.06,
         type: 'triangle',
-        volume: 0.07,
-        delay: crunch.delay + 0.002,
-        filterType: 'bandpass',
-        filterFreq: 2000 + index * 350,
-        filterQ: 1.6,
+        volume: 0.18,
+        delay: crunch.delay + 0.004,
+        attack: 0.004,
+        sustainLevel: 0.35,
       });
     });
   }
 
   /**
-   * 쪽쪽이 '쪽-쪽-쪽~' — 침대 스텔스(playStealth)와 구분되는 귀여운 빠는 소리.
-   * - 아주 미세한 공기 흡입 노이즈 → 부드러운 상승 사인(220→620Hz, 35~45ms) "쪽!"
-   * - 약 0.15초 간격으로 3번 반복해 아기가 쪽쪽이를 빠는 느낌을 만든다.
+   * 쪽쪽이 '쪽! 쪽! 쪽!' — 480 → 1220Hz 로 시원하게 올라가는 사인 팝 + 삼각 배음 3연타.
+   * - 예전의 낮은 220Hz / 41ms 대신 스피커가 잘 내는 음역과 75~90ms 길이로 키웠다.
+   * - 0.15초 간격, 높은 음량(≈0.35)으로 누구 귀에도 똑똑히 들린다.
+   * - 침대 스텔스(880Hz 하강)와 시작 음역이 달라 소리가 확실히 구분된다.
    */
   playPacifier() {
-    // 첫 공기 흡입 소리
-    this._noise({ duration: 0.05, volume: 0.05, filterType: 'highpass', filterFreq: 2400 });
+    // 첫 공기 흡입 소리 — 넓은 로우패스로 부드럽게
+    this._noise({ duration: 0.05, volume: 0.07, filterType: 'lowpass', filterFreq: 3000, Q: 0.7 });
 
     for (let i = 0; i < 3; i++) {
       const delay = 0.02 + i * 0.15;
+      const freq = 480 + i * 15;
+      const toFreq = 1220 + i * 30;
+      const duration = 0.09 - i * 0.007; // 90 / 83 / 76ms
+      const volume = 0.35 - i * 0.02;
 
-      // "쪽!" — 입술이 떨어지는 부드러운 상승 사인
+      // "쪽!" — 입술이 떨어지며 시원하게 올라가는 사인
       this._beep({
-        freq: 220 + i * 14,
-        toFreq: 620 + i * 34,
-        duration: 0.045 - i * 0.004,
+        freq,
+        toFreq,
+        duration,
         type: 'sine',
-        volume: 0.34 - i * 0.05,
+        volume,
         delay,
         attack: 0.006,
-        filterType: 'bandpass',
-        filterFreq: 680 + i * 60,
-        filterQ: 1.8,
+        sustainLevel: 0.55,
         pan: i % 2 === 0 ? -0.12 : 0.12,
       });
 
-      // 입술 몸통: 낮은 삼각파
+      // 삼각 배음 — 작은 스피커에서도 존재감이 생긴다
       this._beep({
-        freq: 110 + i * 8, toFreq: 170,
-        duration: 0.04, type: 'triangle', volume: 0.12, delay: delay + 0.003,
+        freq: freq * 1.5,
+        toFreq: toFreq * 1.4,
+        duration: duration * 0.85,
+        type: 'triangle',
+        volume: 0.12,
+        delay: delay + 0.003,
+        pan: i % 2 === 0 ? 0.12 : -0.12,
       });
 
-      // 빨아들이는 짧은 공기 노이즈
+      // 빨아들이는 짧은 공기 노이즈 — 넓게
       this._noise({
-        duration: 0.03, volume: 0.04, delay: delay + 0.028,
-        filterType: 'bandpass', filterFreq: 1700, Q: 1.2,
+        duration: 0.035, volume: 0.05, delay: delay + 0.03,
+        filterType: 'lowpass', filterFreq: 3200, Q: 0.7,
       });
     }
   }
@@ -998,75 +1016,80 @@ export default class SoundFX {
   }
 
   /**
-   * 오줌 '쪼르륵~': 400→1100Hz 물방울 사인파를 미세하게 다른 간격으로 톡톡 터뜨린다.
-   * - 얇은 고주파 노이즈를 살짝 깔아 가볍고 맑은 물줄기 느낌을 더한다.
+   * 오줌 '피유-피유-피유~': 520 → 1400Hz 로 맑게 솟는 물방울 사인 6연타(55~75ms).
+   * - 예전의 45ms 틱보다 길고 큰 소리로 각 물방울이 귀에 또렷하게 들린다.
+   * - 넓은 로우패스의 부드러운 물줄기 노이즈를 깔아 흐르는 느낌을 더한다.
    */
   _playPee() {
     const drops = [
-      { delay: 0, freq: 400, toFreq: 1100, volume: 0.26 },
-      { delay: 0.052, freq: 470, toFreq: 1180, volume: 0.22 },
-      { delay: 0.101, freq: 520, toFreq: 1250, volume: 0.2 },
-      { delay: 0.158, freq: 440, toFreq: 1150, volume: 0.17 },
-      { delay: 0.212, freq: 560, toFreq: 1320, volume: 0.14 },
-      { delay: 0.259, freq: 500, toFreq: 1240, volume: 0.12 },
+      { delay: 0, freq: 520, toFreq: 1400, volume: 0.28 },
+      { delay: 0.055, freq: 545, toFreq: 1385, volume: 0.265 },
+      { delay: 0.108, freq: 570, toFreq: 1370, volume: 0.25 },
+      { delay: 0.163, freq: 595, toFreq: 1355, volume: 0.235 },
+      { delay: 0.216, freq: 620, toFreq: 1340, volume: 0.22 },
+      { delay: 0.268, freq: 640, toFreq: 1325, volume: 0.205 },
     ];
 
     drops.forEach((drop, index) => {
       this._beep({
         freq: drop.freq,
         toFreq: drop.toFreq,
-        duration: 0.045 + (index % 2) * 0.008,
+        duration: 0.075 - index * 0.004, // 75 → 55ms
         type: 'sine',
         volume: drop.volume,
         delay: drop.delay,
         attack: 0.004,
-        filterType: 'highpass',
-        filterFreq: 320,
+        sustainLevel: 0.45,
       });
     });
 
-    // 물줄기 — 얇고 맑은 고주파 노이즈
+    // 물줄기 — 부드러운 로우패스 노이즈
     this._noise({
-      duration: 0.18, volume: 0.05, delay: 0.02,
-      filterType: 'highpass', filterFreq: 3800,
+      duration: 0.26, volume: 0.1, delay: 0.02,
+      filterType: 'lowpass', filterFreq: 3000, Q: 0.7,
     });
   }
 
   /**
-   * 토사물 '꿀렁 우웩~': 260→110Hz 로 축 처지는 저중역 + 빠른 LFO 떨림.
-   * - 300~700Hz 공명(bandpass)을 아래로 스윕해 울렁이는 만화풍 느낌을 만든다.
+   * 토사물 '우웨엑-꿀렁~': 380 → 145Hz 삼각파+사인파 하강에 빠른 LFO 떨림.
+   * - 예전의 낮은 260→110Hz / 좁은 밴드패스 대신 넓은 로우패스(1400→450Hz)를 스윕해 에너지를 살린다.
+   * - 높은 음량(≈0.38)으로 코믹한 울렁임이 확실히 들린다.
    */
   _playVomit() {
     this._beep({
-      freq: 260,
-      toFreq: 110,
-      duration: 0.55,
+      freq: 380,
+      toFreq: 145,
+      duration: 0.6,
       type: 'triangle',
-      volume: 0.5,
-      filterType: 'bandpass',
-      filterFreq: 700,
-      filterToFreq: 320,
-      filterQ: 3.2,
-      vibrato: { hz: 17, depth: 0.09 },
+      volume: 0.38,
+      filterType: 'lowpass',
+      filterFreq: 1400,
+      filterToFreq: 450,
+      filterQ: 0.9,
+      vibrato: { hz: 16, depth: 0.1 },
+      sustainLevel: 0.55,
     });
 
-    // 목 안쪽에서 같이 울리는 낮은 사인 — 웅웅거리는 여운
+    // 목 안쪽에서 같이 울리는 사인 — 웅웅거리는 여운
     this._beep({
-      freq: 196,
-      toFreq: 82,
-      duration: 0.5,
+      freq: 300,
+      toFreq: 120,
+      duration: 0.55,
       type: 'sine',
-      volume: 0.3,
-      delay: 0.05,
+      volume: 0.26,
+      delay: 0.03,
       filterType: 'lowpass',
-      filterFreq: 520,
-      vibrato: { hz: 13, depth: 0.07 },
+      filterFreq: 1100,
+      filterToFreq: 380,
+      filterQ: 0.8,
+      vibrato: { hz: 12, depth: 0.08 },
+      sustainLevel: 0.5,
     });
 
     // 마무리 '꿀렁' — 축축한 노이즈
     this._noise({
-      duration: 0.14, volume: 0.06, delay: 0.34,
-      filterType: 'bandpass', filterFreq: 620, Q: 2,
+      duration: 0.16, volume: 0.12, delay: 0.34,
+      filterType: 'lowpass', filterFreq: 900, Q: 0.8,
     });
   }
 

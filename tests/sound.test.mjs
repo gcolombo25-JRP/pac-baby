@@ -519,17 +519,28 @@ test('playItem 은 아이템 종류별 코믹한 먹는 소리를 합성한다',
       );
     }
 
-    // 우유: 거품음 3연타(사인 3 + 삼각 3) — 피치가 위로 튄다
+    // 우유: 420→920Hz 뽀글 3연타(사인 3 + 삼각 3) — 좁은 밴드패스 없이 밝게
     const milk = new SoundFX();
     milk.playItem('MILK');
-    assert.equal(milk.ctx.oscillators.length, 6, '우유: 꿀꺽 3연타(2겹)');
-    const gulps = milk.ctx.oscillators.filter(osc => osc.type === 'sine');
+    assert.equal(milk.ctx.oscillators.length, 6, '우유: 뽀글 3연타(2겹)');
     assert.ok(
-      gulps.every(osc => {
+      milk.ctx.oscillators.every(osc => {
+        const start = osc.frequency.calls[0][1];
         const ramp = osc.frequency.calls.find(c => c[0] === 'ramp');
-        return ramp && ramp[1] > osc.frequency.calls[0][1];
+        const netDuration = osc.stoppedAt - osc.startedAt - 0.03;
+        return start >= 400 && start <= 500
+          && ramp && ramp[1] >= 850 && ramp[1] <= 960
+          && netDuration >= 0.06 && netDuration <= 0.1;
       }),
-      '우유: 거품음은 위로 볼록하게 상승한다',
+      '우유: 420 → 920Hz 대역에서 75~90ms 로 통통 튄다',
+    );
+    assert.ok(
+      milk.ctx.oscillators.some(osc => osc.type === 'triangle'),
+      '우유: 삼각파 몸통 레이어',
+    );
+    assert.ok(
+      milk.ctx.filters.every(f => f.type !== 'bandpass' || f.Q.value <= 1),
+      '우유: 좁은 밴드패스로 소리를 죽이지 않는다',
     );
 
     // 사탕: 상승 사인 팝 + 고주파 노이즈 스냅
@@ -543,23 +554,37 @@ test('playItem 은 아이템 종류별 코믹한 먹는 소리를 합성한다',
       '사탕: 아작! 고주파 스냅',
     );
 
-    // 쿠키: 중고역(1800~3400Hz) 밴드패스 노이즈를 짧게 끊어 4번 친다
+    // 쿠키: 900~2800Hz 넓은 바삭 노이즈 3타(60~75ms) + 550/780/640Hz 삼각파 타격
     const cookie = new SoundFX();
     cookie.playItem('COOKIE');
-    const crunchPlan = [
-      { freq: 2400, delay: 0 },
-      { freq: 3100, delay: 0.028 },
-      { freq: 1950, delay: 0.061 },
-      { freq: 2800, delay: 0.09 },
-    ];
-    const crunches = crunchPlan.map(plan => cookie.ctx.filters.find(
-      f => f.type === 'bandpass' && f.frequency.value === plan.freq,
-    ));
-    assert.ok(crunches.every(Boolean), '쿠키: 1800~3400Hz 밴드패스 노이즈 4타');
+    assert.deepEqual(
+      cookie.ctx.oscillators.map(osc => osc.frequency.calls[0][1]),
+      [550, 780, 640],
+      '쿠키: 550/780/640Hz 삼각파 타격',
+    );
+    assert.ok(
+      cookie.ctx.oscillators.every(osc => osc.type === 'triangle'),
+      '쿠키: 타격음은 삼각파',
+    );
+    const crunches = cookie.ctx.filters.filter(f => f.type === 'bandpass');
+    assert.equal(crunches.length, 3, '쿠키: 바삭 노이즈 3타');
+    assert.ok(
+      crunches.every(f => f.frequency.value >= 900 && f.frequency.value <= 2800),
+      '쿠키: 900~2800Hz 넓은 중역대',
+    );
+    assert.ok(
+      crunches.every(f => f.Q.value > 0 && f.Q.value <= 1),
+      '쿠키: 넓은 밴드(Q≈0.7)로 에너지를 살린다',
+    );
+    const crunchDurations = cookie.ctx.bufferSources.map(src => src.stoppedAt - src.startedAt - 0.02);
+    assert.ok(
+      crunchDurations.every(d => d >= 0.055 && d <= 0.08),
+      '쿠키: 한 타 60~75ms',
+    );
     const crunchStarts = crunches.map(f => f.frequency.calls[0][2]);
     for (let i = 1; i < crunchStarts.length; i++) {
       const gap = crunchStarts[i] - crunchStarts[i - 1];
-      assert.ok(gap >= 0.02 && gap <= 0.04, `쿠키: 25~35ms 간격으로 어긋난다 (${gap})`);
+      assert.ok(gap >= 0.06 && gap <= 0.1, `쿠키: 어긋난 3연타 간격 (${gap})`);
     }
   } finally {
     delete globalThis.window;
@@ -578,24 +603,28 @@ test('playPacifier 는 침대 스텔스음과 구분되는 쪽쪽이 빠는 소�
     assert.ok(sound.ctx.oscillators.every(isWarm), '쪽쪽이: 삼각파·사인파만 사용한다');
     assert.ok(sound.ctx.bufferSources.length >= 3, '빨아들이는 공기 노이즈가 있다');
 
-    // 상승 사인 "쪽!" — 220Hz 부근에서 620Hz 부근으로 미끄러진다
+    // 상승 사인 "쪽!" — 480Hz 부근에서 1220Hz 부근으로 시원하게 미끄러진다
     const glides = sound.ctx.oscillators
+      .filter(osc => osc.type === 'sine')
       .map(osc => ({
         start: osc.frequency.calls[0][1],
         ramp: osc.frequency.calls.find(c => c[0] === 'ramp'),
-      }))
-      .filter(item => item.ramp && item.ramp[1] >= 500);
-    assert.ok(glides.length >= 3, '쪽! 마다 상승 글라이드');
+        startedAt: osc.startedAt,
+        duration: osc.stoppedAt - osc.startedAt - 0.03,
+      }));
+    assert.equal(glides.length, 3, '쪽! 사인 글라이드 3연타');
     assert.ok(
-      glides.every(item => item.start >= 200 && item.start <= 260
-        && item.ramp[1] >= 500 && item.ramp[1] <= 700),
-      '쪽쪽이: 220 → 620Hz 상승 사인',
+      glides.every(item => item.start >= 460 && item.start <= 520
+        && item.ramp && item.ramp[1] >= 1180 && item.ramp[1] <= 1300
+        && item.duration >= 0.07 && item.duration <= 0.095),
+      '쪽쪽이: 480 → 1220Hz 상승 사인 75~90ms',
+    );
+    assert.ok(
+      sound.ctx.oscillators.some(osc => osc.type === 'triangle'),
+      '쪽쪽이: 삼각 배음 레이어',
     );
     // 0.15초 간격으로 연달아 난다
-    const starts = sound.ctx.oscillators
-      .filter((_, index) => index % 2 === 0)
-      .map(osc => osc.startedAt)
-      .sort((a, b) => a - b);
+    const starts = glides.map(item => item.startedAt).sort((a, b) => a - b);
     for (let i = 1; i < starts.length; i++) {
       const gap = starts[i] - starts[i - 1];
       assert.ok(gap >= 0.13 && gap <= 0.17, `쪽쪽이: ~0.15초 간격 (${gap})`);
@@ -630,36 +659,46 @@ test('playTrap 은 트랩 종류별 싸는 소리를 합성한다', () => {
     assert.equal(fallback.ctx.oscillators.length, 1, '기본: 짧은 하강 사인 1개');
     assert.equal(fallback.ctx.oscillators[0].type, 'sine');
 
-    // 오줌: 400→1100Hz 물방울 5~6연타 + 얇은 노이즈
+    // 오줌: 520→1400Hz 맑은 물방울 6연타(55~75ms) + 부드러운 물줄기 노이즈
     const pee = new SoundFX();
     assert.doesNotThrow(() => pee.playTrap('PEE'));
-    assert.ok(pee.ctx.oscillators.length >= 5, '오줌: 물방울 연타');
+    assert.ok(pee.ctx.oscillators.length >= 6, '오줌: 물방울 6연타');
     assert.ok(
       pee.ctx.oscillators.every(osc => {
         const start = osc.frequency.calls[0][1];
         const ramp = osc.frequency.calls.find(c => c[0] === 'ramp');
-        return start >= 380 && start <= 600 && ramp && ramp[1] >= 1050;
+        const duration = osc.stoppedAt - osc.startedAt - 0.03;
+        return start >= 500 && start <= 660
+          && ramp && ramp[1] >= 1300 && ramp[1] <= 1420
+          && duration >= 0.05 && duration <= 0.08;
       }),
-      '오줌: 400~560Hz 에서 1100Hz 이상으로 톡톡 튄다',
+      '오줌: 520~640Hz 에서 1400Hz 로 솟는 55~75ms 물방울',
     );
     assert.ok(pee.ctx.bufferSources.length >= 1, '오줌: 물줄기 노이즈');
 
-    // 토사물: 260→110Hz 로 처지는 두 겹 + 빠른 LFO + 300~700Hz 공명
+    // 토사물: 380→145Hz 삼각+사인 하강 + 빠른 LFO + 넓은 로우패스(1400→450Hz)
     const vomit = new SoundFX();
     assert.doesNotThrow(() => vomit.playTrap('VOMIT'));
     assert.equal(vomit.ctx.oscillators.length, 2, '토사물: 두 겹 저중역');
     const vomitLead = vomit.ctx.oscillators[0];
-    assert.ok(vomitLead.frequency.calls[0][1] >= 240 && vomitLead.frequency.calls[0][1] <= 280);
+    assert.ok(vomitLead.frequency.calls[0][1] >= 360
+      && vomitLead.frequency.calls[0][1] <= 400, '토사물: 380Hz 부근에서 시작');
     assert.ok(
-      vomitLead.frequency.calls.some(c => c[0] === 'ramp' && c[1] <= 130),
-      '토사물: 아래로 축 처지는 글라이드',
+      vomitLead.frequency.calls.some(c => c[0] === 'ramp' && c[1] <= 155),
+      '토사물: 145Hz 까지 축 처지는 글라이드',
     );
     assert.ok(vomitLead.frequency.calls.length > 5, '토사물: 빠른 LFO 떨림');
-    const vomitFilter = vomit.ctx.filters.find(f => f.type === 'bandpass');
-    assert.ok(vomitFilter, '토사물: 공명 필터');
+    const vomitFilters = vomit.ctx.filters.filter(
+      f => f.type === 'lowpass' && f.frequency.calls.some(c => c[0] === 'ramp'),
+    );
+    assert.equal(vomitFilters.length, 2, '토사물: 두 겹 넓은 로우패스');
     assert.ok(
-      vomitFilter.frequency.calls[0][1] >= 300 && vomitFilter.frequency.calls[0][1] <= 700,
-      '토사물: 300~700Hz 공명',
+      vomitFilters.every(f => f.frequency.calls[0][1] >= 900 && f.frequency.calls[0][1] <= 1600),
+      '토사물: 1400Hz 부근에서 시작하는 넓은 로우패스',
+    );
+    assert.ok(
+      vomitFilters.some(f => f.frequency.calls.some(c => c[0] === 'ramp' && c[1] <= 500)),
+      '토사물: 로우패스가 450Hz 로 내려간다',
     );
 
     // 똥: 낮은 톱니파(68→38Hz) + 빠른 떨림 + 하강 로우패스 + 노이즈 퍼프
