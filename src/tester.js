@@ -15,6 +15,11 @@ const MODES = ['MANUAL', 'REPLAY', 'BOT'];
 const STORAGE_KEY = 'pacbaby.tester.v1';
 const LOG_LIMIT = 40;
 
+/** F2 패널 버튼용 인라인 SVG (OS 이모지/픽토그램 문자 대신) */
+function panelIcon(body) {
+  return `<svg class="tt-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${body}</svg>`;
+}
+
 /** 시드 기반 난수 (리플레이 결정성 확보) */
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -420,8 +425,8 @@ export default class Tester {
     panel.className = 'tester-panel';
     panel.innerHTML = `
       <div class="tt-head">
-        <span>PAC-BABY TESTER</span>
-        <button type="button" data-action="hide" title="닫기 (Shift+F2)">✕</button>
+        <span>HUNGRY BABY RUSH TESTER</span>
+        <button type="button" data-action="hide" title="닫기 (Shift+F2)">${panelIcon('<path d="M6.4 6.4l11.2 11.2M17.6 6.4 6.4 17.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>')}</button>
       </div>
       <div class="tt-modes">
         <button type="button" data-mode="MANUAL">1 MANUAL</button>
@@ -437,12 +442,12 @@ export default class Tester {
         <label><input type="checkbox" data-flag="teleport"> 클릭 텔레포트</label>
       </div>
       <div class="tt-actions">
-        <button type="button" data-action="record">● 기록</button>
-        <button type="button" data-action="stop">■ 정지</button>
-        <button type="button" data-action="replay">▶ 재생</button>
-        <button type="button" data-action="bot">🤖 봇</button>
-        <button type="button" data-action="step">⏭ 1틱</button>
-        <button type="button" data-action="restart">↻ 재시작</button>
+        <button type="button" data-action="record">${panelIcon('<circle cx="12" cy="12" r="6.2" fill="currentColor"/>')} 기록</button>
+        <button type="button" data-action="stop">${panelIcon('<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>')} 정지</button>
+        <button type="button" data-action="replay">${panelIcon('<path d="M8 4.6v14.8l12-7.4z" fill="currentColor"/>')} 재생</button>
+        <button type="button" data-action="bot">${panelIcon('<rect x="4.4" y="7" width="15.2" height="11" rx="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 4.4v2.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9.4" cy="12.4" r="1.2" fill="currentColor"/><circle cx="14.6" cy="12.4" r="1.2" fill="currentColor"/>')} 봇</button>
+        <button type="button" data-action="step">${panelIcon('<path d="M6 5.2v13.6l9-6.8z" fill="currentColor"/><rect x="16.2" y="5.2" width="2.6" height="13.6" rx="1" fill="currentColor"/>')} 1틱</button>
+        <button type="button" data-action="restart">${panelIcon('<path d="M19.2 12a7.2 7.2 0 1 1-2.1-5.1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M19.6 3.6v4.4h-4.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>')} 재시작</button>
       </div>
       <div class="tt-frames">프레임 0</div>
       <pre class="tt-inspector"></pre>
@@ -521,7 +526,10 @@ export default class Tester {
         box-shadow:0 8px 24px rgba(0,0,0,.5)}
       .tester-panel .tt-head{display:flex;justify-content:space-between;align-items:center;
         font-weight:700;color:#29b6f6;margin-bottom:8px}
-      .tester-panel .tt-head button{background:none;border:0;color:#e3f2fd;cursor:pointer}
+      .tester-panel .tt-head button{display:inline-flex;align-items:center;justify-content:center;
+        padding:2px;background:none;border:0;color:#e3f2fd;cursor:pointer}
+      .tester-panel .tt-icon{width:12px;height:12px;vertical-align:-2px;margin-right:3px}
+      .tester-panel .tt-head .tt-icon{width:13px;height:13px;margin:0}
       .tester-panel .tt-modes,.tester-panel .tt-actions{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
       .tester-panel button[data-mode],.tester-panel button[data-action]{
         flex:1 1 auto;padding:5px 6px;border-radius:6px;border:1px solid #29527a;

@@ -6,11 +6,8 @@
  * - 점수 상한/최소 시간은 서버 RPC 와 동일한 값을 미러링한 사전 안내용이다.
  */
 
-import {
-  AVATAR_EMOJIS,
-  NICKNAME_RULE,
-  SCORE_RULES,
-} from './constants.js';
+import { NICKNAME_RULE, SCORE_RULES } from './constants.js';
+import { AVATAR_IDS } from './uiIcons.js';
 
 /** 앞뒤 공백 제거 + 유니코드 NFC 정규화 (한글 자모 분리 입력 대응) */
 export function normalizeNickname(raw) {
@@ -39,15 +36,10 @@ export function validateNickname(raw) {
   return { ok: true, value, reason: 'OK' };
 }
 
-/** 이모지 id(1~12)가 유효한지 */
+/** 아바타 id(1~12)가 유효한지 */
 export function isValidAvatarId(id) {
   const value = Number(id);
-  return Number.isInteger(value) && value >= 1 && value <= AVATAR_EMOJIS.length;
-}
-
-/** 이모지 id → 실제 이모지 문자 (잘못된 값은 첫 번째 이모지) */
-export function avatarEmoji(id) {
-  return isValidAvatarId(id) ? AVATAR_EMOJIS[Number(id) - 1] : AVATAR_EMOJIS[0];
+  return Number.isInteger(value) && value >= 1 && value <= AVATAR_IDS.length;
 }
 
 /** 라운드별 점수 상한 (서버 pacbaby_score_cap 과 동일) */
@@ -99,13 +91,4 @@ export function normalizeCountryHint(hint) {
   const region = raw.match(/^[A-Za-z]{2,3}[-_]([A-Za-z]{2})$/);
   const code = region ? region[1] : raw;
   return /^[A-Za-z]{2}$/.test(code) ? code.toUpperCase() : null;
-}
-
-/** 국가 코드 → 국기 이모지 (표시용) */
-export function countryToFlag(code) {
-  const value = normalizeCountryHint(code);
-  if (!value) return '';
-  return String.fromCodePoint(
-    ...[...value].map(char => 0x1F1E6 + char.charCodeAt(0) - 65),
-  );
 }

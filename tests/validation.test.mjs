@@ -6,8 +6,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  avatarEmoji,
-  countryToFlag,
   isPlausibleScore,
   isValidAvatarId,
   minRunDurationMs,
@@ -16,7 +14,8 @@ import {
   scoreCapForRound,
   validateNickname,
 } from '../src/validation.js';
-import { AVATAR_EMOJIS, NICKNAME_RULE, SCORE_RULES } from '../src/constants.js';
+import { NICKNAME_RULE, SCORE_RULES } from '../src/constants.js';
+import { AVATAR_IDS } from '../src/uiIcons.js';
 
 test('닉네임은 앞뒤 공백 제거 + NFC 정규화 후 검증한다', () => {
   assert.equal(normalizeNickname('  팩베이비  '), '팩베이비');
@@ -36,17 +35,14 @@ test('닉네임 길이/문자 규칙을 지킨다', () => {
   assert.equal(validateNickname('Baby_01').ok, true);
 });
 
-test('이모지 id 는 1~12 만 허용한다', () => {
-  assert.equal(AVATAR_EMOJIS.length, 12);
+test('아바타 id 는 1~12 만 허용한다', () => {
+  assert.equal(AVATAR_IDS.length, 12);
   assert.equal(isValidAvatarId(1), true);
   assert.equal(isValidAvatarId(12), true);
   assert.equal(isValidAvatarId(0), false);
   assert.equal(isValidAvatarId(13), false);
   assert.equal(isValidAvatarId('3'), true);
   assert.equal(isValidAvatarId(1.5), false);
-  assert.equal(avatarEmoji(1), '🍼');
-  assert.equal(avatarEmoji(12), '🥛');
-  assert.equal(avatarEmoji(999), AVATAR_EMOJIS[0]);
 });
 
 test('라운드별 점수 상한/최소 시간이 서버 규칙과 일치한다', () => {
@@ -80,11 +76,9 @@ test('점수 사전 검증은 상한/시간/라운드를 확인한다', () => {
   assert.equal(isPlausibleScore({ score: 100, round: 1, durationMs: 1000 }).reason, 'TOO_FAST');
 });
 
-test('국가 힌트/국기 변환은 안전하게 동작한다', () => {
+test('국가 힌트는 안전하게 정규화된다', () => {
   assert.equal(normalizeCountryHint('ko-kr'), 'KR');
   assert.equal(normalizeCountryHint('KR'), 'KR');
   assert.equal(normalizeCountryHint('korea'), null);
   assert.equal(normalizeCountryHint(null), null);
-  assert.equal(countryToFlag('KR'), '🇰🇷');
-  assert.equal(countryToFlag(''), '');
 });

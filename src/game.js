@@ -2637,16 +2637,45 @@ export default class Game {
     drawItem(`R${this.round}`, '#29b6f6');
 
     // 우측: 사운드 스피커(벡터) + 브랜드 젖병(벡터) + 타이틀
+    // 좁은 폭(모바일 320~390px)에서도 왼쪽 R{round}·하트와 겹치지 않도록
+    // 남은 폭을 재서 폰트를 줄이거나 'Hungry Baby'로 축약한다.
     ctx.textAlign = 'right';
-    const title = 'Pac-Baby';
-    const titleLeft = CANVAS_WIDTH - 10 - measure(title);
-    ctx.fillText(title, CANVAS_WIDTH - 10, 14);
+    const titleRight = CANVAS_WIDTH - 10;
+    const titleIconsWidth = 46; // 스피커 + 젖병 아이콘 자리 + 여백
+    const titleSpace = Math.max(0, titleRight - x - titleIconsWidth);
+    const titleCandidates = [
+      { text: 'Hungry Baby Rush', size: 14 },
+      { text: 'Hungry Baby Rush', size: 12 },
+      { text: 'Hungry Baby', size: 13 },
+      { text: 'Hungry Baby', size: 11 },
+      { text: 'HBR', size: 11 },
+    ];
+    let title = '';
+    let titleWidth = 0;
+    for (const candidate of titleCandidates) {
+      ctx.font = `${candidate.size}px "Segoe UI", sans-serif`;
+      const width = measure(candidate.text);
+      if (width <= titleSpace) {
+        title = candidate.text;
+        titleWidth = width;
+        break;
+      }
+    }
 
-    // OS '🔊/🔇' 대신 Canvas 2D 스피커 아이콘
-    drawSpeakerIcon(ctx, titleLeft - 10, 14, 13, this.sound.enabled);
+    if (title) {
+      const titleLeft = titleRight - titleWidth;
+      ctx.fillStyle = '#29b6f6';
+      ctx.fillText(title, titleRight, 14);
 
-    // 브랜드 젖병 아이콘 — OS 이모지 대신 Canvas 2D 벡터로 그린다
-    drawItemIcon(ctx, 'MILK', titleLeft - 28, 14, 13, this.animTime || 0);
+      // OS '🔊/🔇' 대신 Canvas 2D 스피커 아이콘
+      drawSpeakerIcon(ctx, titleLeft - 10, 14, 13, this.sound.enabled);
+
+      // 브랜드 젖병 아이콘 — OS 이모지 대신 Canvas 2D 벡터로 그린다
+      drawItemIcon(ctx, 'MILK', titleLeft - 28, 14, 13, this.animTime || 0);
+    }
+
+    // 이후 게이지/배지 렌더링이 기준 폰트를 이어 쓰도록 되돌린다
+    ctx.font = '14px "Segoe UI", sans-serif';
 
     // 소화 게이지 (트랩 배출까지)
     this._renderDigestionGauge(ctx);

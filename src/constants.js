@@ -324,12 +324,6 @@ export const HISCORE_KEY = 'pacbaby.hiscore'; // localStorage 키
 export const HELP_SEEN_KEY = 'pacbaby.helpSeen'; // 사용 설명서 자동 표시 여부(localStorage)
 
 // ===== 글로벌 프로필 / 리더보드 (게스트 선행 플레이) =====
-/** 등록 시 선택할 수 있는 개인 이모지. id 는 배열 인덱스 + 1 (DB: 1~12) */
-export const AVATAR_EMOJIS = [
-  '🍼', '👶', '🧸', '🍭', '🦄', '🐣',
-  '🌟', '🍪', '🎈', '🧦', '🚼', '🥛',
-];
-
 /** localStorage 키 모음 (게스트 프로필 미러/팝업 스누즈/리더보드 캐시) */
 export const PROFILE_STORAGE_KEYS = {
   PROFILE: 'pacbaby.profile',
@@ -458,7 +452,6 @@ export const SUGAR_RUSH = {
 /** 맵 중앙의 슈퍼 아이템 '황금 젖병' — 8초 보행기 모드 (무적 + 속도 증가) */
 export const GOLDEN_BOTTLE = {
   name: '황금 젖병',
-  symbol: '🍼',
   duration: 8000,          // 8초 보행기 모드
   speedMultiplier: 1.4,    // 이동 속도 증가
   knockScore: 300,         // 악당과 부딪히면 날려버리고 +300점
@@ -486,12 +479,10 @@ export const FAKE_PACIFIER = {
 };
 
 // ===== 아이템 속성 =====
-// symbol 은 레거시 데이터 호환용으로만 남겨 둔다.
 // 캔버스 렌더링은 OS 이모지 대신 item.js 의 Canvas 2D 벡터 아이콘(drawItemIcon)을 쓴다.
 export const ITEMS = {
   MILK: {
     name: '우유병',
-    symbol: '🥛',
     score: 50,            // 섭취 점수
     digestTime: 5000,     // 5초
     trapType: 'PEE',
@@ -500,7 +491,6 @@ export const ITEMS = {
   },
   CANDY: {
     name: '캔디',
-    symbol: '🍬',
     score: 70,
     digestTime: 7000,     // 7초
     trapType: 'VOMIT',
@@ -509,7 +499,6 @@ export const ITEMS = {
   },
   COOKIE: {
     name: '쿠키',
-    symbol: '🍪',
     score: 100,
     digestTime: 10000,    // 10초
     trapType: 'POOP',
@@ -519,7 +508,6 @@ export const ITEMS = {
   // 슈퍼 아이템: 소화/트랩 없음. 맵 중앙에서 20초마다 다시 나타난다.
   GOLDEN: {
     name: GOLDEN_BOTTLE.name,
-    symbol: GOLDEN_BOTTLE.symbol,
     score: 0,
     digestTime: 0,
     trapType: null,
@@ -529,10 +517,9 @@ export const ITEMS = {
     respawnMs: GOLDEN_BOTTLE.respawnMs,
   },
   // 특수 아이템: 가짜 젖꼭지(쪽쪽이). 클리어 카운트/소화/트랩 없음.
-  // symbol 은 비워 두고 item.js 에서 Canvas 2D 도형으로 직접 그린다.
+  // item.js 에서 Canvas 2D 도형으로 직접 그린다.
   PACIFIER: {
     name: FAKE_PACIFIER.name,
-    symbol: '',
     score: FAKE_PACIFIER.score,
     digestTime: 0,
     trapType: null,
