@@ -1392,6 +1392,7 @@ export default class Game {
         this._addPopup(item.row, item.col, applied > 0 ? `+${applied}` : 'MAX', '#8bc34a');
         this.tester?.log?.('item', `${item.config.name} +${gained}`);
         this.sound.playItem(item.type); // 'MILK' | 'CANDY' | 'COOKIE' 별 먹는 소리
+        this.sound.playItemFollowUp?.(item.type); // 2차 후속음 (꿀꺽/부글부글/슈우웅)
         this.effects.burstSparkle(item.row, item.col); // 노란 반짝이
         this._updateHiScore();
 
@@ -1484,6 +1485,7 @@ export default class Game {
     // 침대 스텔스(playStealth)와 구분되는 쪽쪽이 빠는 소리
     if (typeof this.sound.playPacifier === 'function') this.sound.playPacifier();
     else this.sound.playStealth?.();
+    this.sound.playPacifierFollowUp?.(); // 2차 후속음 (스윽~ 퐁! 은신)
     this.effects.flashScreen(FAKE_PACIFIER.color, 0.16, 0.24);
     this.effects.burstSparkle(this.player.row, this.player.col, 10);
   }
@@ -1535,6 +1537,7 @@ export default class Game {
       `황금 젖병! ${GOLDEN_BOTTLE.duration / 1000}초 무적 보행기 (악당 도망)`,
     );
     this.sound.playGolden?.();
+    this.sound.playGoldenFollowUp?.(); // 2차 후속음 (이히이~ + 부스터 발진)
     this.effects.flashScreen('#ffd54f', 0.32, 0.4);
     this.effects.shockwave(
       this.player.row, this.player.col,
@@ -1914,6 +1917,7 @@ export default class Game {
     this._addPopup(this.player.row, this.player.col, `${SKILL_CRY.cost}`, '#64b5f6');
     this.tester?.log?.('cry', `울기 사용 (-100, 얼림 +${SKILL_CRY.freezeDuration / 1000}s)`);
     this.sound.playFreeze();
+    this.sound.playFreezeFollowUp?.(); // 2차 후속음 (샤라랑~ 짜장! 빙결)
 
     // 푸른 섬광 + 눈물 파티클 + 악당 위치에 얼음 파편
     this.effects.flashScreen(COLORS.ENEMY_FROZEN, 0.45, 0.38);

@@ -742,3 +742,144 @@ test('오디오 장치가 없어도 아이템/트랩 종류별 사운드는 조�
   assert.equal(sound.ctx, null, '오디오 장치가 없으면 컨텍스트를 만들지 않는다');
 });
 
+// ===== 2차 후속음 (1차 직관 효과음 뒤에 붙는 캐릭터/발진 레이어) =====
+
+test('오디오 장치가 없어도 2차 후속음 4종은 조용히 무시된다', () => {
+  const sound = new SoundFX();
+
+  assert.doesNotThrow(() => {
+    sound.playItemFollowUp('COOKIE');
+    sound.playItemFollowUp('MILK');
+    sound.playItemFollowUp('CANDY');
+    sound.playItemFollowUp();
+    sound.playPacifierFollowUp();
+    sound.playGoldenFollowUp();
+    sound.playFreezeFollowUp();
+  });
+
+  assert.equal(sound.ctx, null, '오디오 장치가 없으면 컨텍스트를 만들지 않는다');
+});
+
+test('아이템/쪽쪽이/황금젖병 후속음은 삼각·사인파로 1차 소리 뒤에 지연 재생된다', () => {
+  globalThis.window = { AudioContext: FxAudioContext };
+
+  try {
+    const isWarm = osc => osc.type === 'triangle' || osc.type === 'sine';
+
+    for (const type of ['COOKIE', 'MILK', 'CANDY']) {
+      const sound = new SoundFX();
+      assert.doesNotThrow(() => sound.playItemFollowUp(type), `${type} 후속음은 예외가 없다`);
+      assert.ok(sound.ctx.oscillators.length >= 1, `${type}: 후속음 오실레이터가 생성된다`);
+      assert.ok(sound.ctx.oscillators.every(isWarm), `${type}: 삼각파·사인파만 사용한다`);
+      assert.ok(
+        sound.ctx.oscillators.every(osc => osc.startedAt > 0),
+        `${type}: 1차 먹는 소리가 끝난 뒤로 지연 시작한다`,
+      );
+      assert.ok(sound.ctx.bufferSources.length >= 1, `${type}: 노이즈 레이어가 덧붙는다`);
+    }
+
+    // 쿠키: 직후(0.24초) 부글거리는 저역 + 가청 배음
+    const cookie = new SoundFX();
+    cookie.playItemFollowUp('COOKIE');
+    assert.equal(cookie.ctx.oscillators.length, 2, '쿠키 후속음: 배 부글 2겹');
+    assert.ok(
+      cookie.ctx.oscillators.every(osc => osc.startedAt >= 0.24),
+      '쿠키: 바삭 3타 뒤에 시작',
+    );
+    assert.ok(
+      cookie.ctx.filters.some(f => f.type === 'lowpass' && f.frequency.calls.some(c => c[0] === 'ramp')),
+      '쿠키: 로우패스가 아래로 좁아지는 뱃속 울림',
+    );
+
+    // 우유: 꿀꺽(사인) → 만족(삼각)
+    const milk = new SoundFX();
+    milk.playItemFollowUp('MILK');
+    assert.deepEqual(
+      milk.ctx.oscillators.map(osc => osc.type),
+      ['sine', 'triangle'],
+      '우유 후속음: 꿀꺽 사인 + 만족 삼각',
+    );
+    assert.ok(
+      milk.ctx.oscillators[0].frequency.calls.some(c => c[0] === 'ramp' && c[1] <= 200),
+      '우유: 목구멍으로 떨어지는 하강',
+    );
+    assert.ok(milk.ctx.oscillators[1].startedAt > milk.ctx.oscillators[0].startedAt, '우유: 만족음은 뒤에 온다');
+
+    // 캔디: 시동 상승음
+    const candy = new SoundFX();
+    candy.playItemFollowUp('CANDY');
+    assert.equal(candy.ctx.oscillators.length, 2, '캔디 후속음: 삼각+사인 2겹');
+    assert.ok(
+      candy.ctx.oscillators.every(osc => osc.frequency.calls.some(c => c[0] === 'ramp' && c[1] >= 1300)),
+      '캔디: 위로 솟는 슈가 러시 발진',
+    );
+    assert.ok(candy.ctx.oscillators.every(osc => osc.startedAt >= 0.13), '캔디: 아작! 직후');
+
+    // 쪽쪽이: 스윽~ 퐁! 은신
+    const pacifier = new SoundFX();
+    assert.doesNotThrow(() => pacifier.playPacifierFollowUp());
+    assert.equal(pacifier.ctx.oscillators.length, 2, '쪽쪽이 후속음: 사인 + 삼각');
+    assert.ok(pacifier.ctx.oscillators.every(isWarm), '쪽쪽이 후속음: 삼각파·사인파만');
+    assert.ok(pacifier.ctx.oscillators.every(osc => osc.startedAt >= 0.44), '쪽쪽이: 3연타 뒤에 시작');
+    assert.ok(pacifier.ctx.bufferSources.length >= 1, '쪽쪽이: 빠져나가는 공기 노이즈');
+
+    // 황금 젖병: 이히이~ 3음절 + 보행기 부스터 발진
+    const golden = new SoundFX();
+    assert.doesNotThrow(() => golden.playGoldenFollowUp());
+    assert.equal(golden.ctx.oscillators.length, 4, '황금 후속음: 웃음 3음절 + 부스터');
+    assert.ok(golden.ctx.oscillators.every(isWarm), '황금 후속음: 삼각파·사인파만');
+    assert.ok(golden.ctx.oscillators.every(osc => osc.startedAt >= 0.18), '황금: 팡파르 뒤에 시작');
+    const goldenStarts = golden.ctx.oscillators.map(osc => osc.startedAt);
+    for (let i = 1; i < goldenStarts.length; i++) {
+      assert.ok(goldenStarts[i] > goldenStarts[i - 1], '"이-히-이~" 음절이 순서대로 이어진다');
+    }
+    assert.ok(golden.ctx.bufferSources.length >= 1, '황금: 부스터 발진 노이즈');
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test('playFreezeFollowUp 은 "뿌엥~" 뒤 지연된 얼음 빙결음을 예약한다', () => {
+  globalThis.window = { AudioContext: FxAudioContext };
+
+  try {
+    const sound = new SoundFX();
+    assert.doesNotThrow(() => sound.playFreezeFollowUp());
+
+    assert.equal(sound.ctx.oscillators.length, 3, '샤라랑~ 짜장! 3연타');
+    assert.ok(
+      sound.ctx.oscillators.every(osc => osc.type === 'sine' || osc.type === 'triangle'),
+      '빙결음: 사인·삼각파만 사용한다',
+    );
+    assert.deepEqual(
+      sound.ctx.oscillators.map(osc => osc.frequency.calls[0][1]),
+      [1760, 2349, 3136],
+      '빙결음: 결정이 맺히듯 위로 올라간다',
+    );
+    assert.ok(
+      sound.ctx.oscillators.every(osc => osc.startedAt >= 0.46),
+      '울음이 끝난 뒤(0.46초) 지연 시작한다',
+    );
+    const starts = sound.ctx.oscillators.map(osc => osc.startedAt);
+    for (let i = 1; i < starts.length; i++) {
+      assert.ok(starts[i] > starts[i - 1], '반짝임이 순서대로 이어진다');
+    }
+    assert.ok(sound.ctx.bufferSources.length >= 1, '서리 결정 노이즈가 있다');
+    assert.ok(
+      sound.ctx.filters.some(f => f.type === 'highpass' && f.frequency.value === 3400),
+      '서리 질감은 3400Hz 하이패스',
+    );
+
+    // "뿌-엥~" 본체도 예외 없이 짧게(0.5초 이내) 끝난다
+    const cry = new SoundFX();
+    assert.doesNotThrow(() => cry.playFreeze());
+    assert.ok(cry.ctx.oscillators.length >= 2, '뿌-엥: 두 음절');
+    assert.ok(
+      cry.ctx.oscillators.every(osc => osc.stoppedAt - osc.startedAt <= 0.5),
+      '뿌-엥: 답답하지 않게 0.5초 이내',
+    );
+  } finally {
+    delete globalThis.window;
+  }
+});
+

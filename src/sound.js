@@ -742,6 +742,126 @@ export default class SoundFX {
   }
 
   /**
+   * 2차 후속음: 1차 먹는 소리(playItem)가 끝난 직후 이어지는 캐릭터/발진음.
+   * - 1차 소리가 "무엇을 먹었는지"를 알려 준다면, 후속음은 "그 뒤에 무슨 일이 일어나는지"를 들려준다.
+   *   (쿠키=배가 부글부글 / 우유=꿀꺽 삼킴 / 캔디=슈가 러시 발진)
+   * - 원음의 오실레이터 개수·주파수·파형은 건드리지 않고 뒤에 소리만 덧붙인다.
+   * - 삼각파·사인파 + 필터링된 노이즈(_noise)만 사용해 쨍한 파형이 없다.
+   * @param {'MILK'|'CANDY'|'COOKIE'|null} [type] 먹은 아이템 종류
+   */
+  playItemFollowUp(type = null) {
+    const kind = typeof type === 'string' ? type.toUpperCase() : null;
+    if (kind === 'COOKIE') { this._playCookieRumble(); return; }
+    if (kind === 'MILK') { this._playMilkGulp(); return; }
+    if (kind === 'CANDY') { this._playCandySurge(); return; }
+  }
+
+  /**
+   * 쿠키 후속음: 바삭 3타가 끝난 뒤(0.24초) 배가 부글부글 끓는 소리.
+   * - 165 → 82Hz 삼각파 + 1100 → 320Hz 로 좁아지는 로우패스 (뱃속 깊은 울림)
+   * - 소형 스피커 가청 배음 240 → 120Hz 사인
+   * - 750Hz 로우패스 노이즈로 '꾸르륵' 질감
+   */
+  _playCookieRumble() {
+    this._beep({
+      freq: 165,
+      toFreq: 82,
+      duration: 0.44,
+      type: 'triangle',
+      volume: 0.42,
+      delay: 0.24,
+      filterType: 'lowpass',
+      filterFreq: 1100,
+      filterToFreq: 320,
+      filterQ: 0.9,
+      vibrato: { hz: 16, depth: 0.13 },
+      sustainLevel: 0.55,
+      pan: -0.08,
+    });
+    // 폰/노트북 스피커가 잘 내는 대역의 배음 — 저역만으로는 들리지 않는다
+    this._beep({
+      freq: 240,
+      toFreq: 120,
+      duration: 0.34,
+      type: 'sine',
+      volume: 0.22,
+      delay: 0.26,
+      vibrato: { hz: 14, depth: 0.1 },
+      sustainLevel: 0.5,
+      pan: 0.1,
+    });
+    this._noise({
+      duration: 0.14, volume: 0.14, delay: 0.25,
+      filterType: 'lowpass', filterFreq: 750, Q: 0.8,
+    });
+  }
+
+  /**
+   * 우유 후속음: 뽀글 3연타가 끝난 뒤(0.33초) '꿀꺽~ 음!' 만족감.
+   * - 꿀꺽: 380 → 175Hz 사인 (목구멍으로 넘어가는 짧은 하강)
+   * - 만족: 260 → 330Hz 삼각파 (살짝 올라가며 '음~')
+   */
+  _playMilkGulp() {
+    this._beep({
+      freq: 380,
+      toFreq: 175,
+      duration: 0.11,
+      type: 'sine',
+      volume: 0.36,
+      delay: 0.33,
+      attack: 0.003,
+      sustainLevel: 0.4,
+    });
+    this._beep({
+      freq: 260,
+      toFreq: 330,
+      duration: 0.16,
+      type: 'triangle',
+      volume: 0.26,
+      delay: 0.44,
+      attack: 0.006,
+      sustainLevel: 0.5,
+      pan: 0.08,
+    });
+    // 삼키는 순간의 짧은 틱
+    this._noise({
+      duration: 0.04, volume: 0.08, delay: 0.34,
+      filterType: 'lowpass', filterFreq: 900, Q: 0.7,
+    });
+  }
+
+  /**
+   * 캔디 후속음: '쪽-아작' 직후(0.13초) 슈가 러시 시동 '슈우웅!' 상승음.
+   * - 480 → 1320Hz 삼각파 + 960 → 1760Hz 사인 배음
+   * - 1600Hz 밴드패스 노이즈로 달콤한 바람 소리
+   */
+  _playCandySurge() {
+    this._beep({
+      freq: 480,
+      toFreq: 1320,
+      duration: 0.22,
+      type: 'triangle',
+      volume: 0.36,
+      delay: 0.13,
+      attack: 0.006,
+      sustainLevel: 0.5,
+    });
+    this._beep({
+      freq: 960,
+      toFreq: 1760,
+      duration: 0.18,
+      type: 'sine',
+      volume: 0.22,
+      delay: 0.15,
+      attack: 0.005,
+    });
+    this._noise({
+      duration: 0.2, volume: 0.15, delay: 0.13,
+      filterType: 'bandpass', filterFreq: 1600, Q: 0.9,
+    });
+  }
+
+  /**
    * 우유 '뽀글-뽀글-뽀글': 노트북/폰 스피커가 잘 내는 420 → 920Hz 대역의 밝은 거품음 3연타.
    * - 예전의 좁은 밴드패스(Q=6)를 걷어내고 사인 글라이드 + 삼각파 몸통을 그대로 내보낸다.
    * - 한 타 75~90ms, 충분한 음량(≈0.46)으로 BGM 위에서도 또렷하게 들린다.
@@ -901,6 +1021,37 @@ export default class SoundFX {
   }
 
   /**
+   * 쪽쪽이 후속음: 3연타가 끝난 뒤(0.44초) 스텔스 발동 '스윽~ 퐁!' 은신음.
+   * - 1180 → 390Hz 사인으로 스르륵 사라지고, 520 → 340Hz 삼각파가 '퐁' 하고 맺는다.
+   * - 1200Hz 로우패스 노이즈로 빠져나가는 공기감.
+   */
+  playPacifierFollowUp() {
+    this._beep({
+      freq: 1180,
+      toFreq: 390,
+      duration: 0.22,
+      type: 'sine',
+      volume: 0.34,
+      delay: 0.44,
+      attack: 0.005,
+      sustainLevel: 0.45,
+    });
+    this._beep({
+      freq: 520,
+      toFreq: 340,
+      duration: 0.14,
+      type: 'triangle',
+      volume: 0.24,
+      delay: 0.6,
+      sustainLevel: 0.4,
+    });
+    this._noise({
+      duration: 0.16, volume: 0.09, delay: 0.44,
+      filterType: 'lowpass', filterFreq: 1200, Q: 0.8,
+    });
+  }
+
+  /**
    * 아기 울음소리 (Space 울기): "앙~ 앙~ 흐에엥..." 세 마디
    * - 톱니파를 포먼트 필터로 다듬어 사람 목소리에 가깝게 만들고,
    * - 비브라토(울먹임) + 들이키는 숨소리로 리얼한 아기 울음을 만든다.
@@ -958,11 +1109,60 @@ export default class SoundFX {
     this._noise({ duration: 0.08, volume: 0.04, delay: 0.72, filterType: 'bandpass', filterFreq: 800 });
   }
 
-  /** 울기 스킬: 아기 울음 + 얼음 결정이 맺히는 소리 */
+  /**
+   * 울기 스킬(얼리기): 직관적인 2음절 아기 울음 "뿌-엥~".
+   * - 기존의 긴 1.1초 울음 대신 0.5초 안에 끝나 답답하지 않다.
+   * - "뿌!" 는 밴드패스 포먼트(1100Hz)로 입술이 터지는 느낌, "엥~" 은 처지며 길게 떨린다.
+   * - 얼음 결정음은 playFreezeFollowUp() 이 후속으로 담당한다.
+   */
   playFreeze() {
-    this.playCry();
-    this._beep({ freq: 2093, toFreq: 2637, duration: 0.08, type: 'sine', volume: 0.22, delay: 0.03 });
-    this._beep({ freq: 2637, toFreq: 3136, duration: 0.1, type: 'sine', volume: 0.18, delay: 0.12 });
+    // "뿌!" — 터지는 첫 음절
+    this._beep({
+      freq: 560,
+      toFreq: 840,
+      duration: 0.11,
+      type: 'sawtooth',
+      volume: 0.46,
+      filterType: 'bandpass',
+      filterFreq: 1100,
+      filterQ: 2.2,
+      vibrato: { hz: 12, depth: 0.04 },
+    });
+    // "엥~" — 처지며 길게 우는 둘째 음절
+    this._beep({
+      freq: 920,
+      toFreq: 480,
+      duration: 0.36,
+      type: 'sawtooth',
+      volume: 0.44,
+      delay: 0.13,
+      filterType: 'lowpass',
+      filterFreq: 2100,
+      vibrato: { hz: 9, depth: 0.05 },
+    });
+    // 목소리 두께를 받쳐 주는 삼각파 화음
+    this._beep({ freq: 460, toFreq: 240, duration: 0.34, type: 'triangle', volume: 0.24, delay: 0.14 });
+    // 들이키는 숨
+    this._noise({
+      duration: 0.08, volume: 0.06, delay: 0.13,
+      filterType: 'bandpass', filterFreq: 1400, Q: 1.2,
+    });
+  }
+
+  /**
+   * 얼리기 후속음: "뿌엥~" 직후(0.46초) 얼음이 빙결되는 '샤라랑~ 짜장!' 소리.
+   * - 1760→2349→3136→3951Hz 로 올라가는 사인/삼각파 3연타 (결정이 맺히는 반짝임)
+   * - 3400Hz 하이패스 노이즈로 서리 결정이 부딪히는 질감
+   */
+  playFreezeFollowUp() {
+    this._beep({ freq: 1760, toFreq: 2349, duration: 0.09, type: 'sine', volume: 0.3, delay: 0.46 });
+    this._beep({ freq: 2349, toFreq: 3136, duration: 0.11, type: 'sine', volume: 0.32, delay: 0.54 });
+    // "짜장!" — 얼어붙는 마무리
+    this._beep({ freq: 3136, toFreq: 3951, duration: 0.14, type: 'triangle', volume: 0.24, delay: 0.62 });
+    this._noise({
+      duration: 0.14, volume: 0.12, delay: 0.48,
+      filterType: 'highpass', filterFreq: 3400,
+    });
   }
 
   /** 침대 스텔스 발동 */
@@ -1020,6 +1220,67 @@ export default class SoundFX {
     this._beep({
       freq: 1046.5, toFreq: 1567.98, duration: 0.5, type: 'sine', volume: 0.2,
       delay: 0.22, attack: 0.02, sustainLevel: 0.3,
+    });
+  }
+
+  /**
+   * 황금 젖병 후속음: 팡파르 직후(0.18초) 아기 환호 "이히이~" 3음절 + 보행기 부스터 발진.
+   * - "이-" 740→920Hz 삼각파 → "히-" 880→1120Hz 사인 → "이~" 980→1320Hz 삼각파
+   * - 각 음절에 살짝 다른 비브라토를 줘 웃음소리처럼 흔들린다.
+   * - 마지막에 220→440Hz 삼각파 발진 + 밴드패스 노이즈로 보행기 부스터가 켜지는 느낌.
+   */
+  playGoldenFollowUp() {
+    // "이-"
+    this._beep({
+      freq: 740,
+      toFreq: 920,
+      duration: 0.1,
+      type: 'triangle',
+      volume: 0.38,
+      delay: 0.18,
+      attack: 0.004,
+      vibrato: { hz: 14, depth: 0.05 },
+      sustainLevel: 0.5,
+    });
+    // "히-"
+    this._beep({
+      freq: 880,
+      toFreq: 1120,
+      duration: 0.11,
+      type: 'sine',
+      volume: 0.36,
+      delay: 0.29,
+      attack: 0.004,
+      vibrato: { hz: 15, depth: 0.06 },
+      sustainLevel: 0.5,
+    });
+    // "이~" — 마지막 음절은 조금 길게
+    this._beep({
+      freq: 980,
+      toFreq: 1320,
+      duration: 0.18,
+      type: 'triangle',
+      volume: 0.38,
+      delay: 0.41,
+      attack: 0.004,
+      vibrato: { hz: 13, depth: 0.06 },
+      sustainLevel: 0.45,
+    });
+    // 보행기 부스터 발진 "부우웅"
+    this._beep({
+      freq: 220,
+      toFreq: 440,
+      duration: 0.32,
+      type: 'triangle',
+      volume: 0.32,
+      delay: 0.56,
+      attack: 0.01,
+      sustainLevel: 0.6,
+      vibrato: { hz: 10, depth: 0.05 },
+    });
+    this._noise({
+      duration: 0.22, volume: 0.14, delay: 0.56,
+      filterType: 'bandpass', filterFreq: 1200, Q: 0.8,
     });
   }
 
