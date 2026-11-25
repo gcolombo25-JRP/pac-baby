@@ -104,6 +104,7 @@ export default class TouchControls {
     this._headerEl = null;
     this._layoutObserver = null;
     this._layoutPending = false;
+    this._destroyed = false;
     this._onLayout = () => this._scheduleLayout();
 
     // D-패드 버튼이 없더라도 UI 버튼 클릭음은 연결한다
@@ -580,7 +581,7 @@ export default class TouchControls {
 
   /** 다음 프레임에 레이아웃을 한 번만 측정한다 (연속 이벤트 중복 방지) */
   _scheduleLayout() {
-    if (this._layoutPending || typeof window === 'undefined') return;
+    if (this._destroyed || this._layoutPending || typeof window === 'undefined') return;
     this._layoutPending = true;
 
     const run = () => {
@@ -594,6 +595,7 @@ export default class TouchControls {
 
   /** 컨트롤 크기와 가로/세로 모드를 CSS 에 반영 */
   _applyLayout() {
+    if (this._destroyed) return;
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
     const body = document.body;
@@ -613,7 +615,11 @@ export default class TouchControls {
       }
     }
 
-    // 2) 모드가 바뀐 뒤의 실제 레이아웃을 측정한다
+    // 2) 모드가 바뀐 뒤의 실제 레이아웃을 측정한다.
+    //    - classList.toggle 직후에 getBoundingClientRect() 를 호출하므로
+    //      브라우저가 동기적으로 리플로우해 새 가로/세로 배치가 반영된 값이 나온다.
+    //    - 가로 전환 시 일부 브라우저(iOS Safari 등)는 폭이 1프레임 늦게
+    //      확정되므로 아래에서 다음 프레임에 한 번 더 재측정한다.
     const controls = this._controlsEl;
     const rootStyle = document.documentElement?.style;
     if (controls && typeof controls.getBoundingClientRect === 'function' && rootStyle) {
@@ -635,12 +641,21 @@ export default class TouchControls {
       }
     }
 
-    // 모드 전환 직후에는 레이아웃이 한 번 더 확정될 수 있으므로 재측정한다
-    if (modeChanged) this._scheduleLayout();
+    // 가로/세로 모드가 바뀐 직후에는 레이아웃(특히 .touch-controls 폭)이
+    // 한두 프레임에 걸쳐 확정될 수 있으므로 재측정을 예약한다.
+    //  - _scheduleLayout() 은 다음 프레임에 1회 측정
+    //  - 추가 rAF 는 폭이 1프레임 늦게 반영되는 브라우저 보정
+    if (modeChanged) {
+      this._scheduleLayout();
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => this._scheduleLayout());
+      }
+    }
   }
 
   /** 이벤트 정리 */
   destroy() {
+    this._destroyed = true; // 예약된 rAF 재측정이 클래스를 다시 켜지 않게 한다
     for (const { button, onDown, onUp } of this.handlers) {
       button.removeEventListener('pointerdown', onDown);
       button.removeEventListener('pointerup', onUp);
