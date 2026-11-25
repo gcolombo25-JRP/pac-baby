@@ -46,6 +46,18 @@
   </script>
 </head>
 <body>
+  <!-- 가로 모드 [울기] 버튼 전용: 모서리가 둥근 이등변 삼각형 클립.
+       objectBoundingBox 단위 → 버튼 크기가 바뀌어도 같은 모양으로 잘린다.
+       (style.css: body.touch-landscape .pad-skill-shape { clip-path: url(#pad-skill-triangle) }) -->
+  <svg class="sr-shape-defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <clipPath id="pad-skill-triangle" clipPathUnits="objectBoundingBox">
+        <!-- 꼭짓점 3곳을 2차 베지어로 둥글게 깎은 이등변 삼각형 (위 꼭짓점이 중앙) -->
+        <path d="M0.143 1 H0.857 Q1 1 0.9135 0.827 L0.607 0.214 Q0.5 0 0.393 0.214 L0.0865 0.827 Q0 1 0.143 1 Z" />
+      </clipPath>
+    </defs>
+  </svg>
+
   <div id="game-container">
     <!-- ===== 최상단 헤더 (캔버스 바깥) =====
          프로필/액션/기록을 일반 문서 흐름(flex)에 두어 PC·세로/가로 폰·태블릿
@@ -124,6 +136,8 @@
       <div class="pad-actions">
         <!-- 비상용 [울기]: 단독 강조 버튼 -->
         <button type="button" class="pad-btn pad-skill" data-key="Space" aria-label="울기 (비상)">
+          <!-- 가로 모드 전용 삼각형 배경 (세로 모드/PC 에서는 display:none) -->
+          <span class="pad-skill-shape" aria-hidden="true"></span>
           <span class="pad-skill-tag" aria-hidden="true">비상</span>
           <span class="pad-skill-text" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2c2.7 3.5 4.5 6.4 4.5 8.8a4.5 4.5 0 0 1-9 0c0-2.4 1.8-5.3 4.5-8.8z" fill="#81d4fa"/><path d="M10 12.6a1.9 1.9 0 0 0 1.9 1.9" fill="none" stroke="#e1f5fe" stroke-width="1.1" stroke-linecap="round"/></svg> 울기</span>
         </button>
