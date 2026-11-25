@@ -22,6 +22,26 @@ import { HISCORE_KEY } from './constants.js';
 const PAD_MODE_KEY = 'pacbaby.padMode';
 const PAD_MODES = ['buttons', 'sector', 'joystick'];
 
+/** 가로 화면 좌우 배치 저장 키 ([좌↔우] 전환: 게임판/터치패드 위치) */
+const HAND_SIDE_KEY = 'pacbaby.handSide';
+const HAND_SIDES = ['left', 'right'];
+
+/** 저장된 가로 화면 좌우 배치를 읽는다 (없거나 잘못된 값이면 기본 'right' = 기존 배치) */
+function readSavedHandSide() {
+  try {
+    const saved = window.localStorage.getItem(HAND_SIDE_KEY);
+    if (HAND_SIDES.includes(saved)) return saved;
+  } catch (err) { /* 접근 차단 환경 무시 */ }
+  return 'right';
+}
+
+/** 가로 화면 좌우 배치를 저장한다 (실패해도 게임은 그대로 동작) */
+function saveHandSide(side) {
+  try {
+    window.localStorage.setItem(HAND_SIDE_KEY, side);
+  } catch (err) { /* 접근 차단 환경 무시 */ }
+}
+
 /** 저장된 방향 입력 방식을 읽는다 (없거나 잘못된 값이면 실사용 기본값 'sector') */
 function readSavedPadMode() {
   try {
@@ -137,6 +157,15 @@ function init() {
       savePadMode(mode);
       showToast(
         `방향 입력: ${mode === 'joystick' ? '스틱 (드래그)' : '4분할 (원형 파이)'}`,
+        { duration: 1600 },
+      );
+    },
+    // 가로 화면 좌우 배치([좌↔우])도 마지막 선택을 기억한다.
+    handSide: readSavedHandSide(),
+    onHandSideChange: (side) => {
+      saveHandSide(side);
+      showToast(
+        `가로 배치: ${side === 'left' ? '게임판 좌 · 터치패드 우' : '터치패드 좌 · 게임판 우'}`,
         { duration: 1600 },
       );
     },

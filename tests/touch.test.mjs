@@ -428,12 +428,13 @@ function createFakeToggle() {
 }
 
 /** .dpad / 전환 버튼을 돌려주는 root 스텁 */
-function createPadRoot({ dpad = null, toggle = null } = {}) {
+function createPadRoot({ dpad = null, toggle = null, hand = null } = {}) {
   return {
     querySelectorAll: () => [],
     querySelector(selector) {
       if (selector === '.dpad') return dpad;
       if (selector === '[data-pad-toggle]') return toggle;
+      if (selector === '[data-hand-toggle]') return hand;
       return null;
     },
   };
@@ -640,3 +641,149 @@ test('destroy 후에는 .dpad 포인터 입력을 무시하고 눌린 키/노브
   dpad.dispatch('pointermove', { pointerId: 2, clientX: 190, clientY: 100 });
   assert.equal(input.pressed.length, pressedCount, '정리 후에는 입력이 주입되지 않는다');
 });
+
+// ===== 가로 화면 좌우 배치 전환 (게임판 ↔ 터치패드) =====
+
+/** [좌↔우] 전환 버튼 스텁 */
+function createFakeHandButton() {
+  const listeners = {};
+  return {
+    title: '',
+    attrs: {},
+    listeners,
+    addEventListener(type, handler) { listeners[type] = handler; },
+    removeEventListener(type) { delete listeners[type]; },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    getAttribute(name) {
+      return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
+    },
+    click(event = {}) {
+      const handler = listeners.click;
+      if (typeof handler === 'function') {
+        handler({ stopPropagation() {}, preventDefault() {}, ...event });
+      }
+    },
+  };
+}
+
+test('setHandSide/toggleHandSide 가 상태·콜백·body[data-hand] 를 갱신한다', () => {
+  const hand = createFakeHandButton();
+  const root = createPadRoot({ hand });
+  const input = createFakeInput();
+  const changes = [];
+  const clicks = [];
+  const sound = { playUiClick: () => clicks.push('click') };
+
+  const originalDocument = globalThis.document;
+  const dataset = {};
+  globalThis.document = { body: { dataset } };
+
+  try {
+    const touch = new TouchControls(input, root, sound, {
+      handSide: 'left',
+      onHandSideChange: side => changes.push(side),
+    });
+
+    // 생성 시 저장된 배치를 즉시 반영한다
+    assert.equal(touch.handSide, 'left');
+    assert.equal(dataset.hand, 'left', 'body[data-hand] 로 CSS 전환');
+    assert.equal(hand.attrs['aria-pressed'], 'true', '스왑 상태는 눌림으로 표시');
+    assert.equal(hand.attrs['data-hand'], 'left');
+    assert.match(hand.title, /게임판 좌/);
+
+    // 잘못된 값은 기본값 'right'(기존 배치)로 정규화된다
+    assert.equal(touch.setHandSide('bogus'), 'right');
+    assert.equal(touch.handSide, 'right');
+    assert.equal(dataset.hand, 'right');
+    assert.equal(hand.attrs['aria-pressed'], 'false');
+    assert.match(hand.title, /터치패드 좌/);
+
+    // setHandSide 는 콜백을 호출하지 않는다 (초기 반영/외부 동기화용)
+    assert.deepEqual(changes, []);
+
+    // toggleHandSide: 'right' → 'left' + 콜백 1회
+    assert.equal(touch.toggleHandSide(), 'left');
+    assert.equal(touch.handSide, 'left');
+    assert.equal(dataset.hand, 'left');
+    assert.deepEqual(changes, ['left']);
+
+    // 버튼 탭: 'left' → 'right' + 클릭음 1회 + 이벤트 전파 중단
+    let stopped = 0;
+    hand.click({ stopPropagation: () => { stopped += 1; } });
+    assert.equal(stopped, 1, '탭 이벤트가 게임 입력으로 전파되지 않는다');
+    assert.equal(touch.handSide, 'right');
+    assert.equal(dataset.hand, 'right');
+    assert.deepEqual(changes, ['left', 'right']);
+    assert.equal(clicks.length, 1, '전환 버튼 탭마다 클릭음 1회');
+
+    // 콜백 예외가 전환을 막지 않는다
+    const broken = new TouchControls(createFakeInput(), createPadRoot(), null, {
+      onHandSideChange: () => { throw new Error('boom'); },
+    });
+    assert.equal(broken.toggleHandSide(), 'left');
+
+    touch.destroy();
+    assert.equal(dataset.hand, undefined, 'destroy 시 body.dataset.hand 정리');
+    assert.equal(hand.listeners.click, undefined, '전환 버튼 리스너 해제');
+    assert.equal(touch.onHandSideChange, null);
+    broken.destroy();
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
+});
+
+test('좌우 배치 기본값은 right(기존 배치)이며 destroy 후에는 탭을 무시한다', () => {
+  const hand = createFakeHandButton();
+  const root = createPadRoot({ hand });
+  const changes = [];
+
+  const originalDocument = globalThis.document;
+  const dataset = {};
+  globalThis.document = { body: { dataset } };
+
+  try {
+    // 기존 3인자 호출 호환 + 기본 handSide 'right'
+    const touch = new TouchControls(createFakeInput(), root, null, {
+      onHandSideChange: side => changes.push(side),
+    });
+
+    assert.equal(touch.handSide, 'right', '기본 배치는 기존 그대로');
+    assert.equal(dataset.hand, 'right');
+    assert.equal(hand.attrs['aria-pressed'], 'false');
+
+    touch.destroy();
+
+    const before = touch.handSide;
+    hand.click();
+    assert.equal(touch.handSide, before, 'destroy 후 탭은 무시된다');
+    assert.deepEqual(changes, [], '콜백도 호출되지 않는다');
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
+});
+
+test('index.html/style.css 에 가로 화면 [좌↔우] 전환 버튼과 스왑 규칙이 있다', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+
+  const tag = html.match(/<button[^>]*data-hand-toggle[^>]*>/);
+  assert.ok(tag, '[data-hand-toggle] 버튼이 있다');
+  assert.match(tag[0], /class="pad-btn pad-hand-btn"/);
+  assert.doesNotMatch(tag[0], /data-key=/, '전환 버튼은 게임 입력(data-key)을 갖지 않는다');
+  assert.match(html, /data-hand-toggle aria-label="가로 화면 좌우 전환">좌↔우</);
+
+  const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.pad-btn\.pad-hand-btn\s*\{\s*display:\s*none/, '세로 화면에서는 숨긴다');
+  assert.match(
+    css,
+    /body\.touch-landscape \.pad-btn\.pad-hand-btn\s*\{[\s\S]*?display:\s*inline-flex/,
+    '가로 모드에서만 노출한다',
+  );
+  assert.match(
+    css,
+    /body\.touch-landscape\[data-hand="left"\] #game-container\s*\{[\s\S]*?flex-direction:\s*row-reverse/,
+    '좌우 스왑 배치 규칙',
+  );
+});
+

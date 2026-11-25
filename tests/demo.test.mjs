@@ -12,6 +12,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import Game, {
+  DEMO_AUTO_NEXT_ROUND_MS,
+  DEMO_AUTO_RESTART_MS,
   DEMO_HINT_PC,
   DEMO_HINT_TOUCH,
   demoHintFor,
@@ -491,4 +493,100 @@ test('데모 중 새 게임(resetAll)은 assisted=false 인 새 매뉴얼 런을
   assert.equal(game.player.score, 0);
   assert.equal(game.lives, PLAYER_LIVES);
 });
+test('DEMO/BOT 은 라운드 클리어 연출 1.8초 뒤 버튼 없이 다음 라운드로 자동 진행한다', () => {
+  assert.equal(DEMO_AUTO_NEXT_ROUND_MS, 1800);
+  assert.equal(DEMO_AUTO_RESTART_MS, 2200);
+
+  for (const mode of ['DEMO', 'BOT']) {
+    const game = new Game(createStubCanvas(), createStubInput());
+    if (mode === 'DEMO') game.startDemo();
+    else game.startBotCheat();
+
+    assert.equal(game.state, 'PLAYING');
+    game.round = 3;
+    game._stageClear();
+    assert.equal(game.state, 'STAGE_CLEAR');
+
+    // 연출 중(1.8초 미만)에는 기존 테스트처럼 STAGE_CLEAR 를 유지한다
+    game.lastTime = 0;
+    game._tick(DEMO_AUTO_NEXT_ROUND_MS - 1);
+    assert.equal(game.state, 'STAGE_CLEAR', `${mode}: 1.8초 전에는 자동 진행 금지`);
+    assert.equal(game.round, 3);
+
+    // 1.8초 경과 후에는 버튼 입력 없이 다음 라운드 + PLAYING
+    game._tick(DEMO_AUTO_NEXT_ROUND_MS);
+    assert.equal(game.state, 'PLAYING', `${mode}: 자동으로 다음 라운드 진입`);
+    assert.equal(game.round, 4);
+    assert.equal(game.readyTimer, 0, 'READY 카운트다운 없이 바로 플레이');
+
+    if (mode === 'DEMO') {
+      assert.equal(game.demoMode, true, 'DEMO 모드가 다음 라운드까지 유지');
+      assert.equal(game.runAssisted, true, '데모 런은 계속 랭킹 제외');
+    } else {
+      assert.equal(game.botMode, true, 'BOT 모드가 다음 라운드까지 유지');
+      assert.equal(game.demoMode, false, 'BOT 은 DEMO 오버레이를 켜지 않는다');
+    }
+  }
+});
+
+test('DEMO 게임 오버는 2.2초 뒤 1라운드 데모로 자동 재시작하고, BOT 게임 오버는 입력을 기다린다', () => {
+  const starts = [];
+  const ends = [];
+  const game = new Game(createStubCanvas(), createStubInput(), {
+    onRunStart: event => starts.push(event),
+  });
+  game.onRunEnd = summary => ends.push(summary);
+
+  game.startDemo();
+  const startCountInDemo = starts.length;
+  game.round = 4;
+  game.player.score = 900;
+  game._gameOver();
+  assert.equal(game.state, 'GAME_OVER');
+
+  game.lastTime = 0;
+  game._tick(DEMO_AUTO_RESTART_MS - 1);
+  assert.equal(game.state, 'GAME_OVER', '2.2초 전에는 최종 점수를 볼 수 있게 유지');
+
+  game._tick(DEMO_AUTO_RESTART_MS);
+  assert.equal(game.state, 'PLAYING', '데모는 자동 재시작');
+  assert.equal(game.demoMode, true);
+  assert.equal(game.round, 1);
+  assert.equal(game.player.score, 0);
+  assert.equal(game.runAssisted, true, '자동 재시작한 데모도 랭킹 제외');
+  assert.equal(ends.length, 0, '데모 런은 onRunEnd/제출 금지');
+  assert.equal(starts.length, startCountInDemo, '데모 런은 onRunStart 금지');
+
+  // 명시적 BOT 의 게임 오버는 유저가 최종 점수/라운드를 확인할 수 있도록 자동 재시작하지 않는다
+  const botGame = new Game(createStubCanvas(), createStubInput());
+  botGame.startBotCheat();
+  botGame.round = 5;
+  botGame.player.score = 1500;
+  botGame._gameOver();
+
+  botGame.lastTime = 0;
+  botGame._tick(DEMO_AUTO_RESTART_MS * 3);
+  assert.equal(botGame.state, 'GAME_OVER', 'BOT 은 자동 재시작 없음');
+  assert.equal(botGame.botMode, true);
+  assert.equal(botGame.round, 5);
+});
+
+test('수동 플레이의 STAGE_CLEAR / GAME_OVER 는 자동 진행하지 않고 입력을 기다린다', () => {
+  const game = new Game(createStubCanvas(), createStubInput());
+  assert.equal(game.demoMode, false);
+  assert.equal(game.botMode, false);
+
+  game.round = 2;
+  game.state = 'STAGE_CLEAR';
+  game.lastTime = 0;
+  game._tick(5000);
+  assert.equal(game.state, 'STAGE_CLEAR', '수동 플레이는 버튼 대기 유지');
+  assert.equal(game.round, 2);
+
+  game.state = 'GAME_OVER';
+  game.lastTime = 0;
+  game._tick(5000);
+  assert.equal(game.state, 'GAME_OVER', '수동 게임 오버도 자동 재시작 없음');
+});
+
 

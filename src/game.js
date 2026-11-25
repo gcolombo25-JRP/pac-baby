@@ -74,6 +74,11 @@ export function demoHintFor(isTouch) {
   return isTouch ? DEMO_HINT_TOUCH : DEMO_HINT_PC;
 }
 
+// ===== DEMO / BOT 자동 진행 (라운드 클리어 · 데모 게임 오버) =====
+// 수동 플레이(!demo && !bot)는 기존처럼 Space/Enter 버튼 대기를 유지한다.
+export const DEMO_AUTO_NEXT_ROUND_MS = 1800; // 클리어 연출을 본 뒤 자동으로 다음 라운드
+export const DEMO_AUTO_RESTART_MS = 2200;    // 데모 게임 오버 연출을 본 뒤 자동 1라운드 재시작
+
 /**
  * 터치 지원 기기(안드로이드/iOS 등) 판별.
  * - `options.touch` 가 boolean 이면 그 값을 그대로 쓴다 (테스트용 오버라이드).
@@ -193,6 +198,8 @@ export default class Game {
     this.helpOpen = false;         // 사용 설명서(도움말) 열림 여부 — 열려 있으면 로직/입력 정지
     this.readyTimer = READY_COUNTDOWN_MS;
     this.caughtTimer = 0;          // 체포 연출(Oh! No~) 남은 시간 — 동안 베이비/보모 정지
+    this.stageClearTimer = 0;      // DEMO/BOT 클리어 연출 경과 시간 (자동 다음 라운드용)
+    this.gameOverTimer = 0;        // DEMO 게임 오버 연출 경과 시간 (자동 재시작용)
     this._inRealtimeTick = false;  // 실시간 루프가 _update 를 돌리는 중인지 (연출 조건)
     this.scorePopups = [];         // { row, col, text, color, life, maxLife }
     this.stats = { items: 0, traps: 0, stealth: 0, cries: 0, sugar: 0, golden: 0, knocks: 0, pacifier: 0 };
@@ -1005,6 +1012,15 @@ export default class Game {
     this._handleSystemInput();
     this._handleSkillInput();
     this._togglePauseInput();
+
+    // DEMO/BOT: 클리어·게임 오버 연출(1.8~2.2초) 뒤 버튼 없이 자동 진행
+    // (수동 플레이는 여기서 상태를 바꾸지 않고 기존처럼 Space/Enter 입력을 기다린다)
+    if (this._updateAutoAdvance(dt)) {
+      this._render(this.tickMs > 0 ? this.tickAccumulator / this.tickMs : 0);
+      this.input.clearJustPressed();
+      return;
+    }
+
     this._handleStateInput();
 
     // 일시정지 / 스테이지 클리어 / 게임 오버: 게임 로직 정지 (화면만 유지)
@@ -1112,16 +1128,70 @@ export default class Game {
     }
 
     if (this.state === 'STAGE_CLEAR') {
-      // 데모(어트랙트 모드)는 버튼 입력 없이 다음 라운드로 계속 진행한다
-      if (this.demoMode) {
-        this._startRound(this.round + 1);
-        this.state = 'PLAYING';
-        this.readyTimer = 0;
-        this.tickAccumulator = 0;
-        return;
-      }
+      // DEMO/BOT 의 자동 진행은 _updateAutoAdvance 가 담당한다 (연출 1.8초 유지)
       if (confirm || retry) this._startRound(this.round + 1);
     }
+  }
+
+  /**
+   * DEMO / BOT 자동 진행 타이머.
+   * - 라운드 클리어: 연출을 볼 수 있도록 `DEMO_AUTO_NEXT_ROUND_MS`(1.8초) 뒤 다음 라운드로.
+   * - 데모 게임 오버: `DEMO_AUTO_RESTART_MS`(2.2초) 뒤 1라운드 데모로 자동 재시작
+   *   (서버 기록/하이스코어 격리는 그대로 유지 — `_resetDemoBoard`).
+   * - 명시적 BOT 의 게임 오버는 유저가 최종 점수를 볼 수 있도록 자동 재시작하지 않는다.
+   * - 수동 플레이(!demo && !bot)는 아무 것도 하지 않는다 (기존 입력 대기 유지).
+   * @param {number} dt
+   * @returns {boolean} 자동 전환으로 상태가 바뀌었는지
+   */
+  _updateAutoAdvance(dt) {
+    const auto = this.isBotActive;
+
+    if (this.state === 'STAGE_CLEAR') {
+      if (!auto) return false;
+      this.stageClearTimer += Math.max(0, dt);
+      if (this.stageClearTimer < DEMO_AUTO_NEXT_ROUND_MS) return false;
+      this._advanceToNextRound();
+      return true;
+    }
+
+    if (this.state === 'GAME_OVER' && this.demoMode) {
+      this.gameOverTimer += Math.max(0, dt);
+      if (this.gameOverTimer < DEMO_AUTO_RESTART_MS) return false;
+      this._restartDemoRun();
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * DEMO/BOT: 버튼 없이 다음 라운드로 진입한다.
+   * - `_startRound` 는 보드만 재구성하고 모드 플래그(demoMode/botMode)는 건드리지 않는다.
+   * - READY 카운트다운 없이 즉시 PLAYING 으로 이어서 플레이한다.
+   * @returns {string} 전환 후 상태 ('PLAYING')
+   */
+  _advanceToNextRound() {
+    this.stageClearTimer = 0;
+    this.gameOverTimer = 0;
+    this._startRound(this.round + 1);
+    this.state = 'PLAYING';
+    this.readyTimer = 0;
+    this.tickAccumulator = 0;
+    return this.state;
+  }
+
+  /**
+   * DEMO: 게임 오버 연출 후 1라운드 데모로 자동 재시작한다.
+   * - `_resetDemoBoard` 가 `runAssisted = true` / `runStartedAt = null` 을 다시 세팅하므로
+   *   서버 런 제출·하이스코어 저장과는 계속 격리된다.
+   * @returns {string} 전환 후 상태 ('PLAYING')
+   */
+  _restartDemoRun() {
+    this.stageClearTimer = 0;
+    this.gameOverTimer = 0;
+    this._resetDemoBoard();
+    this.tester?.log?.('demo', '게임 오버 → 1라운드 DEMO 자동 재시작');
+    return this.state;
   }
 
   /** 탭 숨김/최소화 시 자동 일시정지 (main.js 의 visibilitychange 에서 호출) */
@@ -2016,9 +2086,10 @@ export default class Game {
     if (cleared) this._stageClear();
   }
 
-  /** 스테이지 클리어: 목숨 +1 후 다음 라운드 입력 대기 */
+  /** 스테이지 클리어: 목숨 +1 후 다음 라운드 입력 대기 (DEMO/BOT 은 자동 진행) */
   _stageClear() {
     this.state = 'STAGE_CLEAR';
+    this.stageClearTimer = 0; // DEMO/BOT 자동 다음 라운드 타이머 시작
     this.lives = Math.min(PLAYER_LIVES, this.lives + 1); // 클리어 보상: 목숨 회복
     this._updateHiScore();
     this.tester?.log?.('clear', `ROUND ${this.round} 클리어`);
@@ -2028,6 +2099,7 @@ export default class Game {
   /** 게임 오버 (목숨 0) */
   _gameOver() {
     this.state = 'GAME_OVER';
+    this.gameOverTimer = 0; // DEMO 자동 재시작 타이머 시작 (BOT 은 자동 재시작 없음)
     this._updateHiScore(); // 데모 중이면 내부에서 무시
     this.tester?.log?.('gameover', `최종 점수 ${this.player.score}`);
     this.sound.playGameOver();
@@ -2148,6 +2220,8 @@ export default class Game {
     this.sound?.resetHeartbeat?.();
     this.tickAccumulator = 0;
     this.caughtTimer = 0;
+    this.stageClearTimer = 0; // 라운드/새 게임 재구성 시 DEMO/BOT 자동 진행 타이머 초기화
+    this.gameOverTimer = 0;
     this.state = 'READY';
     this.readyTimer = READY_COUNTDOWN_MS;
 

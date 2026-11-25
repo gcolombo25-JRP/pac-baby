@@ -33,6 +33,19 @@ const PAD_MODE_LABELS = {
   joystick: '스틱',
 };
 
+/**
+ * 가로 화면 좌우 배치 (handSide)
+ * - 'right'(기본): 기존 배치 유지 — style.css 의 `order: -1` 로 패드가 게임판 왼쪽에 온다.
+ * - 'left': `body[data-hand="left"]` + `flex-direction: row-reverse` 로 게임판/패드를 좌우 스왑.
+ */
+const HAND_SIDES = ['right', 'left'];
+
+/** 배치별 실제 화면 위치 (전환 버튼 툴팁/aria-label 용) */
+const HAND_SIDE_LABELS = {
+  right: '터치패드 좌 · 게임판 우',
+  left: '게임판 좌 · 터치패드 우',
+};
+
 /** 레이아웃 측정 실패 시 D-패드 반지름 기본값(px) */
 const PAD_FALLBACK_RADIUS = 64;
 
@@ -65,10 +78,20 @@ export default class TouchControls {
    * @param {import('./input.js').default} input
    * @param {Document|HTMLElement|null} root 버튼을 찾을 범위 (기본: document)
    * @param {{playUiClick?: () => void}|null} sound UI 클릭음용 SoundFX (선택)
-   * @param {{padMode?: 'buttons'|'sector'|'joystick', onPadModeChange?: ((mode: string) => void)|null}} [options]
+   * @param {{
+   *   padMode?: 'buttons'|'sector'|'joystick',
+   *   onPadModeChange?: ((mode: string) => void)|null,
+   *   handSide?: 'left'|'right',
+   *   onHandSideChange?: ((side: 'left'|'right') => void)|null,
+   * }} [options]
    */
   constructor(input, root = null, sound = null, options = {}) {
-    const { padMode = 'buttons', onPadModeChange = null } = options || {};
+    const {
+      padMode = 'buttons',
+      onPadModeChange = null,
+      handSide = 'right',
+      onHandSideChange = null,
+    } = options || {};
 
     this.input = input;
     this.root = root || (typeof document !== 'undefined' ? document : null);
@@ -79,6 +102,10 @@ export default class TouchControls {
     // 방향 입력 방식: 'buttons'(기존 십자) | 'sector'(A안 4분할 파이) | 'joystick'(B안 스틱)
     this.padMode = PAD_MODES.includes(padMode) ? padMode : 'buttons';
     this.onPadModeChange = typeof onPadModeChange === 'function' ? onPadModeChange : null;
+
+    // 가로 화면 좌우 배치: 'right'(기본, 기존 배치) | 'left'(좌우 스왑)
+    this.handSide = HAND_SIDES.includes(handSide) ? handSide : 'right';
+    this.onHandSideChange = typeof onHandSideChange === 'function' ? onHandSideChange : null;
 
     // .dpad 표면 제스처 상태 (한 번에 손가락 1개만 추적)
     this._dpad = null;
@@ -92,6 +119,10 @@ export default class TouchControls {
     // 방향 입력 방식 전환 버튼
     this._toggleButton = null;
     this._onToggleClick = null;
+
+    // 가로 화면 좌우 배치 전환 버튼 ([data-hand-toggle], 가로 모드에서만 노출)
+    this._handButton = null;
+    this._onHandClick = null;
 
     // BOT 치트 상태 배지 (D-패드 자리 #bot-cheat-bar)
     this.cheatMode = false;
@@ -153,6 +184,10 @@ export default class TouchControls {
     this._setupPadToggle();
     this.setPadMode(this.padMode);
 
+    // 가로 화면 좌우 배치([좌↔우]) — 버튼 연결 후 저장된 배치를 즉시 반영
+    this._setupHandToggle();
+    this.setHandSide(this.handSide);
+
     this._setupLayout();
   }
 
@@ -187,6 +222,8 @@ export default class TouchControls {
       if (!button || button.hasAttribute('data-key')) return;
       // 방향 입력 방식 전환 버튼은 자체 click 핸들러에서 클릭음을 재생한다 (중복 방지)
       if (button.hasAttribute?.('data-pad-toggle')) return;
+      // 좌우 배치 전환 버튼도 자체 click 핸들러에서 재생한다 (중복 방지)
+      if (button.hasAttribute?.('data-hand-toggle')) return;
       this._playUiClick();
     };
 
@@ -335,6 +372,81 @@ export default class TouchControls {
     button.textContent = label;
     button.setAttribute?.('data-pad-mode', this.padMode);
     button.setAttribute?.('aria-label', `방향 입력 방식 전환 (현재: ${label})`);
+  }
+
+  // ===== 가로 화면 좌우 배치 (게임판 ↔ 터치패드) =====
+
+  /**
+   * 가로 화면 배치를 적용한다.
+   * - `body[data-hand]` 로 CSS 를 전환한다
+   *   (style.css: `body.touch-landscape[data-hand="left"] #game-container { flex-direction: row-reverse }`).
+   * - 세로 모드에서는 버튼이 숨겨지므로(display: none) 레이아웃에 영향이 없다.
+   * @param {'left'|'right'} side 잘못된 값은 기본값 'right' 로 정규화
+   * @returns {'left'|'right'} 적용된 배치
+   */
+  setHandSide(side) {
+    const next = HAND_SIDES.includes(side) ? side : 'right';
+    this.handSide = next;
+
+    if (typeof document !== 'undefined' && document?.body?.dataset) {
+      document.body.dataset.hand = next;
+    }
+
+    this._syncHandToggleLabel();
+    return next;
+  }
+
+  /**
+   * 좌우 배치를 원탭으로 전환한다 ('right' ↔ 'left').
+   * @returns {'left'|'right'} 전환된 배치
+   */
+  toggleHandSide() {
+    const next = this.handSide === 'left' ? 'right' : 'left';
+    this.setHandSide(next);
+
+    if (this.onHandSideChange) {
+      try {
+        this.onHandSideChange(next);
+      } catch (err) {
+        /* 콜백 오류가 입력을 막지 않게 무시 */
+      }
+    }
+
+    return next;
+  }
+
+  /** 좌우 배치 전환 버튼 연결 (data-key 없음 → 게임 입력과 분리) */
+  _setupHandToggle() {
+    if (!this.root || typeof this.root.querySelector !== 'function') return;
+
+    const button = this.root.querySelector('[data-hand-toggle]');
+    if (!button || typeof button.addEventListener !== 'function') return;
+
+    this._handButton = button;
+    this._onHandClick = (event) => {
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+      this._playUiClick();
+      this.toggleHandSide();
+    };
+
+    button.addEventListener('click', this._onHandClick);
+  }
+
+  /** 좌우 배치 전환 버튼의 aria 상태/툴팁을 현재 배치에 맞춘다 */
+  _syncHandToggleLabel() {
+    const button = this._handButton
+      || (typeof this.root?.querySelector === 'function'
+        ? this.root.querySelector('[data-hand-toggle]')
+        : null);
+    if (!button) return;
+
+    this._handButton = button;
+    const label = HAND_SIDE_LABELS[this.handSide] || HAND_SIDE_LABELS.right;
+
+    button.setAttribute?.('aria-pressed', String(this.handSide === 'left'));
+    button.setAttribute?.('data-hand', this.handSide);
+    button.setAttribute?.('aria-label', `가로 화면 좌우 전환 (배치: ${label})`);
+    button.title = `가로 화면 좌우 전환 (배치: ${label})`;
   }
 
   _handlePadDown(event) {
@@ -689,6 +801,14 @@ export default class TouchControls {
     this._onToggleClick = null;
     this.onPadModeChange = null;
 
+    // 좌우 배치 전환 버튼 정리
+    if (this._handButton && typeof this._handButton.removeEventListener === 'function') {
+      this._handButton.removeEventListener('click', this._onHandClick);
+    }
+    this._handButton = null;
+    this._onHandClick = null;
+    this.onHandSideChange = null;
+
     if (this._onUiPointerDown && this.root && typeof this.root.removeEventListener === 'function') {
       this.root.removeEventListener('pointerdown', this._onUiPointerDown, true);
     }
@@ -719,6 +839,7 @@ export default class TouchControls {
       document.body?.classList?.remove?.('bot-cheat');
       document.body?.classList?.remove?.('touch-landscape');
       if (document.body?.dataset) delete document.body.dataset.pad;
+      if (document.body?.dataset) delete document.body.dataset.hand;
       const rootStyle = document.documentElement?.style;
       rootStyle?.removeProperty?.('--touch-controls-h');
       rootStyle?.removeProperty?.('--touch-controls-w');

@@ -3077,6 +3077,71 @@ body.touch-landscape .pad-functions .pad-mode-btn {
   font-size: 10.5px;
 }
 
+/* ===== 가로 화면 좌우 배치 전환 ([좌↔우]) =====
+   - 기본(세로 화면/PC): 완전히 숨겨 기존 레이아웃에 영향을 주지 않는다.
+   - 가로 모드: 기능 패널에 [4분할/스틱] 옆 한 칸으로 컴팩트하게 노출한다.
+     (버튼이 7개가 되어도 2열 → 3열 그리드로 유지해 세로 높이가 늘지 않게 한다) */
+.pad-btn.pad-hand-btn {
+  display: none;
+}
+
+body.touch-landscape .pad-functions {
+  grid-template-columns: repeat(3, var(--action-w));
+}
+
+/* 3열에서도 [리더보드]는 마지막 줄 전체 폭을 쓴다 */
+body.touch-landscape .pad-functions .pad-board {
+  grid-column: 1 / -1;
+}
+
+body.touch-landscape .pad-btn.pad-hand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  grid-column: auto;
+  height: 26px;
+  padding: 0 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 224, 130, 0.45);
+  background: rgba(255, 224, 130, 0.16);
+  color: #ffe082;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  box-shadow: none;
+}
+
+/* 좌우 스왑 상태([aria-pressed="true"] = data-hand="left")를 색으로 구분한다 */
+body.touch-landscape .pad-btn.pad-hand-btn[data-hand="left"] {
+  border-color: rgba(129, 212, 250, 0.8);
+  background: rgba(41, 182, 246, 0.3);
+  color: #e1f5fe;
+}
+
+body.touch-landscape .pad-btn.pad-hand-btn:active {
+  background: rgba(41, 182, 246, 0.4);
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+body.touch-landscape .pad-btn.pad-hand-btn:focus-visible {
+  outline: 2px solid #81d4fa;
+  outline-offset: 2px;
+}
+
+/* 게임판(좌) · 터치패드(우) 배치로 스왑: 기존 row 정렬을 좌우 반전한다.
+   - 캔버스 폭 계산은 실측 --touch-controls-w 를 그대로 쓰므로 폭/높이는 동일하다.
+   - 컨테이너의 safe-area 좌우 패딩(대칭)을 그대로 물려받아 노치 회피도 대칭으로 유지된다. */
+body.touch-landscape[data-hand="left"] #game-container {
+  flex-direction: row-reverse;
+}
+
+/* 패드가 오른쪽으로 이동하면 우상단 액션(게임 종료/데모/전체화면) 오버레이와
+   겹치지 않도록 상단 여백을 조금 더 확보한다 (좌상단 #profile-badge 도 함께 회피). */
+body.touch-landscape[data-hand="left"] .touch-controls {
+  padding-top: clamp(36px, 10dvh, 42px);
+}
+
 @media (max-width: 400px) {
   .pad-functions .pad-mode-btn {
     height: 28px;

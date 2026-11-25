@@ -135,6 +135,9 @@
           <button type="button" class="pad-btn pad-restart" data-key="KeyR"
                   aria-label="재시작 (게임 오버/클리어)"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.2 12a7.2 7.2 0 1 1-2.1-5.1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M19.6 3.6v4.4h-4.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg> 재시작</button>
           <button type="button" class="pad-btn pad-mode-btn" data-pad-toggle aria-label="방향 입력 방식 전환 (4분할/스틱)">4분할</button>
+          <!-- 가로 화면 전용 [좌↔우]: 게임판과 터치패드의 좌우 배치를 원탭으로 스위칭한다.
+               (세로 화면에서는 style.css 가 display: none 으로 완전히 숨긴다 / data-key 없음) -->
+          <button type="button" class="pad-btn pad-hand-btn" data-hand-toggle aria-label="가로 화면 좌우 전환">좌↔우</button>
           <button type="button" class="pad-btn pad-board" data-leaderboard-open
                   aria-label="리더보드 열기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 4h10v4.6a5 5 0 0 1-10 0z" fill="#ffd54f"/><path d="M7 5.4H4.4v1.4A3.2 3.2 0 0 0 7.6 10M17 5.4h2.6v1.4A3.2 3.2 0 0 1 16.4 10" fill="none" stroke="#ffb300" stroke-width="1.5" stroke-linecap="round"/><path d="M10.6 13.4h2.8v3.2h-2.8z" fill="#ffb300"/><rect x="7.6" y="16.4" width="8.8" height="2.4" rx="1.2" fill="#c98b4b"/><rect x="6.4" y="18.6" width="11.2" height="1.8" rx=".9" fill="#a86d33"/></svg> 리더보드</button>
         </div>
