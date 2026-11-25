@@ -143,6 +143,66 @@ function init() {
   });
   window.__TOUCH = touchControls;
 
+  // ===== 전체화면(Fullscreen API) =====
+  // 상·하단 브라우저 메뉴를 숨겨 모바일 세로 화면을 게임판에 더 쓸 수 있게 한다.
+  // - iPhone Safari 처럼 미지원인 환경에서는 버튼 자체를 숨긴다.
+  // - 진입/해제 시 남는 높이가 달라지므로 D-패드 레이아웃과 DPR 을 다시 맞춘다.
+  const fullscreenButton = document.getElementById('btn-fullscreen');
+  const fullscreenTarget = document.documentElement;
+  const requestFullscreen = fullscreenTarget?.requestFullscreen
+    || fullscreenTarget?.webkitRequestFullscreen;
+  const canFullscreen = typeof requestFullscreen === 'function';
+
+  if (fullscreenButton && !canFullscreen) {
+    fullscreenButton.hidden = true;
+    fullscreenButton.style.display = 'none';
+    fullscreenButton.setAttribute('aria-hidden', 'true');
+  }
+
+  if (fullscreenButton && canFullscreen) {
+    const getFullscreenElement = () => document.fullscreenElement
+      || document.webkitFullscreenElement
+      || null;
+
+    const syncFullscreenButton = () => {
+      const active = !!getFullscreenElement();
+      fullscreenButton.setAttribute('aria-pressed', active ? 'true' : 'false');
+      fullscreenButton.dataset.fullscreen = active ? 'on' : 'off';
+      fullscreenButton.title = active ? '전체화면 해제' : '전체화면';
+
+      // 전체화면에서는 주소창/브라우저 메뉴가 사라져 실제 높이가 커진다
+      touchControls?._scheduleLayout?.();
+      game?.refreshPixelRatio?.();
+    };
+
+    const exitFullscreen = () => {
+      if (typeof document.exitFullscreen === 'function') return document.exitFullscreen();
+      if (typeof document.webkitExitFullscreen === 'function') return document.webkitExitFullscreen();
+      return undefined;
+    };
+
+    fullscreenButton.addEventListener('click', () => {
+      fullscreenButton.blur?.(); // 버튼 포커스가 Space/Enter 게임 입력을 가로채지 않게
+
+      try {
+        if (getFullscreenElement()) {
+          Promise.resolve(exitFullscreen()).catch(() => {});
+        } else {
+          Promise.resolve(requestFullscreen.call(fullscreenTarget)).catch(() => {});
+        }
+      } catch (err) {
+        /* 사용자 거부/정책 차단: 상태만 다시 동기화한다 */
+      }
+
+      syncFullscreenButton();
+    });
+
+    // ESC/제스처로 빠져나온 경우에도 버튼 상태/레이아웃을 맞춘다
+    document.addEventListener('fullscreenchange', syncFullscreenButton);
+    document.addEventListener('webkitfullscreenchange', syncFullscreenButton);
+    syncFullscreenButton();
+  }
+
   // D-패드와 UI 버튼(도움말/리더보드/종료/모달 등)의 클릭음은
   // TouchControls 가 pointerdown 에서 직접 재생한다 (중복 리스너 없음).
 

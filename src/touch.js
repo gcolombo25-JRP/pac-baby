@@ -101,6 +101,7 @@ export default class TouchControls {
 
     // 게임 화면 최대화용 레이아웃 상태
     this._controlsEl = null;
+    this._headerEl = null;
     this._layoutObserver = null;
     this._layoutPending = false;
     this._onLayout = () => this._scheduleLayout();
@@ -244,6 +245,9 @@ export default class TouchControls {
     const next = PAD_MODES.includes(mode) ? mode : 'buttons';
 
     this._endPadGesture();
+    // 모드 전환 시 이전 모드의 눌림/드래그 상태를 남기지 않는다
+    this._setPadActiveDirection(null);
+    this._setPadDragging(false);
     this.padMode = next;
 
     if (typeof document !== 'undefined' && document?.body?.dataset) {
@@ -341,6 +345,9 @@ export default class TouchControls {
     this._padActive = true;
     this._activePointerId = Number.isFinite(event?.pointerId) ? event.pointerId : null;
 
+    // CSS 입체감/눌림 피드백: 표면을 누르고 있는 동안 is-dragging
+    this._setPadDragging(true);
+
     // 손가락이 D-패드 원 밖으로 나가도 드래그를 계속 추적한다
     if (this._activePointerId !== null && typeof this._dpad?.setPointerCapture === 'function') {
       try { this._dpad.setPointerCapture(this._activePointerId); } catch (err) { /* 무시 */ }
@@ -433,6 +440,7 @@ export default class TouchControls {
 
     this._padDirection = next;
     this._setPadActiveKey(nextCode);
+    this._setPadActiveDirection(next); // CSS 파이 조각/글로우 하이라이트용
 
     if (nextCode) {
       this._playUiClick(); // 새 방향이 눌릴 때만 짧은 틱
@@ -453,6 +461,7 @@ export default class TouchControls {
     }
 
     this._setPadActiveKey(null);
+    this._setPadActiveDirection(null);
   }
 
   /** 제스처 종료: 눌린 키/노브/포인터 추적 초기화 */
@@ -461,6 +470,33 @@ export default class TouchControls {
     this._activePointerId = null;
     this._releasePadKeys();
     this._resetKnob();
+    this._setPadDragging(false);
+  }
+
+  /**
+   * .dpad[data-active] 로 현재 인식 방향을 노출한다 (CSS 눌림 하이라이트용).
+   * 테스트 스텁처럼 dataset 이 없는 요소는 조용히 건너뛴다.
+   * @param {'UP'|'RIGHT'|'DOWN'|'LEFT'|null} dir
+   */
+  _setPadActiveDirection(dir) {
+    const dpad = this._dpad;
+    if (!dpad?.dataset) return;
+
+    if (dir) dpad.dataset.active = dir;
+    else delete dpad.dataset.active;
+  }
+
+  /**
+   * 포인터 드래그 중임을 .dpad.is-dragging 으로 노출한다.
+   * 테스트 스텁처럼 classList 가 없는 요소는 조용히 건너뛴다.
+   * @param {boolean} on
+   */
+  _setPadDragging(on) {
+    const dpad = this._dpad;
+    if (!dpad) return;
+
+    if (on) dpad.classList?.add?.('is-dragging');
+    else dpad.classList?.remove?.('is-dragging');
   }
 
   /** 인식된 방향의 .pad-btn 에만 is-active 를 켜 시각적 피드백을 준다 */
@@ -516,8 +552,20 @@ export default class TouchControls {
       ? this.root.querySelector('.touch-controls')
       : null;
 
+    // 캔버스 위 헤더(#game-header)의 실제 높이를 재서 --game-header-h 로 노출한다.
+    // (헤더 내용/기록 줄이 바뀌어도 캔버스가 남는 공간을 정확히 채우도록)
+    this._headerEl = typeof this.root?.querySelector === 'function'
+      ? this.root.querySelector('#game-header')
+      : null;
+
     window.addEventListener('resize', this._onLayout);
     window.addEventListener('orientationchange', this._onLayout);
+
+    // 전체화면 전환(주소창/브라우저 메뉴 숨김) 후에는 남는 높이가 달라지므로 재측정한다
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('fullscreenchange', this._onLayout);
+      document.addEventListener('webkitfullscreenchange', this._onLayout);
+    }
 
     if (this._controlsEl && typeof ResizeObserver === 'function') {
       this._layoutObserver = new ResizeObserver(() => this._scheduleLayout());
@@ -578,6 +626,15 @@ export default class TouchControls {
       }
     }
 
+    // 3) 헤더 실측 높이를 반영한다 (0 이면 측정 실패/숨김 상태이므로 이전 값을 유지)
+    const header = this._headerEl;
+    if (header && typeof header.getBoundingClientRect === 'function' && rootStyle) {
+      const rect = header.getBoundingClientRect();
+      if (rect.height > 0) {
+        rootStyle.setProperty('--game-header-h', `${Math.ceil(rect.height)}px`);
+      }
+    }
+
     // 모드 전환 직후에는 레이아웃이 한 번 더 확정될 수 있으므로 재측정한다
     if (modeChanged) this._scheduleLayout();
   }
@@ -595,6 +652,8 @@ export default class TouchControls {
 
     // .dpad 표면 제스처 정리 (눌린 키/노브/포인터 추적 포함)
     this._endPadGesture();
+    this._setPadActiveDirection(null);
+    this._setPadDragging(false);
     if (this._dpad && typeof this._dpad.removeEventListener === 'function') {
       this._dpad.removeEventListener('pointerdown', this._onPadDown);
       this._dpad.removeEventListener('pointermove', this._onPadMove);
@@ -624,9 +683,14 @@ export default class TouchControls {
       window.removeEventListener('resize', this._onLayout);
       window.removeEventListener('orientationchange', this._onLayout);
     }
+    if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+      document.removeEventListener('fullscreenchange', this._onLayout);
+      document.removeEventListener('webkitfullscreenchange', this._onLayout);
+    }
     this._layoutObserver?.disconnect?.();
     this._layoutObserver = null;
     this._controlsEl = null;
+    this._headerEl = null;
 
     // BOT 치트 상태 UI 정리
     this.cheatMode = false;
