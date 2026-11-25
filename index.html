@@ -126,21 +126,24 @@
         <button id="bot-cheat-exit" class="bot-cheat-exit" type="button"
                 aria-label="BOT 종료하고 매뉴얼 대기 모드로 복귀">BOT 종료</button>
       </div>
-      <div class="dpad">
-        <button type="button" class="pad-btn pad-up" data-key="ArrowUp" aria-label="위"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5.2 19 13h-4.4v6H9.4v-6H5z" fill="currentColor"/></svg></button>
-        <button type="button" class="pad-btn pad-left" data-key="ArrowLeft" aria-label="왼쪽"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5.2 12 13 5v4.4h6v5.2h-6V19z" fill="currentColor"/></svg></button>
-        <button type="button" class="pad-btn pad-right" data-key="ArrowRight" aria-label="오른쪽"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18.8 12 11 19v-4.4H5V9.4h6V5z" fill="currentColor"/></svg></button>
-        <button type="button" class="pad-btn pad-down" data-key="ArrowDown" aria-label="아래"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 18.8 5 11h4.4V5h5.2v6H19z" fill="currentColor"/></svg></button>
-        <span class="dpad-knob" aria-hidden="true"></span>
-      </div>
-      <div class="pad-actions">
-        <!-- 비상용 [울기]: 단독 강조 버튼 -->
-        <button type="button" class="pad-btn pad-skill" data-key="Space" aria-label="울기 (비상)">
-          <!-- 가로 모드 전용 삼각형 배경 (세로 모드/PC 에서는 display:none) -->
+      <!-- [울기] 삼각형 + 원형 방향타: 같은 기준 박스(.dpad-stage) 안에서
+           --dpad-size 기준으로 위치를 계산한다. (세로·가로 공통, 하단 배치) -->
+      <div class="dpad-stage">
+        <button type="button" class="pad-btn pad-skill pad-cry" data-key="Space" aria-label="울기 (비상)">
           <span class="pad-skill-shape" aria-hidden="true"></span>
           <span class="pad-skill-tag" aria-hidden="true">비상</span>
           <span class="pad-skill-text" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.2c2.7 3.5 4.5 6.4 4.5 8.8a4.5 4.5 0 0 1-9 0c0-2.4 1.8-5.3 4.5-8.8z" fill="#81d4fa"/><path d="M10 12.6a1.9 1.9 0 0 0 1.9 1.9" fill="none" stroke="#e1f5fe" stroke-width="1.1" stroke-linecap="round"/></svg> 울기</span>
         </button>
+        <div class="dpad">
+          <button type="button" class="pad-btn pad-up" data-key="ArrowUp" aria-label="위"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5.2 19 13h-4.4v6H9.4v-6H5z" fill="currentColor"/></svg></button>
+          <button type="button" class="pad-btn pad-left" data-key="ArrowLeft" aria-label="왼쪽"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5.2 12 13 5v4.4h6v5.2h-6V19z" fill="currentColor"/></svg></button>
+          <button type="button" class="pad-btn pad-right" data-key="ArrowRight" aria-label="오른쪽"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18.8 12 11 19v-4.4H5V9.4h6V5z" fill="currentColor"/></svg></button>
+          <button type="button" class="pad-btn pad-down" data-key="ArrowDown" aria-label="아래"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 18.8 5 11h4.4V5h5.2v6H19z" fill="currentColor"/></svg></button>
+          <span class="dpad-knob" aria-hidden="true"></span>
+        </div>
+      </div>
+      <!-- 기능 버튼 그룹: 세로·가로 공통으로 방향타 위쪽(order: 1)에 온다 -->
+      <div class="pad-actions">
         <!-- 기능 버튼: 소리/정지 · 도움말/재시작 · 리더보드로 구역 정돈 -->
         <div class="pad-functions" role="group" aria-label="게임 기능 버튼">
           <button type="button" class="pad-btn pad-mute" data-key="KeyM" aria-label="소리 켜기/끄기"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9.6h3.2L12 5.8v12.4l-4.8-3.8H4z" fill="#9fdcff"/><path d="M15.2 9.2a4 4 0 0 1 0 5.6M17.8 6.8a7.4 7.4 0 0 1 0 10.4" fill="none" stroke="#29b6f6" stroke-width="1.6" stroke-linecap="round"/></svg> 소리</button>

@@ -204,11 +204,21 @@ body.touch-active #game-canvas {
   --hit-pad: 4px;      /* 시각 크기 그대로, 터치 인식 영역만 확장 */
   --action-w: 104px;
   --action-h: 56px;
+  /* 방향타 실제 지름(3x3 셀 + 2 간격) — [울기] 삼각형 위치 계산 기준 */
+  --dpad-size: calc(var(--pad-cell) * 3 + var(--pad-gap) * 2);
+  /* [울기] 직각이등변삼각형의 한 변 길이 (지름의 38%) */
+  --cry-size: calc(var(--dpad-size) * 0.38);
+  /* 삼각형을 원형 바깥으로 밀어내는 거리 (지름의 10% → 외곽과 약 0.08 * D 간격) */
+  --cry-lift: calc(var(--dpad-size) * -0.10);
+  /* 위로 돌출된 삼각형이 기능 버튼 박스와 겹치지 않게 확보하는 여유 (18~22px) */
+  --cry-clearance: 20px;
 
   display: none;
+  /* 세로·가로 공통: 기능 버튼(위) → 원형 방향타(아래, 하단) 2단 적층 */
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 22px;
+  gap: 6px;
   width: 100%;
   user-select: none;
   -webkit-user-select: none;
@@ -228,6 +238,21 @@ body.touch-active .touch-controls {
   gap: var(--pad-gap);
   position: relative;   /* 원형 파이/스틱 소켓 + 노브 기준 */
   touch-action: none;   /* 표면 드래그가 스크롤로 새지 않게 */
+}
+
+/* ===== 방향타 스테이지: 원형 방향타 + [울기] 삼각형의 공통 기준 박스 =====
+   - 세로·가로 공통으로 기능 버튼 박스(.pad-actions, order: 1) 아래(하단)에 온다.
+   - [울기] 는 이 박스를 기준으로 --dpad-size 만큼 위/옆으로 밀려 배치된다.
+   - margin-top 은 flex 컨테이너 높이(= --touch-controls-h 실측값)에 포함되므로
+     캔버스 크기 계산도 그대로 정확하다. */
+.dpad-stage {
+  position: relative;
+  order: 2;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-top: var(--cry-clearance);
 }
 
 .pad-up    { grid-column: 2; grid-row: 1; }
@@ -275,6 +300,7 @@ body.touch-active .touch-controls {
   display: grid;
   grid-template-columns: repeat(2, var(--action-w));
   gap: var(--pad-gap);
+  order: 1;   /* 세로·가로 공통: 기능 버튼 그룹은 항상 방향타 위쪽 */
 }
 
 .pad-skill,
@@ -353,6 +379,11 @@ body.bot-cheat .bot-cheat-bar {
 
 body.bot-cheat #touch-controls .dpad,
 body.bot-cheat #touch-controls .pad-actions {
+  display: none;
+}
+
+/* 방향타 스테이지(방향타 + [울기] 삼각형)도 함께 숨겨 빈 공간을 남기지 않는다 */
+body.bot-cheat #touch-controls .dpad-stage {
   display: none;
 }
 
@@ -563,10 +594,7 @@ body.touch-landscape .touch-controls {
   --hit-pad: 2px;
   --action-w: clamp(68px, 16dvh, 78px);
   --action-h: clamp(24px, 7.6dvh, 34px);
-  /* [울기] 둥근 이등변 삼각형: 크기 + D-패드 외곽과의 안전 간격(16~20px) */
-  --cry-w: clamp(60px, 17dvh, 78px);
-  --cry-h: calc(var(--cry-w) * 0.68);
-  --cry-safe-gap: clamp(16px, 4.4dvh, 20px);
+  /* [울기] 삼각형 크기/간격은 .touch-controls 의 --dpad-size 기반 변수를 그대로 쓴다 */
 }
 
 body.touch-landscape .pad-actions {
@@ -2069,42 +2097,8 @@ body.touch-landscape #game-container {
   font-size: clamp(10.5px, 3.1vw, 13px);
 }
 
-/* [울기] 비상 버튼: 전체 폭 + 황금 그라데이션 + 은은한 발광 */
-.pad-actions .pad-skill {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  min-width: 0;
-  height: calc(var(--action-h) + 6px);
-  border: 2px solid rgba(255, 236, 179, 0.96);
-  border-radius: 14px;
-  background: linear-gradient(180deg, #ffe082 0%, #ffb300 60%, #ff8f00 100%);
-  color: #2b1300;
-  font-size: clamp(13px, 4vw, 17px);
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
-  box-shadow:
-    0 0 0 2px rgba(255, 143, 0, 0.28),
-    0 4px 0 rgba(0, 0, 0, 0.45),
-    0 0 18px rgba(255, 179, 0, 0.55);
-  animation: pad-skill-pulse 1.6s ease-in-out infinite;
-}
-
-.pad-actions .pad-skill:active {
-  background: linear-gradient(180deg, #fff3c4 0%, #ffc107 60%, #f57c00 100%);
-  box-shadow:
-    0 0 0 3px rgba(255, 193, 7, 0.4),
-    0 2px 0 rgba(0, 0, 0, 0.45),
-    0 0 22px rgba(255, 193, 7, 0.75);
-}
-
-.pad-actions .pad-skill:focus-visible {
-  outline: 2px solid #ffffff;
-  outline-offset: 2px;
-}
+/* [울기] 비상 버튼: 방향타 위쪽 코너의 직각이등변삼각형으로 이동했다.
+   (크기/위치/눌림 피드백은 파일 끝 '세로·가로 공통 [울기] 삼각형' 절에서 정의) */
 
 /* "비상" 배지 + "😭 울기" 라벨 */
 .pad-skill-tag {
@@ -2126,34 +2120,21 @@ body.touch-landscape #game-container {
   white-space: nowrap;
 }
 
-/* [울기] 삼각형 배경 레이어: 가로 모드에서만 사용한다.
-   (세로 모드/PC 는 기존 황금 사각 버튼을 그대로 쓰므로 완전히 숨긴다) */
+/* [울기] 삼각형 배경 레이어: 기본은 숨김이고,
+   실제 삼각형 모양(clip-path)/그라데이션/그림자는
+   파일 끝 '세로·가로 공통 [울기] 삼각형' 절에서 정의한다. */
 .pad-skill-shape {
   display: none;
 }
 
-/* 삼각형 clipPath 정의용 숨김 SVG (index.html) */
+/* 삼각형 clipPath 정의용 숨김 SVG (index.html)
+   - 현재는 CSS clip-path: polygon() 으로 삼각형을 그리므로 사용하지 않는다. */
 .sr-shape-defs {
   position: absolute;
   width: 0;
   height: 0;
   overflow: hidden;
   pointer-events: none;
-}
-
-@keyframes pad-skill-pulse {
-  0%, 100% {
-    box-shadow:
-      0 0 0 2px rgba(255, 143, 0, 0.28),
-      0 4px 0 rgba(0, 0, 0, 0.45),
-      0 0 16px rgba(255, 179, 0, 0.45);
-  }
-  50% {
-    box-shadow:
-      0 0 0 3px rgba(255, 193, 7, 0.42),
-      0 4px 0 rgba(0, 0, 0, 0.45),
-      0 0 26px rgba(255, 193, 7, 0.8);
-  }
 }
 
 /* 좁은 화면: 패널 여백/배지 크기를 줄여 세로 공간을 아낀다 */
@@ -2189,16 +2170,10 @@ body.touch-landscape #game-container {
 }
 
 /* 가로 모드: 세로 공간이 좁으므로 패널 여백을 조금 줄인다
-   ([울기] 버튼은 가로 모드에서 D-패드 우상단 삼각형으로 이동 — 아래 '가로 모드 [울기]' 절) */
+   ([울기] 삼각형은 세로·가로 공통으로 D-패드 위쪽 바깥 코너에 붙는다) */
 body.touch-landscape .pad-functions {
   padding: 4px;
   border-radius: 12px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pad-actions .pad-skill {
-    animation: none;
-  }
 }
 
 /* ============================================================
@@ -3156,68 +3131,76 @@ body.touch-landscape[data-hand="left"] #game-container {
 
 /* 패드가 오른쪽으로 이동하면 우상단 액션(게임 종료/데모/전체화면) 오버레이와
    겹치지 않도록 상단 여백을 조금 더 확보한다 (좌상단 #profile-badge 도 함께 회피).
-   - [울기] 삼각형은 이 여백 위쪽에 놓이므로 padding-top 대신 공유 변수를 키운다. */
+   - 기능 버튼 박스가 맨 위로 올라오므로 padding-top(공유 변수)으로 확보한다.
+   - 거울 모드에서는 방향타를 오른쪽으로 붙여 [울기] 삼각형(좌상단)이
+     게임판 쪽으로 넘치지 않게 한다. */
 body.touch-landscape[data-hand="left"] .touch-controls {
+  align-items: flex-end;
   --pad-top-gap: clamp(40px, 10.5dvh, 46px);
   padding-top: var(--pad-top-gap);
 }
 
 /* ============================================================
-   가로 모드 [울기]: D-패드 우상단 대각선 여백의 '둥근 이등변 삼각형'
-   - D-패드는 좌측 하단 그대로 두고, 위(▲)·오른쪽(▶) 키 사이의 빈 대각선
-     영역(패드 우상단 바깥)으로 절대 배치한다.
-   - 패드 외곽과는 --cry-safe-gap(16~20px) 만큼 띄워 ▲/▶ 오터치를 막는다.
-   - 모양은 index.html 의 clipPath(#pad-skill-triangle) 로 잘라 꼭짓점을 둥글게.
-   - 반투명 + 눌림(밝기/축소) 피드백 / 세로 모드·PC 규칙은 건드리지 않는다.
+   세로·가로 공통 [울기]: 방향타 위쪽 바깥 코너의 '직각이등변삼각형'
+   - 기본(세로 모드 & 가로 data-hand="right"): 방향타 우상단 코너.
+       직각(90°) = 우상단 모서리 / 짧은 두 변 = 위쪽·오른쪽 /
+       긴 빗변 = 좌하단(원형 방향타 외곽)을 마주본다.
+   - 거울(가로 data-hand="left"): 좌상단 코너로 좌우 대칭 반전.
+   - 크기 = --dpad-size * 0.38, 위/옆으로 -0.10 * D 만큼 밀어
+     원형 외곽과 약 0.08 * D(≈14px) 간격을 만든다 (겹침 0).
+   - 배경(그라데이션)·모양(clip-path)·그림자(drop-shadow)는 shape 레이어가 담당.
    ============================================================ */
 
-/* 버튼 박스: 삼각형을 감싸는 투명 컨테이너 (배경/테두리는 shape 레이어가 담당) */
-body.touch-landscape .pad-actions .pad-skill {
+/* 버튼 박스: 삼각형을 감싸는 투명 컨테이너 */
+.dpad-stage .pad-skill {
   position: absolute;
   z-index: 3;
-  /* 패드 위쪽 행(▲) 오른쪽 + 패드 왼쪽 열(▶) 위쪽에서 안전 간격만큼 띄운 지점 */
-  top: calc(
-    var(--pad-top-gap) + var(--pad-cell) + var(--pad-gap)
-      - var(--cry-safe-gap) - var(--cry-h)
-  );
-  left: calc(2 * var(--pad-cell) + var(--pad-gap) + var(--cry-safe-gap));
+  top: var(--cry-lift);
+  right: var(--cry-lift);
+  left: auto;
+  bottom: auto;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--cry-w);
-  height: var(--cry-h);
+  align-items: flex-start;
+  justify-content: flex-end;
+  width: var(--cry-size);
+  height: var(--cry-size);
   min-width: 0;
-  /* 라벨을 이등변 삼각형 무게중심(높이의 2/3)에 맞춘다 */
-  padding: calc(var(--cry-h) * 0.32) 0 0;
+  /* 라벨을 삼각형의 우상단 무게중심 쪽에 안착시킨다 */
+  padding:
+    calc(var(--cry-size) * 0.14)
+    calc(var(--cry-size) * 0.12)
+    calc(var(--cry-size) * 0.38)
+    calc(var(--cry-size) * 0.38);
   border: 0;
   border-radius: 0;
   background: none;
   box-shadow: none;
   color: #2b1300;
-  font-size: clamp(12px, 3.3dvh, 14px);
+  font-size: clamp(11px, calc(var(--dpad-size) * 0.085), 15px);
   font-weight: 900;
   letter-spacing: -0.2px;
+  line-height: 1;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.32);
   animation: none;
   transform: none;
 }
 
-/* 히트박스 확장(::before)은 패드와의 안전 간격을 깎으므로 가로 모드에서는 끈다 */
-body.touch-landscape .pad-actions .pad-skill::before {
+/* 히트박스 확장(::before)은 방향타와의 안전 간격(12~16px)을 깎으므로 끈다 */
+.dpad-stage .pad-skill::before {
   display: none;
 }
 
-/* 반투명 황금 그라데이션 + 둥근 삼각형 clip + 은은한 발광 */
-body.touch-landscape .pad-skill-shape {
+/* 삼각형 배경 레이어: 기본 = 우상단 직각 (위/오른쪽 짧은 변 + 좌하단 빗변) */
+.dpad-stage .pad-skill .pad-skill-shape {
   display: block;
   position: absolute;
   inset: 0;
-  clip-path: url(#pad-skill-triangle);
+  clip-path: polygon(0% 0%, 100% 0%, 100% 100%);
   background: linear-gradient(
     180deg,
-    rgba(255, 224, 130, 0.82) 0%,
-    rgba(255, 179, 0, 0.74) 62%,
-    rgba(255, 143, 0, 0.68) 100%
+    rgba(255, 224, 130, 0.9) 0%,
+    rgba(255, 179, 0, 0.82) 62%,
+    rgba(255, 143, 0, 0.76) 100%
   );
   filter:
     drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45))
@@ -3227,26 +3210,32 @@ body.touch-landscape .pad-skill-shape {
 }
 
 /* 라벨은 삼각형 배경 위로 올린다 */
-body.touch-landscape .pad-skill-tag,
-body.touch-landscape .pad-skill-text {
+.dpad-stage .pad-skill-tag,
+.dpad-stage .pad-skill-text {
   position: relative;
   z-index: 1;
   gap: 0;
   font-size: inherit;
+  white-space: nowrap;
 }
 
 /* 작은 삼각형 안에서는 '비상' 배지/아이콘을 숨겨 '울기' 한 단어만 남긴다 */
-body.touch-landscape .pad-skill-tag,
-body.touch-landscape .pad-skill-text .ui-icon {
+.dpad-stage .pad-skill-tag,
+.dpad-stage .pad-skill-text .ui-icon {
   display: none;
 }
 
-/* 눌림 피드백: 밝기 + 살짝 축소 */
-body.touch-landscape .pad-actions .pad-skill:active {
+/* 눌림 피드백: 밝기 + 살짝 축소 (:active / .is-active) */
+.dpad-stage .pad-skill:active,
+.dpad-stage .pad-skill.is-active {
   color: #160800;
+  background: none;
+  box-shadow: none;
+  transform: none;
 }
 
-body.touch-landscape .pad-actions .pad-skill:active .pad-skill-shape {
+.dpad-stage .pad-skill:active .pad-skill-shape,
+.dpad-stage .pad-skill.is-active .pad-skill-shape {
   transform: scale(0.92);
   background: linear-gradient(
     180deg,
@@ -3260,10 +3249,92 @@ body.touch-landscape .pad-actions .pad-skill:active .pad-skill-shape {
 }
 
 /* 키보드 포커스: 삼각형을 감싸는 둥근 사각 링 */
-body.touch-landscape .pad-actions .pad-skill:focus-visible {
+.dpad-stage .pad-skill:focus-visible {
   outline: 2px solid #ffffff;
   outline-offset: 4px;
   border-radius: 10px;
+}
+
+/* ----- 거울 모드(가로 우측 게임판 · data-hand="left"): 좌상단 직각 -----
+   직각 = 좌상단 모서리 / 짧은 두 변 = 위쪽·왼쪽 /
+   긴 빗변 = 우하단(원형 방향타 외곽)을 마주본다. */
+body.touch-landscape[data-hand="left"] .dpad-stage .pad-skill {
+  right: auto;
+  left: var(--cry-lift);
+  justify-content: flex-start;
+  padding:
+    calc(var(--cry-size) * 0.14)
+    calc(var(--cry-size) * 0.38)
+    calc(var(--cry-size) * 0.38)
+    calc(var(--cry-size) * 0.12);
+}
+
+body.touch-landscape[data-hand="left"] .dpad-stage .pad-skill .pad-skill-shape {
+  clip-path: polygon(0% 0%, 100% 0%, 0% 100%);
+}
+
+/* ============================================================
+   세로 모드: 기능 버튼(위) → 방향타(아래) 2단 스택
+   - 방향타 지름에 맞춘 3열 컴팩트 그리드로 기능 버튼을 2줄에 담아
+     조작 영역 전체 높이가 불필요하게 커지지 않게 한다.
+   - 가로 모드(.touch-landscape)는 위쪽 규칙을 그대로 쓰므로 제외한다.
+   ============================================================ */
+body:not(.touch-landscape) .touch-controls {
+  --pad-cell: clamp(52px, 15vw, 62px);
+  --pad-gap: clamp(4px, 1.2vw, 6px);
+  --action-h: clamp(30px, 8.4vw, 38px);
+  gap: 6px;
+}
+
+body:not(.touch-landscape) .pad-actions {
+  order: 1;
+  width: min(94vw, calc(var(--dpad-size) * 1.62));
+}
+
+body:not(.touch-landscape) .pad-functions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  width: 100%;
+  padding: 4px;
+  border-radius: 12px;
+}
+
+body:not(.touch-landscape) .pad-functions .pad-btn,
+body:not(.touch-landscape) .pad-functions .pad-board {
+  grid-column: auto;
+  height: var(--action-h);
+  padding: 0 2px;
+  font-size: clamp(9.5px, 2.6vw, 11px);
+}
+
+body:not(.touch-landscape) .pad-functions .pad-btn .ui-icon {
+  width: 12px;
+  height: 12px;
+  vertical-align: 0;
+}
+
+/* [4분할/스틱] 도 한 칸으로 합쳐 2줄 안에 정리한다 */
+body:not(.touch-landscape) .pad-functions .pad-mode-btn {
+  grid-column: auto;
+  height: var(--action-h);
+  font-size: clamp(9.5px, 2.6vw, 11px);
+}
+
+/* ============================================================
+   가로 모드 헤더 코너: 캔버스 상단 HUD(HI: …)와 겹치지 않게 컴팩트하게
+   ============================================================ */
+body.touch-landscape .profile-badge {
+  gap: 4px;
+  max-width: min(148px, 32vw);
+  padding: 3px 8px;
+  font-size: 10.5px;
+  border-radius: 999px;
+  background: rgba(8, 18, 36, 0.7);
+}
+
+body.touch-landscape .profile-badge-emoji .ui-icon {
+  width: 13px;
+  height: 13px;
 }
 
 @media (max-width: 400px) {
