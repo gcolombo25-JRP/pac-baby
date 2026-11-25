@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import TouchControls, { TouchSwipe } from '../src/touch.js';
+import TouchControls, { TouchSwipe, directionFromVector } from '../src/touch.js';
 
 /** 최소 버튼 스텁 */
 function createFakeButton(key) {
@@ -353,4 +353,290 @@ test('폰의 재시작 버튼(data-key=KeyR)이 입력으로 연결된다', () =
   assert.deepEqual(input.released, ['KeyR']);
 
   touch.destroy();
+});
+
+// ===== 방향 입력 방식 2종 (A안 4분할 / B안 스틱) =====
+
+/** D-패드 방향 버튼 스텁 (is-active 클래스 추적) */
+function createFakePadButton(key) {
+  const classes = new Set();
+  return {
+    dataset: { key },
+    classes,
+    classList: {
+      add: name => classes.add(name),
+      remove: name => classes.delete(name),
+      contains: name => classes.has(name),
+      toggle(name, force) {
+        const on = force === undefined ? !classes.has(name) : !!force;
+        if (on) classes.add(name); else classes.delete(name);
+        return on;
+      },
+    },
+    getAttribute: name => (name === 'data-key' ? key : null),
+  };
+}
+
+/** .dpad 표면 스텁 (중심/반지름 + CSS 변수) */
+function createFakeDpad({ width = 200, height = 200, left = 0, top = 0 } = {}) {
+  const listeners = {};
+  const vars = {};
+  const buttons = ['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft'].map(createFakePadButton);
+
+  return {
+    listeners,
+    vars,
+    buttons,
+    captured: null,
+    style: {
+      setProperty(name, value) { vars[name] = String(value); },
+      removeProperty(name) { delete vars[name]; },
+    },
+    getBoundingClientRect: () => ({ width, height, left, top }),
+    querySelectorAll: selector => (selector === '.pad-btn[data-key]' ? buttons : []),
+    addEventListener(type, handler) { listeners[type] = handler; },
+    removeEventListener(type) { delete listeners[type]; },
+    setPointerCapture(id) { this.captured = id; },
+    dispatch(type, event = {}) {
+      const handler = listeners[type];
+      if (typeof handler !== 'function') return undefined;
+      return handler({ preventDefault() {}, pointerId: 1, ...event });
+    },
+  };
+}
+
+/** 방향 입력 방식 전환 버튼 스텁 */
+function createFakeToggle() {
+  const listeners = {};
+  return {
+    textContent: '4분할',
+    attrs: {},
+    listeners,
+    addEventListener(type, handler) { listeners[type] = handler; },
+    removeEventListener(type) { delete listeners[type]; },
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    getAttribute(name) {
+      return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
+    },
+    click(event = {}) {
+      const handler = listeners.click;
+      if (typeof handler === 'function') {
+        handler({ stopPropagation() {}, preventDefault() {}, ...event });
+      }
+    },
+  };
+}
+
+/** .dpad / 전환 버튼을 돌려주는 root 스텁 */
+function createPadRoot({ dpad = null, toggle = null } = {}) {
+  return {
+    querySelectorAll: () => [],
+    querySelector(selector) {
+      if (selector === '.dpad') return dpad;
+      if (selector === '[data-pad-toggle]') return toggle;
+      return null;
+    },
+  };
+}
+
+test('directionFromVector: 벡터를 4방향으로 변환하고 경계/deadzone/NaN 을 처리한다', () => {
+  assert.equal(directionFromVector(0, -10), 'UP');
+  assert.equal(directionFromVector(0, 10), 'DOWN');
+  assert.equal(directionFromVector(-10, 0), 'LEFT');
+  assert.equal(directionFromVector(10, 0), 'RIGHT');
+
+  // 정확히 45° 경계는 |dx| >= |dy| 규칙으로 가로 방향 1개만 선택된다
+  assert.equal(directionFromVector(10, -10), 'RIGHT');
+  assert.equal(directionFromVector(-10, 10), 'LEFT');
+  assert.equal(directionFromVector(9, -10), 'UP');
+
+  // deadzone 내부는 null, 경계값은 허용
+  assert.equal(directionFromVector(3, 4, { deadzone: 6 }), null);
+  assert.equal(directionFromVector(3, 4, { deadzone: 5 }), 'DOWN');
+  assert.equal(directionFromVector(0, 0), null, '중심 정확히 터치 → 방향 없음');
+
+  // 유한하지 않은 값은 null
+  assert.equal(directionFromVector(NaN, 0), null);
+  assert.equal(directionFromVector(0, NaN), null);
+  assert.equal(directionFromVector(Infinity, 0), null);
+  assert.equal(directionFromVector(0, -Infinity), null);
+});
+
+test("'sector' 모드: .dpad 드래그로 사분면이 바뀌면 이전 키를 풀고 새 키를 누른다", () => {
+  const dpad = createFakeDpad({ width: 200, height: 200, left: 0, top: 0 }); // 중심 (100,100), r=100
+  const root = createPadRoot({ dpad });
+  const input = createFakeInput();
+  const clicks = [];
+  const sound = { playUiClick: () => clicks.push('click') };
+
+  const touch = new TouchControls(input, root, sound, { padMode: 'sector' });
+  assert.equal(touch.padMode, 'sector');
+
+  // 위쪽(12시) 터치 → ArrowUp
+  dpad.dispatch('pointerdown', { pointerId: 1, clientX: 100, clientY: 20 });
+  assert.deepEqual(input.pressed, ['ArrowUp']);
+  assert.deepEqual(input.pressedMeta[0], { touch: true });
+  assert.equal(clicks.length, 1, '새 방향이 눌릴 때만 클릭음');
+  assert.equal(dpad.buttons[0].classes.has('is-active'), true, '위 버튼 하이라이트');
+  assert.equal(dpad.captured, 1, '포인터 캡처를 요청한다');
+
+  // 손가락을 떼지 않고 오른쪽(3시)으로 이동 → Up release + Right press
+  dpad.dispatch('pointermove', { pointerId: 1, clientX: 180, clientY: 100 });
+  assert.deepEqual(input.released, ['ArrowUp']);
+  assert.deepEqual(input.pressed, ['ArrowUp', 'ArrowRight']);
+  assert.equal(clicks.length, 2);
+  assert.equal(dpad.buttons[0].classes.has('is-active'), false);
+  assert.equal(dpad.buttons[1].classes.has('is-active'), true);
+
+  // 같은 사분면 안의 미세한 움직임은 재입력하지 않는다
+  dpad.dispatch('pointermove', { pointerId: 1, clientX: 190, clientY: 110 });
+  assert.deepEqual(input.pressed, ['ArrowUp', 'ArrowRight']);
+  assert.equal(clicks.length, 2);
+
+  dpad.dispatch('pointerup', { pointerId: 1, clientX: 190, clientY: 110 });
+  assert.deepEqual(input.released, ['ArrowUp', 'ArrowRight']);
+  assert.equal(dpad.buttons[1].classes.has('is-active'), false, '손을 떼면 하이라이트 해제');
+
+  // 중심(deadzone) 터치는 방향을 만들지 않는다
+  dpad.dispatch('pointerdown', { pointerId: 2, clientX: 100, clientY: 100 });
+  assert.deepEqual(input.pressed, ['ArrowUp', 'ArrowRight']);
+  dpad.dispatch('pointerup', { pointerId: 2, clientX: 100, clientY: 100 });
+
+  touch.destroy();
+});
+
+test("'joystick' 모드: deadzone 안쪽은 무입력, 바깥 드래그는 방향/노브에 반영된다", () => {
+  const dpad = createFakeDpad({ width: 200, height: 200, left: 0, top: 0 }); // r=100 → deadzone 22, maxTravel 54
+  const root = createPadRoot({ dpad });
+  const input = createFakeInput();
+
+  const touch = new TouchControls(input, root, null, { padMode: 'joystick' });
+  assert.equal(touch.padMode, 'joystick');
+
+  // deadzone(22px) 안쪽 드래그: 방향 없음, 노브만 따라온다
+  dpad.dispatch('pointerdown', { pointerId: 1, clientX: 110, clientY: 100 });
+  assert.deepEqual(input.pressed, [], 'deadzone 내부는 무입력');
+  assert.equal(dpad.vars['--knob-x'], '10px');
+  assert.equal(dpad.vars['--knob-y'], '0px');
+
+  // 아래로 80px: 방향 인식 + 노브는 maxTravel(54px)로 클램프
+  dpad.dispatch('pointermove', { pointerId: 1, clientX: 100, clientY: 180 });
+  assert.deepEqual(input.pressed, ['ArrowDown']);
+  assert.deepEqual(input.pressedMeta[0], { touch: true });
+  assert.equal(dpad.vars['--knob-x'], '0px');
+  assert.equal(dpad.vars['--knob-y'], '54px');
+  assert.equal(dpad.buttons[2].classes.has('is-active'), true, '아래 버튼 하이라이트');
+
+  // 왼쪽으로 이동 → 이전 키 해제 후 새 키 입력
+  dpad.dispatch('pointermove', { pointerId: 1, clientX: 20, clientY: 100 });
+  assert.deepEqual(input.released, ['ArrowDown']);
+  assert.equal(input.pressed[input.pressed.length - 1], 'ArrowLeft');
+  assert.equal(dpad.vars['--knob-x'], '-54px');
+  assert.equal(dpad.vars['--knob-y'], '0px');
+
+  // 손을 떼면 키 해제 + 노브 중앙 복귀
+  dpad.dispatch('pointerup', { pointerId: 1, clientX: 20, clientY: 100 });
+  assert.deepEqual(input.released, ['ArrowDown', 'ArrowLeft']);
+  assert.equal(dpad.vars['--knob-x'], '0px');
+  assert.equal(dpad.vars['--knob-y'], '0px');
+  assert.equal(dpad.buttons[3].classes.has('is-active'), false);
+
+  touch.destroy();
+});
+
+test("'buttons' 모드(기본값)에서는 .dpad 표면 제스처를 쓰지 않는다", () => {
+  const dpad = createFakeDpad();
+  const root = createPadRoot({ dpad });
+  const input = createFakeInput();
+
+  const touch = new TouchControls(input, root); // 기존 3인자 호출 호환
+  assert.equal(touch.padMode, 'buttons', '기본값은 기존 십자 버튼');
+
+  dpad.dispatch('pointerdown', { pointerId: 1, clientX: 100, clientY: 10 });
+  dpad.dispatch('pointermove', { pointerId: 1, clientX: 190, clientY: 100 });
+  assert.deepEqual(input.pressed, [], '표면 제스처는 동작하지 않는다');
+  assert.equal(dpad.vars['--knob-x'], '0px', '노브는 중앙에 고정된다');
+  assert.equal(dpad.vars['--knob-y'], '0px');
+
+  touch.destroy();
+});
+
+
+test('togglePadMode: 4분할 ↔ 스틱 전환, 콜백/라벨/body.dataset 을 갱신한다', () => {
+  const dpad = createFakeDpad({ width: 200, height: 200, left: 0, top: 0 });
+  const toggle = createFakeToggle();
+  const root = createPadRoot({ dpad, toggle });
+  const input = createFakeInput();
+  const changes = [];
+
+  const originalDocument = globalThis.document;
+  const dataset = {};
+  globalThis.document = { body: { dataset } };
+
+  try {
+    const touch = new TouchControls(input, root, null, {
+      padMode: 'sector',
+      onPadModeChange: mode => changes.push(mode),
+    });
+
+    assert.equal(dataset.pad, 'sector', 'body[data-pad] 로 CSS 전환');
+    assert.equal(toggle.textContent, '4분할');
+    assert.equal(toggle.attrs['data-pad-mode'], 'sector');
+
+    // 전환 버튼 탭 → 스틱 모드
+    toggle.click();
+    assert.equal(touch.padMode, 'joystick');
+    assert.deepEqual(changes, ['joystick']);
+    assert.equal(dataset.pad, 'joystick');
+    assert.equal(toggle.textContent, '스틱');
+
+    // 다시 탭 → 4분할 모드
+    toggle.click();
+    assert.equal(touch.padMode, 'sector');
+    assert.deepEqual(changes, ['joystick', 'sector']);
+    assert.equal(toggle.textContent, '4분할');
+
+    // 'buttons' 에서 토글하면 'sector' 로 진입한다
+    touch.setPadMode('buttons');
+    assert.equal(toggle.textContent, '십자');
+    toggle.click();
+    assert.equal(touch.padMode, 'sector');
+
+    // 모드를 바꾸면 눌려 있던 방향키는 먼저 해제된다
+    dpad.dispatch('pointerdown', { pointerId: 1, clientX: 100, clientY: 10 });
+    assert.deepEqual(input.pressed, ['ArrowUp']);
+    touch.setPadMode('joystick');
+    assert.deepEqual(input.released, ['ArrowUp']);
+
+    touch.destroy();
+    assert.equal(dataset.pad, undefined, 'destroy 시 body.dataset.pad 정리');
+    assert.equal(toggle.listeners.click, undefined, '전환 버튼 리스너 해제');
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
+});
+
+test('destroy 후에는 .dpad 포인터 입력을 무시하고 눌린 키/노브를 정리한다', () => {
+  const dpad = createFakeDpad({ width: 200, height: 200, left: 0, top: 0 });
+  const root = createPadRoot({ dpad, toggle: createFakeToggle() });
+  const input = createFakeInput();
+
+  const touch = new TouchControls(input, root, null, { padMode: 'joystick' });
+
+  dpad.dispatch('pointerdown', { pointerId: 1, clientX: 100, clientY: 10 });
+  assert.deepEqual(input.pressed, ['ArrowUp']);
+  assert.equal(dpad.vars['--knob-y'], '-54px');
+
+  touch.destroy();
+  assert.deepEqual(input.released, ['ArrowUp'], 'destroy 시 눌린 키 해제');
+  assert.equal(dpad.vars['--knob-x'], '0px');
+  assert.equal(dpad.vars['--knob-y'], '0px');
+  assert.equal(dpad.listeners.pointerdown, undefined, '.dpad 리스너 제거');
+  assert.equal(dpad.listeners.pointermove, undefined);
+
+  const pressedCount = input.pressed.length;
+  dpad.dispatch('pointerdown', { pointerId: 2, clientX: 100, clientY: 190 });
+  dpad.dispatch('pointermove', { pointerId: 2, clientX: 190, clientY: 100 });
+  assert.equal(input.pressed.length, pressedCount, '정리 후에는 입력이 주입되지 않는다');
 });

@@ -228,6 +228,8 @@ body.touch-active .touch-controls {
   grid-template-columns: repeat(3, var(--pad-cell));
   grid-template-rows: repeat(3, var(--pad-cell));
   gap: var(--pad-gap);
+  position: relative;   /* 원형 파이/스틱 소켓 + 노브 기준 */
+  touch-action: none;   /* 표면 드래그가 스크롤로 새지 않게 */
 }
 
 .pad-up    { grid-column: 2; grid-row: 1; }
@@ -2558,3 +2560,152 @@ body.game-exited .toast {
     animation: none;
   }
 }
+
+/* ============================================================
+   방향 입력 방식 2종 (A안 4분할 파이 / B안 스틱) + 원탭 전환
+   - body[data-pad="sector"|"joystick"] 는 touch.js 가 설정한다.
+   - .dpad 안 기존 4개 버튼은 그대로 두고 표면만 원형으로 바꾼다.
+   ============================================================ */
+
+/* 조이스틱 노브: 기본은 숨김 (B안에서만 표시) */
+.dpad-knob {
+  display: none;
+}
+
+/* ----- A안: 원형 4분할 파이 ----- */
+body[data-pad="sector"] .dpad {
+  border-radius: 50%;
+  background:
+    linear-gradient(45deg,
+      transparent calc(50% - 1px),
+      rgba(41, 182, 246, 0.42) 50%,
+      transparent calc(50% + 1px)),
+    linear-gradient(-45deg,
+      transparent calc(50% - 1px),
+      rgba(41, 182, 246, 0.42) 50%,
+      transparent calc(50% + 1px)),
+    radial-gradient(circle at 50% 50%,
+      rgba(15, 52, 96, 0.95) 0%,
+      rgba(8, 20, 38, 0.92) 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(41, 182, 246, 0.4),
+    inset 0 6px 16px rgba(0, 0, 0, 0.35),
+    0 4px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* 개별 사각 버튼 테두리는 숨기고 화살표/눌림 하이라이트만 남긴다 */
+body[data-pad="sector"] .dpad .pad-btn {
+  pointer-events: none;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+body[data-pad="sector"] .dpad .pad-btn.is-active {
+  background: radial-gradient(circle at 50% 50%,
+    rgba(255, 224, 130, 0.4) 0%,
+    rgba(255, 224, 130, 0.08) 70%,
+    transparent 100%);
+  color: #fff8f0;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ----- B안: 원형 스틱 소켓 + 노브 ----- */
+body[data-pad="joystick"] .dpad {
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    rgba(8, 20, 38, 0.96) 0%,
+    rgba(15, 52, 96, 0.92) 62%,
+    rgba(8, 20, 38, 0.96) 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(41, 182, 246, 0.42),
+    inset 0 8px 18px rgba(0, 0, 0, 0.5),
+    0 4px 0 rgba(0, 0, 0, 0.35);
+}
+
+body[data-pad="joystick"] .dpad .pad-btn {
+  pointer-events: none;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: 0.32;
+}
+
+body[data-pad="joystick"] .dpad .pad-btn.is-active {
+  opacity: 1;
+  color: #fff8f0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+body[data-pad="joystick"] .dpad-knob {
+  display: block;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 42%;
+  height: 42%;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 2;
+  transform: translate(calc(-50% + var(--knob-x, 0px)), calc(-50% + var(--knob-y, 0px)));
+  background: radial-gradient(circle at 38% 32%,
+    #e1f5fe 0%,
+    #81d4fa 22%,
+    #29b6f6 55%,
+    #0d47a1 100%);
+  box-shadow:
+    0 6px 12px rgba(0, 0, 0, 0.45),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.35),
+    inset 0 3px 6px rgba(255, 255, 255, 0.4);
+  transition: transform 0.06s ease-out;
+}
+
+/* ----- 원탭 전환 버튼: 레이아웃을 키우지 않는 컴팩트 pill ----- */
+.pad-functions .pad-mode-btn {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 30px;
+  min-height: 0;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(41, 182, 246, 0.45);
+  background: rgba(41, 182, 246, 0.16);
+  color: #cfe8ff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  box-shadow: none;
+}
+
+.pad-functions .pad-mode-btn:active {
+  background: rgba(41, 182, 246, 0.34);
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.pad-functions .pad-mode-btn:focus-visible {
+  outline: 2px solid #81d4fa;
+  outline-offset: 2px;
+}
+
+body.touch-landscape .pad-functions .pad-mode-btn {
+  height: 26px;
+  font-size: 10.5px;
+}
+
+@media (max-width: 400px) {
+  .pad-functions .pad-mode-btn {
+    height: 28px;
+    font-size: 10.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-pad="joystick"] .dpad-knob {
+    transition: none;
+  }
+}
+

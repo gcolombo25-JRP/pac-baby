@@ -18,6 +18,26 @@ import { detectCountryHint, isRemoteConfigured } from './supabaseClient.js';
 import { avatarSvg } from './uiIcons.js';
 import { HISCORE_KEY } from './constants.js';
 
+/** 방향 입력 방식 저장 키 (모바일 D-패드 A안/B안) */
+const PAD_MODE_KEY = 'pacbaby.padMode';
+const PAD_MODES = ['buttons', 'sector', 'joystick'];
+
+/** 저장된 방향 입력 방식을 읽는다 (없거나 잘못된 값이면 실사용 기본값 'sector') */
+function readSavedPadMode() {
+  try {
+    const saved = window.localStorage.getItem(PAD_MODE_KEY);
+    if (PAD_MODES.includes(saved)) return saved;
+  } catch (err) { /* 접근 차단 환경 무시 */ }
+  return 'sector';
+}
+
+/** 방향 입력 방식을 저장한다 (실패해도 게임은 그대로 동작) */
+function savePadMode(mode) {
+  try {
+    window.localStorage.setItem(PAD_MODE_KEY, mode);
+  } catch (err) { /* 접근 차단 환경 무시 */ }
+}
+
 function init() {
   const canvas = document.getElementById('game-canvas');
   if (!canvas) {
@@ -49,12 +69,13 @@ function init() {
     if (game.helpOpen) return;
 
     // UI 버튼(데모 실행/게임 종료/프로필/모달 등)의 포인터 조작은 제외한다.
-    // D-패드의 방향/울기 버튼은 게임 조작 입력이므로 그대로 통과시킨다.
+    // D-패드의 방향/울기 버튼과 방향 입력 방식 전환 버튼은 게임 조작 입력으로 통과시킨다.
     if (event?.type === 'pointerdown') {
       const button = event.target?.closest?.('button');
       if (button) {
+        const isPadToggle = button.hasAttribute?.('data-pad-toggle');
         const code = button.dataset?.key || button.getAttribute?.('data-key');
-        if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) {
+        if (!isPadToggle && !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code)) {
           return;
         }
       }
@@ -108,7 +129,18 @@ function init() {
     && window.matchMedia('(pointer: coarse)').matches;
   if (isTouchDevice) document.body.classList.add('touch-active');
 
-  const touchControls = new TouchControls(input, null, sound);
+  // 방향 입력 방식(A안 4분할 / B안 스틱)은 마지막 선택을 기억한다.
+  // 저장값이 없으면 실사용 기본값 'sector'(A안)로 시작한다.
+  const touchControls = new TouchControls(input, null, sound, {
+    padMode: readSavedPadMode(),
+    onPadModeChange: (mode) => {
+      savePadMode(mode);
+      showToast(
+        `방향 입력: ${mode === 'joystick' ? '스틱 (드래그)' : '4분할 (원형 파이)'}`,
+        { duration: 1600 },
+      );
+    },
+  });
   window.__TOUCH = touchControls;
 
   // D-패드와 UI 버튼(도움말/리더보드/종료/모달 등)의 클릭음은
