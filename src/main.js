@@ -26,6 +26,26 @@ const PAD_MODES = ['buttons', 'sector', 'joystick'];
 const HAND_SIDE_KEY = 'pacbaby.handSide';
 const HAND_SIDES = ['left', 'right'];
 
+/** 효과음 모드 저장 키 ('voice': 아기 음성·리얼 폴리 / 'fx': 레트로 신스) */
+const SFX_MODE_KEY = 'pacbaby.sfxMode';
+const SFX_MODES = ['voice', 'fx'];
+
+/** 저장된 효과음 모드를 읽는다 (없거나 잘못된 값이면 기본 'voice') */
+function readSavedSfxMode() {
+  try {
+    const saved = window.localStorage.getItem(SFX_MODE_KEY);
+    if (SFX_MODES.includes(saved)) return saved;
+  } catch (err) { /* 접근 차단 환경 무시 */ }
+  return 'voice';
+}
+
+/** 효과음 모드를 저장한다 (실패해도 게임은 그대로 동작) */
+function saveSfxMode(mode) {
+  try {
+    window.localStorage.setItem(SFX_MODE_KEY, mode);
+  } catch (err) { /* 접근 차단 환경 무시 */ }
+}
+
 /** 저장된 가로 화면 좌우 배치를 읽는다 (없거나 잘못된 값이면 기본 'right' = 기존 배치) */
 function readSavedHandSide() {
   try {
@@ -77,7 +97,42 @@ function init() {
 
   // 사운드는 앱 전체에서 1개만 사용 (재시작해도 AudioContext 누적 없음)
   const sound = new SoundFX();
+  sound.setSfxMode(readSavedSfxMode());
   let game = new Game(canvas, input, { sound });
+
+  // ===== 효과음 모드 전환 버튼 (Voice ↔ FX) =====
+  // 상단 바 버튼 클릭 또는 키보드 V 단축키 어느 쪽으로 바꿔도 UI·저장·토스트가 동기화된다.
+  const sfxModeButton = document.getElementById('btn-sfx-mode');
+  const syncSfxModeButton = (mode) => {
+    if (!sfxModeButton) return;
+    const isVoice = mode === 'voice';
+    const label = isVoice ? 'Voice' : 'FX';
+    sfxModeButton.dataset.sfxMode = mode;
+    sfxModeButton.setAttribute('aria-pressed', isVoice ? 'true' : 'false');
+    sfxModeButton.setAttribute('aria-label', `효과음 모드 전환 (현재: ${label})`);
+    sfxModeButton.title = `효과음 모드: ${isVoice ? 'Voice (아기 음성·리얼)' : 'FX (레트로 신스)'} · 단축키 V`;
+    const textEl = sfxModeButton.querySelector('.sfx-mode-text');
+    if (textEl) textEl.textContent = label;
+  };
+  syncSfxModeButton(sound.sfxMode);
+
+  sound.onSfxModeChange = (mode) => {
+    saveSfxMode(mode);
+    syncSfxModeButton(mode);
+    showToast(
+      mode === 'voice'
+        ? '효과음: Voice (아기 음성·리얼)'
+        : '효과음: FX (레트로 신스)',
+      { duration: 1500 },
+    );
+  };
+
+  sfxModeButton?.addEventListener('click', () => {
+    sfxModeButton.blur?.(); // 버튼 포커스가 Space/Enter 게임 입력을 가로채지 않게
+    sound.unlock();
+    sound.toggleSfxMode();
+    if (sound.enabled) sound.playToggle();
+  });
 
   // 키보드/화면 터치 → 자동 데모 즉시 종료
   // 게임 시작 전부터 등록해 초기 로딩 중의 터치도 활동으로 인정한다.
@@ -144,10 +199,14 @@ function init() {
     watchPixelRatio();
   }
 
-  // 모바일 터치 D-패드 (터치 기기에서 표시)
+  // 모바일 터치 D-패드 (터치 기기 또는 ?touch=1 / ?landscape=1 미리보기 파라미터에서 표시)
+  const urlParams = new URLSearchParams(window.location.search);
+  const forceLandscape = urlParams.has('landscape');
+  const forceTouch = urlParams.has('touch') || forceLandscape;
   const isTouchDevice = typeof window.matchMedia === 'function'
     && window.matchMedia('(pointer: coarse)').matches;
-  if (isTouchDevice) document.body.classList.add('touch-active');
+  if (isTouchDevice || forceTouch) document.body.classList.add('touch-active');
+  if (forceLandscape) document.body.classList.add('force-landscape', 'touch-landscape');
 
   // 방향 입력 방식(A안 4분할 / B안 스틱)은 마지막 선택을 기억한다.
   // 저장값이 없으면 실사용 기본값 'sector'(A안)로 시작한다.
@@ -172,64 +231,28 @@ function init() {
   });
   window.__TOUCH = touchControls;
 
-  // ===== 전체화면(Fullscreen API) =====
-  // 상·하단 브라우저 메뉴를 숨겨 모바일 세로 화면을 게임판에 더 쓸 수 있게 한다.
-  // - iPhone Safari 처럼 미지원인 환경에서는 버튼 자체를 숨긴다.
-  // - 진입/해제 시 남는 높이가 달라지므로 D-패드 레이아웃과 DPR 을 다시 맞춘다.
-  const fullscreenButton = document.getElementById('btn-fullscreen');
+  // ===== 자동 전체화면 (모바일 터치 기기) =====
+  // 별도 최대화 버튼 없이, 터치 기기에서는 첫 터치 시 자동으로 전체화면 진입을 시도한다.
   const fullscreenTarget = document.documentElement;
   const requestFullscreen = fullscreenTarget?.requestFullscreen
     || fullscreenTarget?.webkitRequestFullscreen;
-  const canFullscreen = typeof requestFullscreen === 'function';
-
-  if (fullscreenButton && !canFullscreen) {
-    fullscreenButton.hidden = true;
-    fullscreenButton.style.display = 'none';
-    fullscreenButton.setAttribute('aria-hidden', 'true');
-  }
-
-  if (fullscreenButton && canFullscreen) {
-    const getFullscreenElement = () => document.fullscreenElement
-      || document.webkitFullscreenElement
-      || null;
-
-    const syncFullscreenButton = () => {
-      const active = !!getFullscreenElement();
-      fullscreenButton.setAttribute('aria-pressed', active ? 'true' : 'false');
-      fullscreenButton.dataset.fullscreen = active ? 'on' : 'off';
-      fullscreenButton.title = active ? '전체화면 해제' : '전체화면';
-
-      // 전체화면에서는 주소창/브라우저 메뉴가 사라져 실제 높이가 커진다
+  if (typeof requestFullscreen === 'function' && document.body.classList.contains('touch-active')) {
+    const autoFullscreen = () => {
+      const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      if (active) return;
+      try {
+        Promise.resolve(requestFullscreen.call(fullscreenTarget)).catch(() => {});
+      } catch (err) { /* 정책 차단 시 무시 */ }
+    };
+    window.addEventListener('pointerdown', autoFullscreen, { once: true });
+    document.addEventListener('fullscreenchange', () => {
       touchControls?._scheduleLayout?.();
       game?.refreshPixelRatio?.();
-    };
-
-    const exitFullscreen = () => {
-      if (typeof document.exitFullscreen === 'function') return document.exitFullscreen();
-      if (typeof document.webkitExitFullscreen === 'function') return document.webkitExitFullscreen();
-      return undefined;
-    };
-
-    fullscreenButton.addEventListener('click', () => {
-      fullscreenButton.blur?.(); // 버튼 포커스가 Space/Enter 게임 입력을 가로채지 않게
-
-      try {
-        if (getFullscreenElement()) {
-          Promise.resolve(exitFullscreen()).catch(() => {});
-        } else {
-          Promise.resolve(requestFullscreen.call(fullscreenTarget)).catch(() => {});
-        }
-      } catch (err) {
-        /* 사용자 거부/정책 차단: 상태만 다시 동기화한다 */
-      }
-
-      syncFullscreenButton();
     });
-
-    // ESC/제스처로 빠져나온 경우에도 버튼 상태/레이아웃을 맞춘다
-    document.addEventListener('fullscreenchange', syncFullscreenButton);
-    document.addEventListener('webkitfullscreenchange', syncFullscreenButton);
-    syncFullscreenButton();
+    document.addEventListener('webkitfullscreenchange', () => {
+      touchControls?._scheduleLayout?.();
+      game?.refreshPixelRatio?.();
+    });
   }
 
   // D-패드와 UI 버튼(도움말/리더보드/종료/모달 등)의 클릭음은

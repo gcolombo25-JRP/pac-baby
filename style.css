@@ -33,8 +33,8 @@ html, body {
   display: block;
   /* 터치 기기(아래 D-패드)에서는 컨트롤 공간을 더 확보한다 */
   --controls-space: 24px;
-  /* 내부 해상도는 devicePixelRatio 배율로 커지지만, 화면 크기는 CSS 로 고정한다 */
-  width: min(640px, calc(100vw - 24px), calc(100vh - var(--controls-space) - var(--game-header-h, 60px)));
+  /* PC·세로·가로 어느 화면에서든 처음부터 창 크기에 맞춰 최대한 크게 표시한다 */
+  width: min(calc(100vw - 24px), calc(100dvh - var(--controls-space) - var(--game-header-h, 60px) - 8px));
   height: auto;
   aspect-ratio: 1 / 1;
   /* 고해상도 캔버스는 부드럽게 축소해야 텍스트/라인이 선명하다 */
@@ -59,7 +59,7 @@ html, body {
   flex-direction: column;
   gap: 4px;
   flex: 0 0 auto;
-  width: min(640px, calc(100vw - 24px), calc(100vh - 24px - var(--game-header-h, 60px)));
+  width: min(calc(100vw - 24px), calc(100dvh - 24px - var(--game-header-h, 60px) - 8px));
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
 }
@@ -206,12 +206,12 @@ body.touch-active #game-canvas {
   --action-h: 56px;
   /* 방향타 실제 지름(3x3 셀 + 2 간격) — [울기] 삼각형 위치 계산 기준 */
   --dpad-size: calc(var(--pad-cell) * 3 + var(--pad-gap) * 2);
-  /* [울기] 직각이등변삼각형의 한 변 길이 (지름의 38%) */
+  /* [울기] 초승달-삼각의 한 변 길이 (지름의 38%) */
   --cry-size: calc(var(--dpad-size) * 0.38);
-  /* 삼각형을 원형 바깥으로 밀어내는 거리 (지름의 10% → 외곽과 약 0.08 * D 간격) */
-  --cry-lift: calc(var(--dpad-size) * -0.10);
-  /* 위로 돌출된 삼각형이 기능 버튼 박스와 겹치지 않게 확보하는 여유 (18~22px) */
-  --cry-clearance: 20px;
+  /* 방향타 원형 외곽에서 더 멀리 떨어지도록 바깥으로 밀어내는 거리 (지름의 17%) */
+  --cry-lift: calc(var(--dpad-size) * -0.17);
+  /* 위로 돌출된 [울기]가 기능 버튼 박스와 겹치지 않게 확보하는 여유 */
+  --cry-clearance: 26px;
 
   display: none;
   /* 세로·가로 공통: 기능 버튼(위) → 원형 방향타(아래, 하단) 2단 적층 */
@@ -577,24 +577,24 @@ body.touch-landscape .touch-controls {
   order: -1;
   flex: 0 0 auto;
   flex-direction: column;
-  /* D-패드를 좌측 하단에 고정 → 오른쪽 여백을 [울기] 삼각형 자리로 비워 둔다 */
+  /* D-패드를 좌측 하단에 고정 → 오른쪽 여백을 [울기] 버튼 자리로 비워 둔다 */
   align-items: flex-start;
   justify-content: flex-end;
-  /* [울기] 삼각형 버튼의 절대 배치 기준 */
+  /* [울기] 버튼의 절대 배치 기준 */
   position: relative;
   width: auto;
   gap: 6px;
-  --pad-top-gap: clamp(28px, 9dvh, 36px);
+  --pad-top-gap: clamp(26px, 8dvh, 34px);
   padding-top: var(--pad-top-gap);
   margin-top: 0;
   max-height: 100%;
-  /* 작은 폰 가로(높이 360~420px)에서도 잘리지 않는 반응형 셀 크기 */
-  --pad-cell: clamp(42px, 13.5dvh, 58px);
+  /* 게임판 최대화(100dvh)를 우선 보장하고, 남는 가로·세로 공간에 맞춰 방향타·버튼 크기를 자동 조절 */
+  --pad-cell: clamp(38px, min(13.2dvh, 9.8vw), 56px);
   --pad-gap: 5px;
   --hit-pad: 2px;
-  --action-w: clamp(68px, 16dvh, 78px);
-  --action-h: clamp(24px, 7.6dvh, 34px);
-  /* [울기] 삼각형 크기/간격은 .touch-controls 의 --dpad-size 기반 변수를 그대로 쓴다 */
+  --action-w: clamp(62px, min(15.5dvh, 11.2vw), 76px);
+  --action-h: clamp(22px, 7.2dvh, 32px);
+  /* [울기] 크기/간격은 .touch-controls 의 --dpad-size 기반 변수를 그대로 쓴다 */
 }
 
 body.touch-landscape .pad-actions {
@@ -2598,7 +2598,9 @@ body.touch-active .help-for-touch {
 }
 
 body.touch-landscape .top-actions {
-  gap: 3px;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
 }
 
 body.touch-landscape .top-actions .exit-button,
@@ -2606,6 +2608,59 @@ body.touch-landscape .top-actions .demo-button,
 body.touch-landscape .top-actions .top-action-btn {
   width: 28px;
   height: 28px;
+}
+
+/* ===== 효과음 모드 전환 버튼 (Voice / FX) =====
+   - PC·모바일 세로/가로 어디서든 현재 모드(Voice / FX)를 한눈에 보고 원탭으로 바꾼다. */
+.top-actions .sfx-mode-btn {
+  gap: 5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.sfx-mode-btn[data-sfx-mode="voice"] {
+  border-color: rgba(110, 198, 184, 0.72);
+  background: rgba(16, 62, 68, 0.9);
+  color: #b8f2e6;
+}
+
+.sfx-mode-btn[data-sfx-mode="fx"] {
+  border-color: rgba(255, 193, 7, 0.72);
+  background: rgba(68, 48, 12, 0.9);
+  color: #ffe082;
+}
+
+.sfx-mode-btn[data-sfx-mode="voice"] .sfx-icon-fx,
+.sfx-mode-btn[data-sfx-mode="fx"] .sfx-icon-voice {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .top-actions .sfx-mode-btn {
+    width: auto;
+    min-width: 54px;
+    padding: 0 7px;
+    gap: 3px;
+    font-size: 11px;
+  }
+
+  .top-actions .sfx-mode-btn .ui-icon {
+    width: 13px;
+    height: 13px;
+  }
+}
+
+body.touch-landscape .top-actions .sfx-mode-btn {
+  width: auto;
+  min-width: 46px;
+  padding: 0 6px;
+  gap: 3px;
+  font-size: 10.5px;
+}
+
+body.touch-landscape .top-actions .sfx-mode-btn .ui-icon {
+  width: 12px;
+  height: 12px;
 }
 
 /* ============================================================
@@ -3190,17 +3245,17 @@ body.touch-landscape[data-hand="left"] .touch-controls {
   display: none;
 }
 
-/* 삼각형 배경 레이어: 기본 = 우상단 직각 (위/오른쪽 짧은 변 + 좌하단 빗변) */
+/* 초승달-삼각 배경 레이어: 모서리가 둥글고 안쪽 변이 원형 방향타를 감싸듯 오목하다 */
 .dpad-stage .pad-skill .pad-skill-shape {
   display: block;
   position: absolute;
   inset: 0;
-  clip-path: polygon(0% 0%, 100% 0%, 100% 100%);
+  clip-path: url(#pad-skill-crescent);
   background: linear-gradient(
     180deg,
-    rgba(255, 224, 130, 0.9) 0%,
-    rgba(255, 179, 0, 0.82) 62%,
-    rgba(255, 143, 0, 0.76) 100%
+    rgba(255, 224, 130, 0.92) 0%,
+    rgba(255, 179, 0, 0.85) 62%,
+    rgba(255, 143, 0, 0.8) 100%
   );
   filter:
     drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45))
@@ -3270,7 +3325,12 @@ body.touch-landscape[data-hand="left"] .dpad-stage .pad-skill {
 }
 
 body.touch-landscape[data-hand="left"] .dpad-stage .pad-skill .pad-skill-shape {
-  clip-path: polygon(0% 0%, 100% 0%, 0% 100%);
+  transform: scaleX(-1);
+}
+
+body.touch-landscape[data-hand="left"] .dpad-stage .pad-skill:active .pad-skill-shape,
+body.touch-landscape[data-hand="left"] .dpad-stage .pad-skill.is-active .pad-skill-shape {
+  transform: scaleX(-1) scale(0.92);
 }
 
 /* ============================================================

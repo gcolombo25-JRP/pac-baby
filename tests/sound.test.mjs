@@ -7,8 +7,13 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-import SoundFX, { stereoPanFromTiles } from '../src/sound.js';
+import SoundFX, { stereoPanFromTiles, SFX_MODES } from '../src/sound.js';
+import { SOUND_MANIFEST, SOUND_KEYS } from '../src/soundManifest.js';
+import Game from '../src/game.js';
+import InputManager from '../src/input.js';
 
 test('음향은 기본적으로 켜져 있고 토글로 꺼진다', () => {
   const sound = new SoundFX();
@@ -881,5 +886,284 @@ test('playFreezeFollowUp 은 "뿌엥~" 뒤 지연된 얼음 빙결음을 예약�
   } finally {
     delete globalThis.window;
   }
+});
+
+// ===== 리얼 음성·폴리 오디오 샘플 재생 엔진 =====
+
+class SampleBufferSource extends FxBufferSource {
+  constructor() {
+    super();
+    this.playbackRate = new RichAudioParam(1);
+    this.onended = null;
+  }
+}
+
+class SampleAudioContext extends FxAudioContext {
+  constructor() {
+    super();
+    this.decodedCount = 0;
+  }
+  createBufferSource() {
+    const node = new SampleBufferSource();
+    this.bufferSources.push(node);
+    return node;
+  }
+  async decodeAudioData(arrayBuffer) {
+    this.decodedCount += 1;
+    const tag = arrayBuffer && arrayBuffer.__tag ? arrayBuffer.__tag : `buf-${this.decodedCount}`;
+    return { duration: 0.5, sampleRate: 44100, tag };
+  }
+}
+
+test('SOUND_MANIFEST 의 모든 음성·폴리 MP3 자산이 디스크에 존재하고 비어 있지 않다', () => {
+  assert.ok(SOUND_KEYS.length >= 22, `최소 22개 리얼 효과음 자산 (${SOUND_KEYS.length})`);
+  for (const key of SOUND_KEYS) {
+    const entry = SOUND_MANIFEST[key];
+    assert.ok(entry && typeof entry.url === 'string', `${key}: url 존재`);
+    const filePath = fileURLToPath(entry.url);
+    assert.ok(fs.existsSync(filePath), `${key}: 파일 존재 (${filePath})`);
+    const stat = fs.statSync(filePath);
+    assert.ok(stat.size >= 500, `${key}: 유효한 MP3 크기 (${stat.size} bytes)`);
+  }
+});
+
+test('리얼 샘플이 프리로드되면 먹기·배출·베이비 행위가 신스 대신 AudioBuffer 로 재생된다', async () => {
+  const prevFetch = globalThis.fetch;
+  globalThis.window = { AudioContext: SampleAudioContext };
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    status: 200,
+    async arrayBuffer() {
+      const name = String(url).split('/').pop().replace('.mp3', '');
+      return { __tag: name };
+    },
+  });
+
+  try {
+    const sound = new SoundFX();
+    sound._sampleRng = () => 0.75; // 결정적 피치 지터 검증용
+    await sound.preloadSamples();
+
+    for (const key of SOUND_KEYS) {
+      assert.equal(sound.hasSample(key), true, `${key} 샘플 디코딩 완료`);
+    }
+
+    const beforeOsc = sound.ctx.oscillators.length;
+    const playedTags = () => sound.ctx.bufferSources.map(s => s.buffer && s.buffer.tag);
+
+    // 1) 아이템 먹기 + 후속음
+    sound.playItem('MILK');
+    sound.playItemFollowUp('MILK');
+    sound.playItem('CANDY');
+    sound.playItemFollowUp('CANDY');
+    sound.playItem('COOKIE');
+    sound.playItemFollowUp('COOKIE');
+    sound.playPacifier();
+    sound.playPacifierFollowUp();
+    sound.playGoldenFollowUp();
+
+    // 2) 트랩 배출 (오줌·토사물·똥)
+    sound.playTrap('PEE');
+    sound.playTrap('VOMIT');
+    sound.playTrap('POOP');
+
+    // 3) 베이비 행위 (발걸음 좌/우·슈가·보행기 · 울기 · 빙결 · 침대 은신 · Oh No · 체포 · 트랩 적중)
+    sound.playStep();
+    sound.playStep();
+    sound.playStep({ sugarRush: true });
+    sound.playStep({ goldenWalker: true });
+    sound.playFreeze();
+    sound.playFreezeFollowUp();
+    sound.playStealth();
+    sound.playOhNo();
+    sound.playCaught();
+    sound.playTrapHit(0.6);
+
+    // 위 호출 중 신스 오실레이터로 폴백한 것이 하나도 없어야 한다
+    assert.equal(sound.ctx.oscillators.length, beforeOsc, '모든 리얼 효과음이 샘플로 재생됨');
+
+    const tags = playedTags();
+    for (const expected of [
+      'eat_milk', 'eat_milk_followup',
+      'eat_candy', 'eat_candy_followup',
+      'eat_cookie', 'eat_cookie_followup',
+      'eat_pacifier', 'eat_pacifier_followup',
+      'eat_golden_followup',
+      'trap_pee', 'trap_vomit', 'trap_poop',
+      'step_normal_a', 'step_normal_b', 'step_sugar', 'step_walker',
+      'baby_cry', 'fx_ice_freeze', 'baby_stealth', 'baby_ohno', 'baby_caught', 'trap_hit',
+    ]) {
+      assert.ok(tags.includes(expected), `${expected} 샘플이 재생되어야 한다`);
+    }
+
+    // 지연 후속음은 delay > 0 으로 예약된다
+    const milkFollow = sound.ctx.bufferSources.find(s => s.buffer.tag === 'eat_milk_followup');
+    assert.ok(milkFollow.startedAt > 0, '우유 후속음은 지연 시작');
+
+    // 피치 지터가 playbackRate 에 반영된다 (rng=0.75 -> 1 + 0.5*jitter)
+    const cookieSrc = sound.ctx.bufferSources.find(s => s.buffer.tag === 'eat_cookie');
+    assert.ok(cookieSrc.playbackRate.value > 1.0, '자연스러운 피치 변동이 적용된다');
+
+    // playTrapHit(0.6) 은 스테레오 패닝을 유지한다
+    assert.ok(
+      sound.ctx.panners.some(p => Math.abs(p.pan.value - 0.6) < 1e-6),
+      '트랩 적중 샘플도 보모 방향 패닝 유지',
+    );
+  } finally {
+    delete globalThis.window;
+    globalThis.fetch = prevFetch;
+  }
+});
+
+test('보이스 채널은 새 아기 음성이 시작될 때 이전 음성이 겹치지 않게 정리하고 음소거 시 중단한다', async () => {
+  const prevFetch = globalThis.fetch;
+  globalThis.window = { AudioContext: SampleAudioContext };
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    status: 200,
+    async arrayBuffer() {
+      const name = String(url).split('/').pop().replace('.mp3', '');
+      return { __tag: name };
+    },
+  });
+
+  try {
+    const sound = new SoundFX();
+    await sound.preloadSamples();
+
+    sound.playOhNo(); // voice 채널 1
+    const firstVoice = sound.ctx.bufferSources.at(-1);
+    assert.equal(firstVoice.stoppedAt, null, '재생 직후에는 살아 있다');
+
+    sound.playFreeze(); // voice 채널 2 → 이전 voice 정리
+    const secondVoice = sound.ctx.bufferSources.at(-1);
+    assert.ok(firstVoice.stoppedAt !== null, '새 아기 음성이 시작되면 이전 음성이 부드럽게 중단된다');
+    assert.equal(secondVoice.stoppedAt, null, '새 음성은 정상 재생');
+
+    // 폴리/발걸음 채널은 voice 채널을 끊지 않는다
+    sound.playStep();
+    assert.equal(secondVoice.stoppedAt, null, '발걸음은 진행 중인 아기 음성을 끊지 않는다');
+
+    // 음소거 시 현재 활성 보이스도 중단된다
+    sound.toggleMute();
+    assert.ok(secondVoice.stoppedAt !== null, '음소거 시 진행 중인 음성이 중단된다');
+  } finally {
+    delete globalThis.window;
+    globalThis.fetch = prevFetch;
+  }
+});
+
+test('샘플 네트워크 로드에 실패하면 예외 없이 기존 Web Audio 합성음으로 폴백한다', async () => {
+  const prevFetch = globalThis.fetch;
+  globalThis.window = { AudioContext: SampleAudioContext };
+  globalThis.fetch = async () => { throw new Error('offline'); };
+
+  try {
+    const sound = new SoundFX();
+    const res = await sound.loadSample('eat_cookie');
+    assert.equal(res, null, '실패 시 null 반환');
+    assert.equal(sound.hasSample('eat_cookie'), false);
+
+    // 합성음 폴백으로 쿠키 먹는 소리가 예외 없이 재생되어야 한다
+    assert.doesNotThrow(() => sound.playItem('COOKIE'));
+    assert.ok(sound.ctx.oscillators.length >= 3, '미로드 시 쿠키 합성음으로 폴백');
+  } finally {
+    delete globalThis.window;
+    globalThis.fetch = prevFetch;
+  }
+});
+
+test('게임 중 효과음 모드(Voice ↔ FX)를 즉시 전환하면 샘플/신스가 바뀌고 진행 중인 음성이 정리된다', async () => {
+  const prevFetch = globalThis.fetch;
+  globalThis.window = { AudioContext: SampleAudioContext };
+  globalThis.fetch = async (url) => ({
+    ok: true,
+    status: 200,
+    async arrayBuffer() {
+      const name = String(url).split('/').pop().replace('.mp3', '');
+      return { __tag: name };
+    },
+  });
+
+  try {
+    const sound = new SoundFX();
+    assert.deepEqual(SFX_MODES, ['voice', 'fx']);
+    assert.equal(sound.sfxMode, 'voice', '기본값은 Voice 모드');
+    assert.equal(sound.useSamples, true);
+
+    const events = [];
+    sound.onSfxModeChange = (mode) => events.push(mode);
+
+    await sound.preloadSamples();
+
+    // 1) Voice 모드에서는 샘플이 재생되고 오실레이터를 쓰지 않는다
+    sound.playOhNo();
+    const activeVoice = sound.ctx.bufferSources.at(-1);
+    assert.equal(activeVoice.buffer.tag, 'baby_ohno');
+    const oscBeforeFx = sound.ctx.oscillators.length;
+
+    // 2) FX 모드로 전환 → 진행 중인 아기 음성 즉시 중단 + 이후 호출은 레트로 신스 재생
+    assert.equal(sound.toggleSfxMode(), 'fx');
+    assert.equal(sound.sfxMode, 'fx');
+    assert.equal(sound.useSamples, false);
+    assert.ok(activeVoice.stoppedAt !== null, 'FX 전환 시 진행 중이던 아기 음성이 정리된다');
+
+    const bufBeforeFx = sound.ctx.bufferSources.length;
+    sound.playItem('COOKIE');
+    sound.playTrap('POOP');
+    assert.ok(sound.ctx.oscillators.length > oscBeforeFx, 'FX 모드에서는 레트로 신스 오실레이터로 재생된다');
+    assert.ok(
+      sound.ctx.bufferSources.slice(bufBeforeFx).every(s => !s.buffer || !s.buffer.tag),
+      'FX 모드에서는 MP3 샘플 버퍼를 재생하지 않는다',
+    );
+
+    // 3) 다시 Voice 모드로 전환 → 즉시 MP3 샘플 재생으로 복귀
+    assert.equal(sound.toggleSfxMode(), 'voice');
+    assert.equal(sound.useSamples, true);
+    const oscBeforeVoice = sound.ctx.oscillators.length;
+    sound.playTrap('POOP');
+    assert.equal(sound.ctx.oscillators.length, oscBeforeVoice, 'Voice 복귀 시 오실레이터 없이 샘플 재생');
+    assert.equal(sound.ctx.bufferSources.at(-1).buffer.tag, 'trap_poop');
+
+    // 잘못된 값은 기본 'voice' 로 정규화
+    assert.equal(sound.setSfxMode('unknown'), 'voice');
+    assert.deepEqual(events, ['fx', 'voice'], '실제 변경 시에만 콜백이 호출된다');
+  } finally {
+    delete globalThis.window;
+    globalThis.fetch = prevFetch;
+  }
+});
+
+test('게임 중 키보드 V(KeyV) 단축키로 Voice ↔ FX 모드를 전환할 수 있고 UI 버튼이 존재한다', () => {
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  try {
+    const fakeCanvas = { width: 640, height: 640, style: {}, getContext: () => ({}) };
+    const input = new InputManager();
+    const sound = new SoundFX();
+    const game = new Game(fakeCanvas, input, { sound });
+
+    assert.equal(sound.sfxMode, 'voice');
+    input.press('KeyV');
+    game._handleSystemInput();
+    input.release('KeyV');
+    input.clearJustPressed();
+    assert.equal(sound.sfxMode, 'fx', 'V 키 1회 → FX 모드');
+
+    input.press('KeyV');
+    game._handleSystemInput();
+    input.release('KeyV');
+    input.clearJustPressed();
+    assert.equal(sound.sfxMode, 'voice', 'V 키 2회 → Voice 모드 복귀');
+    input.destroy();
+  } finally {
+    delete globalThis.window;
+  }
+
+  // PC·모바일 공통 상단 바 버튼 및 CSS 상태 규칙 확인
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+  assert.match(html, /id="btn-sfx-mode"[^>]*data-sfx-mode="voice"/);
+  assert.match(css, /\.sfx-mode-btn\[data-sfx-mode="voice"\]/);
+  assert.match(css, /\.sfx-mode-btn\[data-sfx-mode="fx"\]/);
 });
 

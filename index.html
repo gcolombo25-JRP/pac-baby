@@ -51,9 +51,9 @@
        (style.css: body.touch-landscape .pad-skill-shape { clip-path: url(#pad-skill-triangle) }) -->
   <svg class="sr-shape-defs" width="0" height="0" aria-hidden="true" focusable="false">
     <defs>
-      <clipPath id="pad-skill-triangle" clipPathUnits="objectBoundingBox">
-        <!-- 꼭짓점 3곳을 2차 베지어로 둥글게 깎은 이등변 삼각형 (위 꼭짓점이 중앙) -->
-        <path d="M0.143 1 H0.857 Q1 1 0.9135 0.827 L0.607 0.214 Q0.5 0 0.393 0.214 L0.0865 0.827 Q0 1 0.143 1 Z" />
+      <!-- 원형 방향타 우상단 외곽을 감싸는 모서리 라운드 초승달-삼각 클립 -->
+      <clipPath id="pad-skill-crescent" clipPathUnits="objectBoundingBox">
+        <path d="M0.18 0.02 H0.84 Q1 0.02 1 0.18 V0.84 Q1 0.96 0.87 0.91 Q0.78 0.87 0.72 0.75 Q0.56 0.44 0.25 0.28 Q0.13 0.22 0.09 0.13 Q0.04 0.02 0.18 0.02 Z" />
       </clipPath>
     </defs>
   </svg>
@@ -87,12 +87,13 @@
             <span class="top-action-label">데모 실행</span>
           </button>
 
-          <!-- [전체화면]: 상·하단 브라우저 메뉴를 숨겨 세로 화면을 더 넓게 쓴다.
-               Fullscreen API 미지원(iPhone Safari 등)에서는 main.js 가 이 버튼을 숨긴다. -->
-          <button id="btn-fullscreen" class="top-action-btn" type="button"
-                  aria-label="전체화면 전환" aria-pressed="false" title="전체화면">
-            <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="top-action-label">전체화면</span>
+          <!-- [효과음 모드]: 게임 중 언제든 Voice(아기 음성·폴리) ↔ FX(레트로 신스) 전환 -->
+          <button id="btn-sfx-mode" class="top-action-btn sfx-mode-btn" type="button"
+                  data-sfx-mode="voice" aria-pressed="true"
+                  aria-label="효과음 모드 전환 (현재: Voice)" title="효과음 모드: Voice / FX (V)">
+            <svg class="ui-icon sfx-icon-voice" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="3.2" width="6" height="10.4" rx="3" fill="currentColor"/><path d="M6.2 10.6a5.8 5.8 0 0 0 11.6 0M12 16.4v4M9 20.4h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <svg class="ui-icon sfx-icon-fx" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3.2 12h3.1l2.4-6.4 3.4 12.8 3.2-9.2 2.2 2.8h3.3" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="sfx-mode-text">Voice</span>
           </button>
         </div>
       </div>
@@ -206,7 +207,7 @@
               <!-- PC(키보드) 안내: 터치 기기/좁은 화면에서는 CSS 가 자동으로 숨긴다 -->
               <li class="help-for-pc"><span class="help-kbd-row"><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd></span> 이동 — 미리 눌러도 <b>1.2초</b> 기억해요</li>
               <li class="help-for-pc"><kbd>Space</kbd> <b>울기</b> — 보모를 3초 얼려요 (<b class="neg">-100점</b>)</li>
-              <li class="help-for-pc"><kbd>P</kbd> <kbd>Esc</kbd> 일시정지 · <kbd>M</kbd> 소리·BGM · <kbd>H</kbd> 이 설명서</li>
+              <li class="help-for-pc"><kbd>P</kbd> <kbd>Esc</kbd> 일시정지 · <kbd>M</kbd> 소리·BGM · <kbd>V</kbd> 효과음(Voice/FX) · <kbd>H</kbd> 이 설명서</li>
               <li class="help-for-pc"><kbd>R</kbd> 게임 오버 후 재도전 · <kbd>R</kbd> <kbd>Space</kbd> <kbd>Enter</kbd> STAGE CLEAR 다음 라운드 · <kbd>-</kbd><kbd>+</kbd> 또는 <kbd>1</kbd>~<kbd>0</kbd> 속도 조절</li>
 
               <!-- 휴대폰(터치) 안내: PC 에서는 CSS 가 자동으로 숨긴다 -->

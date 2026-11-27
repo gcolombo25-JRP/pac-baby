@@ -719,7 +719,8 @@ export default class TouchControls {
         ? window.matchMedia('(max-width: 700px)').matches
         : window.innerWidth <= 700;
       const touchMode = body.classList.contains('touch-active') || narrow;
-      const landscape = touchMode && window.innerWidth > window.innerHeight;
+      const forceLandscape = body.classList.contains('force-landscape');
+      const landscape = touchMode && (forceLandscape || window.innerWidth > window.innerHeight);
 
       if (body.classList.contains('touch-landscape') !== landscape) {
         body.classList.toggle('touch-landscape', landscape);

@@ -889,6 +889,11 @@ export default class Game {
       if (this.sound.enabled) this.sound.playToggle();
     }
 
+    if (input.isJustPressed('KeyV')) {
+      this.sound.toggleSfxMode?.();
+      if (this.sound.enabled) this.sound.playToggle();
+    }
+
     if (input.isJustPressed('Minus') || input.isJustPressed('NumpadSubtract')) {
       this.setSpeedLevel(this.speedLevel - 1);
     }
@@ -2778,7 +2783,7 @@ export default class Game {
     // (Windows 터치스크린 PC 처럼 터치 신호만 있는 데스크톱에서도 안내는 그대로 표시)
     const keyboardHint = this.isTouchUiVisible()
       ? ''
-      : '  |  ←↑↓→ SPACE P R M · H:도움말';
+      : '  |  ←↑↓→ SPACE P R M V · H:도움말';
 
     ctx.fillText(
       `체포 ${this.catchCount} · 속도 ${this.speedLevel}/10 · 아이템 ${this.itemCount}/${this.items.length} · 트랩 ${this.traps.length}${keyboardHint}`,

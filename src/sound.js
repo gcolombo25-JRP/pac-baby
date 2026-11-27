@@ -1,11 +1,18 @@
 /**
- * Pac-Baby: 효과음 모듈 (Web Audio API 합성음)
+ * Pac-Baby: 효과음 모듈 (실제 음성·폴리 오디오 샘플 + Web Audio API 폴백)
  *
- * - 외부 오디오 파일 없이 오실레이터로 소리를 만든다.
+ * - 먹기/배출/베이비 행위 효과음은 번들된 리얼 음성·폴리 MP3 샘플을
+ *   Web Audio AudioBuffer 로 프리로드해 0ms 지연으로 재생한다.
+ * - 샘플이 아직 로드되지 않았거나 오프라인/Node 테스트 환경에서는
+ *   기존 Web Audio 합성음으로 자연스럽게 폴백한다.
  * - AudioContext 는 브라우저 정책상 "사용자 입력" 이후에만 재생되므로,
  *   매 재생 시 _ensure() 에서 생성/재개를 시도한다.
- * - 오디오가 없는 환경(Node 테스트 등)에서는 조용히 무시된다.
  */
+
+import { SOUND_MANIFEST, SOUND_KEYS } from './soundManifest.js';
+
+/** 지원하는 효과음 모드 ('voice': 아기 음성·리얼 폴리 / 'fx': 레트로 신스 효과음) */
+export const SFX_MODES = Object.freeze(['voice', 'fx']);
 
 // ===== BGM 설정 (삼각파 + 사인 레이어링으로 따뜻하게) =====
 const BGM_STEP_SEC = 0.24;   // 8분음표 길이(초)
@@ -82,13 +89,64 @@ export default class SoundFX {
     this.heartbeatTimer = 0;  // 다음 박동까지 남은 시간(ms)
     this.heartbeatLevel = 0;  // 0(안전) ~ 1(바로 옆)
     this.heartbeatPan = 0;    // 가장 가까운 보모 방향 (-1 왼쪽 ~ +1 오른쪽)
+
+    // 리얼 음성·폴리 오디오 샘플 캐시 & 보이스 채널 관리
+    this.sfxMode = 'voice';           // 'voice' (아기 음성·폴리) | 'fx' (레트로 신스)
+    this.onSfxModeChange = null;      // 모드 전환 콜백 (UI/저장 동기화용)
+    this._samples = new Map();        // key -> AudioBuffer
+    this._samplePromises = new Map(); // key -> Promise<AudioBuffer|null>
+    this._activeChannels = new Map(); // channel -> { source, gain, startAt }
+    this._sampleRng = Math.random;
+  }
+
+  /** 샘플 사용 여부 (sfxMode === 'voice' 와 항상 동기화) */
+  get useSamples() {
+    return this.sfxMode === 'voice';
+  }
+
+  set useSamples(value) {
+    this.sfxMode = value ? 'voice' : 'fx';
+  }
+
+  /**
+   * 효과음 모드 설정 ('voice' | 'fx').
+   * - 'fx' 로 바꾸면 진행 중인 보이스 샘플을 즉시 정리하고 레트로 신스로 전환한다.
+   * - 'voice' 로 바꾸면 아직 미로드된 샘플을 백그라운드로 프리로드한다.
+   * @param {'voice'|'fx'} mode
+   * @returns {'voice'|'fx'} 적용된 모드
+   */
+  setSfxMode(mode) {
+    const normalized = typeof mode === 'string' ? mode.toLowerCase() : '';
+    const next = SFX_MODES.includes(normalized) ? normalized : 'voice';
+    const changed = this.sfxMode !== next;
+    this.sfxMode = next;
+
+    if (next === 'fx') {
+      this._stopAllChannels();
+    } else if (this.ctx && this._canLoadSamples(this.ctx)) {
+      this.preloadSamples();
+    }
+
+    if (changed && typeof this.onSfxModeChange === 'function') {
+      try { this.onSfxModeChange(next); } catch (err) { /* UI 콜백 오류 무시 */ }
+    }
+    return next;
+  }
+
+  /** 효과음 모드 토글 ('voice' ↔ 'fx') 후 새 모드 반환 */
+  toggleSfxMode() {
+    return this.setSfxMode(this.sfxMode === 'voice' ? 'fx' : 'voice');
   }
 
   /** 음향 켜기/끄기 토글 후 현재 상태 반환 (BGM 도 함께) */
   toggleMute() {
     this.enabled = !this.enabled;
-    if (this.enabled) this.startBgm();
-    else this.stopBgm();
+    if (this.enabled) {
+      this.startBgm();
+    } else {
+      this.stopBgm();
+      this._stopAllChannels();
+    }
     return this.enabled;
   }
 
@@ -100,8 +158,184 @@ export default class SoundFX {
     if (!this.enabled) return;
     const ctx = this._ensure();
     if (!ctx) return;
+    this.preloadSamples(); // 실제 음성·폴리 샘플 백그라운드 프리로드
     this._beep({ freq: 660, toFreq: 990, duration: 0.09, type: 'triangle', volume: 0.8 });
     this.startBgm(); // 첫 사용자 입력에서 BGM 시작
+  }
+
+  // ===== 리얼 음성·폴리 샘플 로더 & 재생기 =====
+
+  /** 현재 환경이 외부/번들 오디오 샘플 디코딩을 지원하는지 판별 */
+  _canLoadSamples(ctx = this.ctx) {
+    return !!(
+      this.useSamples
+      && ctx
+      && typeof ctx.createBufferSource === 'function'
+      && typeof ctx.decodeAudioData === 'function'
+      && typeof fetch === 'function'
+    );
+  }
+
+  /** 특정 키의 디코딩된 샘플이 준비되었는지 여부 */
+  hasSample(key) {
+    return this._samples.has(key);
+  }
+
+  /**
+   * 단일 효과음 샘플을 비동기로 로드·디코딩해 캐시에 저장한다.
+   * - 중복 요청은 같은 Promise 를 공유한다.
+   * - 네트워크/디코딩 실패 시 예외를 던지지 않고 null 을 반환(합성음 폴백 유지).
+   * @param {string} key SOUND_MANIFEST 키
+   * @returns {Promise<AudioBuffer|null>}
+   */
+  loadSample(key) {
+    const entry = SOUND_MANIFEST[key];
+    if (!entry) return Promise.resolve(null);
+    if (this._samples.has(key)) return Promise.resolve(this._samples.get(key));
+
+    const existing = this._samplePromises.get(key);
+    if (existing) return existing;
+
+    const ctx = this._ensure();
+    if (!this._canLoadSamples(ctx)) return Promise.resolve(null);
+
+    const promise = Promise.resolve()
+      .then(() => fetch(entry.url))
+      .then(res => {
+        if (!res || !res.ok) throw new Error(`HTTP ${res ? res.status : 'error'}`);
+        return res.arrayBuffer();
+      })
+      .then(raw => ctx.decodeAudioData(raw))
+      .then(buffer => {
+        if (this.ctx === ctx && buffer) {
+          this._samples.set(key, buffer);
+          return buffer;
+        }
+        return null;
+      })
+      .catch(() => {
+        this._samplePromises.delete(key);
+        return null;
+      });
+
+    this._samplePromises.set(key, promise);
+    return promise;
+  }
+
+  /** 매니페스트에 등록된 모든 음성·폴리 샘플을 병렬 프리로드한다 */
+  preloadSamples() {
+    const ctx = this._ensure();
+    if (!this._canLoadSamples(ctx)) return Promise.resolve([]);
+    return Promise.all(SOUND_KEYS.map(key => this.loadSample(key)));
+  }
+
+  /** 동일 보이스 채널에서 재생 중이거나 예약된 이전 음성을 부드럽게 멈춘다 */
+  _interruptChannel(channel, atTime) {
+    if (!channel) return;
+    const prev = this._activeChannels.get(channel);
+    if (!prev) return;
+    this._activeChannels.delete(channel);
+
+    try {
+      const fadeSec = 0.02;
+      const g = prev.gain && prev.gain.gain;
+      if (prev.startAt > atTime) {
+        // 아직 시작 전인 예약 음성은 무음으로 즉시 취소
+        if (g && typeof g.setValueAtTime === 'function') {
+          g.setValueAtTime(0.0001, atTime);
+        }
+        if (typeof prev.source.stop === 'function') prev.source.stop(atTime);
+      } else {
+        if (g && typeof g.setValueAtTime === 'function') {
+          const cur = Number.isFinite(g.value) ? Math.max(0.0002, g.value) : 0.8;
+          g.setValueAtTime(cur, atTime);
+          if (typeof g.linearRampToValueAtTime === 'function') {
+            g.linearRampToValueAtTime(0.0001, atTime + fadeSec);
+          } else if (typeof g.exponentialRampToValueAtTime === 'function') {
+            g.exponentialRampToValueAtTime(0.0001, atTime + fadeSec);
+          }
+        }
+        if (typeof prev.source.stop === 'function') {
+          prev.source.stop(atTime + fadeSec + 0.005);
+        }
+      }
+    } catch (err) { /* 이미 끝난 소스는 무시 */ }
+  }
+
+  /** 활성 채널의 모든 샘플 재생을 즉시 중단한다 (음소거/정리 시) */
+  _stopAllChannels() {
+    const now = this.ctx ? this.ctx.currentTime : 0;
+    for (const channel of Array.from(this._activeChannels.keys())) {
+      this._interruptChannel(channel, now);
+    }
+    this._activeChannels.clear();
+  }
+
+  /**
+   * 프리로드된 오디오 샘플 재생.
+   * - 준비되지 않았으면 백그라운드 로드를 트리거하고 false 를 반환(호출부가 합성음으로 폴백).
+   * @param {string} key SOUND_MANIFEST 키
+   * @param {{volume?: number, delay?: number, rate?: number, rateJitter?: number, pan?: number, channel?: string|null}} [options]
+   * @returns {boolean} 샘플 재생에 성공했는지 여부
+   */
+  _playSample(key, options = {}) {
+    if (!this.enabled || !this.useSamples) return false;
+    const ctx = this._ensure();
+    if (!ctx || typeof ctx.createBufferSource !== 'function') return false;
+
+    const buffer = this._samples.get(key);
+    if (!buffer) {
+      if (this._canLoadSamples(ctx)) this.loadSample(key);
+      return false;
+    }
+
+    const entry = SOUND_MANIFEST[key] || {};
+    const channel = options.channel !== undefined ? options.channel : (entry.channel || null);
+    const volume = options.volume !== undefined ? options.volume : (entry.volume ?? 1);
+    const delay = Number.isFinite(options.delay) ? Math.max(0, options.delay) : 0;
+    const baseRate = Number.isFinite(options.rate) ? options.rate : 1;
+    const jitter = options.rateJitter !== undefined ? options.rateJitter : (entry.rateJitter || 0);
+    const pan = Number.isFinite(options.pan) ? options.pan : 0;
+
+    const start = ctx.currentTime + delay;
+
+    // 베이비 목소리(voice) 채널은 새 음성이 시작될 때 이전 음성이 겹치지 않게 정리한다
+    if (channel === 'voice') {
+      this._interruptChannel('voice', start);
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+
+    // 자연스러운 유기적 변화를 위한 미세 피치 변동 (±rateJitter)
+    const rand = typeof this._sampleRng === 'function' ? this._sampleRng() : Math.random();
+    const rate = Math.max(0.5, Math.min(2.0, baseRate * (1 + (rand * 2 - 1) * jitter)));
+    this._setAudioParam(source.playbackRate, rate);
+
+    const gain = ctx.createGain();
+    this._setAudioParam(gain.gain, Math.max(0.0002, volume));
+
+    source.connect(gain);
+    const panner = this._createPanner(ctx, pan);
+    if (panner) {
+      gain.connect(panner);
+      panner.connect(this._sfxGain || this.master);
+    } else {
+      gain.connect(this._sfxGain || this.master);
+    }
+
+    if (channel === 'voice') {
+      const record = { source, gain, startAt: start };
+      this._activeChannels.set('voice', record);
+      source.onended = () => {
+        if (this._activeChannels.get('voice') === record) {
+          this._activeChannels.delete('voice');
+        }
+      };
+    }
+
+    source.start(start);
+    return true;
   }
 
   // ===== BGM 루프 =====
@@ -217,6 +451,11 @@ export default class SoundFX {
         this._sfxGain = this.ctx.createGain();
         this._setAudioParam(this._sfxGain.gain, SFX_GAIN);
         this._sfxGain.connect(this.master);
+
+        // 실제 브라우저 환경에서는 컨텍스트 생성 직후 음성·폴리 샘플을 자동 프리로드
+        if (this._canLoadSamples(this.ctx) && this._samplePromises.size === 0) {
+          this.preloadSamples();
+        }
       } catch (err) {
         this.enabled = false; // 오디오를 만들 수 없는 환경
         return null;
@@ -547,6 +786,19 @@ export default class SoundFX {
 
     this.stepToggle = !this.stepToggle;
 
+    // 리얼 베이비 발걸음 샘플 우선 재생 (일반 좌/우 교대 · 슈가 러시 삑삑 · 보행기 바퀴)
+    let stepKey = this.stepToggle ? 'step_normal_a' : 'step_normal_b';
+    let stepRate = 1;
+    if (goldenWalker && sugarRush) {
+      stepKey = 'step_sugar';
+      stepRate = 1.08;
+    } else if (sugarRush) {
+      stepKey = 'step_sugar';
+    } else if (goldenWalker) {
+      stepKey = 'step_walker';
+    }
+    if (this._playSample(stepKey, { rate: stepRate })) return;
+
     // 일반은 낮고 둥근 C5/B4, 파워업은 확실히 높은 대역으로 튄다
     const base = this.stepToggle ? 523.25 : 493.88;
     let pitch = 1;
@@ -608,8 +860,9 @@ export default class SoundFX {
     this._noise({ duration: 0.01, volume: 0.045, filterType: 'highpass', filterFreq: 3800 });
   }
 
-  /** 체포: 하강하는 경고음 + 둔탁한 충격 노이즈 */
+  /** 체포: 리얼 아기 '으앙!' + 충격음 (폴백: 하강 경고음) */
   playCaught() {
+    if (this._playSample('baby_caught')) return;
     this._beep({
       freq: 420,
       toFreq: 90,
@@ -625,12 +878,10 @@ export default class SoundFX {
   }
 
   /**
-   * 체포 순간의 "Oh! No~" — 낮고 서글픈 레트로 칩튠 음성
-   * - 톱니파 + 밴드패스 포먼트로 '오' / '노' 음절을 흉내 낸다.
-   * - 'No~' 는 긴 하강 글라이드 + 비브라토로 한숨처럼 처진다.
-   * - 마지막에 낮은 사인/삼각파가 '흐엥...' 하고 남아 여운을 준다.
+   * 체포 순간의 "Oh! No~" — 리얼 아기 음성 우선, 미로드 시 레트로 칩튠 음성 폴백
    */
   playOhNo() {
+    if (this._playSample('baby_ohno')) return;
     // "Oh" — 턱 떨어지는 짧은 감탄 (포먼트 600Hz)
     this._beep({
       freq: 196,
@@ -698,6 +949,9 @@ export default class SoundFX {
   /** 오디오 장치 정리 (페이지 종료/테스트 종료 시) */
   destroy() {
     this.stopBgm();
+    this._stopAllChannels();
+    this._samples.clear();
+    this._samplePromises.clear();
     this._noiseBuffer = null;
     this._bus = null;
     this._echo = null;
@@ -714,18 +968,29 @@ export default class SoundFX {
 
   /**
    * 아이템 섭취 사운드.
-   * - 종류를 주면 그 아이템 전용 코믹한 '먹는' 소리를 낸다.
+   * - 리얼 음성·폴리 샘플이 로드되어 있으면 우선 재생하고, 아니면 합성음으로 폴백한다.
    * - 인자가 없으면 기존 기본 아이템 소리(마림바/벨 느낌의 두 겹 상승 톤)로 폴백한다.
    * - 'PACIFIER'(쪽쪽이)는 playPacifier 로 연결해 침대 스텔스음과 구분한다.
-   * - 삼각파·사인파 레이어 + 필터링된 노이즈(_noise)만 사용해 쨍한 사각파가 없다.
    * @param {'MILK'|'CANDY'|'COOKIE'|'PACIFIER'|null} [type] 먹은 아이템 종류
    */
   playItem(type = null) {
     const kind = typeof type === 'string' ? type.toUpperCase() : null;
     if (kind === 'PACIFIER') { this.playPacifier(); return; }
-    if (kind === 'MILK') { this._playMilk(); return; }
-    if (kind === 'CANDY') { this._playCandy(); return; }
-    if (kind === 'COOKIE') { this._playCookie(); return; }
+    if (kind === 'MILK') {
+      if (this._playSample('eat_milk')) return;
+      this._playMilk();
+      return;
+    }
+    if (kind === 'CANDY') {
+      if (this._playSample('eat_candy')) return;
+      this._playCandy();
+      return;
+    }
+    if (kind === 'COOKIE') {
+      if (this._playSample('eat_cookie')) return;
+      this._playCookie();
+      return;
+    }
 
     // 몸통: 부드럽게 감쇠하는 삼각파 (C5 → E5)
     this._beep({
@@ -751,9 +1016,21 @@ export default class SoundFX {
    */
   playItemFollowUp(type = null) {
     const kind = typeof type === 'string' ? type.toUpperCase() : null;
-    if (kind === 'COOKIE') { this._playCookieRumble(); return; }
-    if (kind === 'MILK') { this._playMilkGulp(); return; }
-    if (kind === 'CANDY') { this._playCandySurge(); return; }
+    if (kind === 'COOKIE') {
+      if (this._playSample('eat_cookie_followup', { delay: 0.28 })) return;
+      this._playCookieRumble();
+      return;
+    }
+    if (kind === 'MILK') {
+      if (this._playSample('eat_milk_followup', { delay: 0.34 })) return;
+      this._playMilkGulp();
+      return;
+    }
+    if (kind === 'CANDY') {
+      if (this._playSample('eat_candy_followup', { delay: 0.2 })) return;
+      this._playCandySurge();
+      return;
+    }
   }
 
   /**
@@ -978,6 +1255,7 @@ export default class SoundFX {
    * - 침대 스텔스(880Hz 하강)와 시작 음역이 달라 소리가 확실히 구분된다.
    */
   playPacifier() {
+    if (this._playSample('eat_pacifier')) return;
     // 첫 공기 흡입 소리 — 넓은 로우패스로 부드럽게
     this._noise({ duration: 0.05, volume: 0.07, filterType: 'lowpass', filterFreq: 3000, Q: 0.7 });
 
@@ -1026,6 +1304,7 @@ export default class SoundFX {
    * - 1200Hz 로우패스 노이즈로 빠져나가는 공기감.
    */
   playPacifierFollowUp() {
+    if (this._playSample('eat_pacifier_followup', { delay: 0.4 })) return;
     this._beep({
       freq: 1180,
       toFreq: 390,
@@ -1057,6 +1336,7 @@ export default class SoundFX {
    * - 비브라토(울먹임) + 들이키는 숨소리로 리얼한 아기 울음을 만든다.
    */
   playCry() {
+    if (this._playSample('baby_cry')) return;
     // 1) "앙-" 첫 울음: 상승 글라이드 + 떨림
     this._beep({
       freq: 640,
@@ -1116,6 +1396,7 @@ export default class SoundFX {
    * - 얼음 결정음은 playFreezeFollowUp() 이 후속으로 담당한다.
    */
   playFreeze() {
+    if (this._playSample('baby_cry')) return;
     // "뿌!" — 터지는 첫 음절
     this._beep({
       freq: 560,
@@ -1155,6 +1436,7 @@ export default class SoundFX {
    * - 3400Hz 하이패스 노이즈로 서리 결정이 부딪히는 질감
    */
   playFreezeFollowUp() {
+    if (this._playSample('fx_ice_freeze', { delay: 0.46 })) return;
     this._beep({ freq: 1760, toFreq: 2349, duration: 0.09, type: 'sine', volume: 0.3, delay: 0.46 });
     this._beep({ freq: 2349, toFreq: 3136, duration: 0.11, type: 'sine', volume: 0.32, delay: 0.54 });
     // "짜장!" — 얼어붙는 마무리
@@ -1165,8 +1447,9 @@ export default class SoundFX {
     });
   }
 
-  /** 침대 스텔스 발동 */
+  /** 침대 스텔스 발동: 이불 부스럭 + 아기 '쉿! 숨었지!' (폴백: 하강 사인) */
   playStealth() {
+    if (this._playSample('baby_stealth')) return;
     this._beep({ freq: 880, toFreq: 440, duration: 0.22, type: 'sine', volume: 0.7 });
     this._beep({ freq: 1320, toFreq: 660, duration: 0.18, type: 'sine', volume: 0.4, delay: 0.08 });
   }
@@ -1230,6 +1513,7 @@ export default class SoundFX {
    * - 마지막에 220→440Hz 삼각파 발진 + 밴드패스 노이즈로 보행기 부스터가 켜지는 느낌.
    */
   playGoldenFollowUp() {
+    if (this._playSample('eat_golden_followup', { delay: 0.18 })) return;
     // "이-"
     this._beep({
       freq: 740,
@@ -1304,9 +1588,21 @@ export default class SoundFX {
    */
   playTrap(type = null) {
     const kind = typeof type === 'string' ? type.toUpperCase() : null;
-    if (kind === 'PEE') { this._playPee(); return; }
-    if (kind === 'VOMIT') { this._playVomit(); return; }
-    if (kind === 'POOP') { this._playPoop(); return; }
+    if (kind === 'PEE') {
+      if (this._playSample('trap_pee')) return;
+      this._playPee();
+      return;
+    }
+    if (kind === 'VOMIT') {
+      if (this._playSample('trap_vomit')) return;
+      this._playVomit();
+      return;
+    }
+    if (kind === 'POOP') {
+      if (this._playSample('trap_poop')) return;
+      this._playPoop();
+      return;
+    }
 
     this._beep({ freq: 200, toFreq: 90, duration: 0.16, type: 'sine', volume: 0.9 });
   }
@@ -1468,6 +1764,7 @@ export default class SoundFX {
    * @param {number} [pan=0] 보모 위치 기준 좌우 패닝 (-0.8 ~ +0.8)
    */
   playTrapHit(pan = 0) {
+    if (this._playSample('trap_hit', { pan })) return;
     this._beep({
       freq: 150, toFreq: 520, duration: 0.22, type: 'sawtooth', volume: 0.8,
       filterType: 'lowpass', filterFreq: 1800, pan,
