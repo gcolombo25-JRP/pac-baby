@@ -456,8 +456,34 @@ export const GOLDEN_BOTTLE = {
   speedMultiplier: 1.4,    // 이동 속도 증가
   knockScore: 300,         // 악당과 부딪히면 날려버리고 +300점
   color: '#ffd700',
-  respawnMs: 20000,        // 다시 중앙에 나타나기까지 20초
+  respawnMs: 20000,        // 1라운드 리스폰: 20초
+  lateStartRound: 2,       // 2라운드부터는 지연 스폰 + 긴 리스폰 적용
+  initialDelayBaseMs: 20000,    // 2라운드+ 시작 후 기본 대기 20초
+  initialDelayRandomMs: 30000,  // + 랜덤 0~30초 (총 20~50초)
+  respawnLateBaseMs: 30000,     // 2라운드+ 먹은 뒤 기본 대기 30초
+  respawnLateRandomMs: 30000,   // + 랜덤 0~30초 (총 30~60초)
 };
+
+/**
+ * 라운드별 황금 젖병 등장/리스폰 대기 시간(ms)을 계산한다.
+ * - 1라운드: 시작 시 즉시 등장(0ms), 먹은 뒤 20초 리스폰.
+ * - 2라운드+: 시작 20초 + 랜덤(0~30초), 먹은 뒤 30초 + 랜덤(0~30초).
+ * @param {number} round 현재 라운드(1부터 시작)
+ * @param {boolean} [isRespawn=false] 먹은 뒤 리스폰인지 여부
+ * @param {() => number} [rng=Math.random] 0~1 난수 함수
+ * @returns {number} 대기 시간(ms)
+ */
+export function goldenSpawnDelayMs(round, isRespawn = false, rng = Math.random) {
+  const r = Number.isFinite(round) ? round : 1;
+  if (r < GOLDEN_BOTTLE.lateStartRound) {
+    return isRespawn ? GOLDEN_BOTTLE.respawnMs : 0;
+  }
+  const raw = typeof rng === 'function' ? rng() : Math.random();
+  const unit = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0;
+  const base = isRespawn ? GOLDEN_BOTTLE.respawnLateBaseMs : GOLDEN_BOTTLE.initialDelayBaseMs;
+  const span = isRespawn ? GOLDEN_BOTTLE.respawnLateRandomMs : GOLDEN_BOTTLE.initialDelayRandomMs;
+  return base + Math.round(unit * span);
+}
 
 /** 황금 젖병 스폰 — 28x28 맵의 정중앙 (터널 행의 한가운데) */
 export const GOLDEN_SPAWN = { row: 14, col: 14 };

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import Game from '../src/game.js';
 import Enemy, { ENEMY_MODE } from '../src/enemy.js';
 import {
-  TILE_MAP, ROWS, COLS, SPEED_LEVELS, SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN,
+  TILE_MAP, ROWS, COLS, SPEED_LEVELS, SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN, goldenSpawnDelayMs,
   isWalkableTile,
 } from '../src/constants.js';
 
@@ -248,5 +248,38 @@ test('재시작하면 파워업이 모두 해제되고 황금 젖병이 중앙�
   assert.equal(game.goldenBottle.collected, false);
   assert.equal(game.goldenBottle.row, GOLDEN_SPAWN.row);
   assert.equal(game.tickMs, SPEED_LEVELS[game.speedLevel - 1].babyTileMs);
+});
+
+test('2라운드부터 황금 젖병은 시작 20초+랜덤(30초) 후 나타나고, 리스폰은 30초+랜덤(30초)이다', () => {
+  // 순수 계산 함수 검증
+  assert.equal(goldenSpawnDelayMs(1, false, () => 0.5), 0, '1라운드 시작은 즉시 등장');
+  assert.equal(goldenSpawnDelayMs(1, true, () => 0.5), GOLDEN_BOTTLE.respawnMs, '1라운드 리스폰은 20초');
+
+  assert.equal(goldenSpawnDelayMs(2, false, () => 0), 20000, '2라운드+ 시작 최소 20초');
+  assert.equal(goldenSpawnDelayMs(2, false, () => 1), 50000, '2라운드+ 시작 최대 50초');
+  assert.equal(goldenSpawnDelayMs(3, true, () => 0), 30000, '2라운드+ 리스폰 최소 30초');
+  assert.equal(goldenSpawnDelayMs(3, true, () => 1), 60000, '2라운드+ 리스폰 최대 60초');
+
+  // 실제 Game 인스턴스(2라운드)에서 시작 지연 및 먹은 뒤 리스폰 지연 검증
+  const game = setup();
+  game.rng = () => 0.5; // 2R 시작: 20 + 15 = 35초, 리스폰: 30 + 15 = 45초
+  game.round = 2;
+  game._resetBoard();
+
+  assert.equal(game.goldenBottle.collected, true, '2라운드 시작 직후에는 아직 숨겨져 있다');
+  assert.equal(game.goldenBottle.respawnTimer, 35000, '2라운드 시작 대기 = 20초 + 0.5*30초');
+
+  // 35초 직전에는 아직 등장하지 않고, 35초가 지나면 중앙에 나타난다
+  game._updateGoldenBottle(34999);
+  assert.equal(game.goldenBottle.collected, true);
+  game._updateGoldenBottle(2);
+  assert.equal(game.goldenBottle.collected, false, '35초 경과 후 황금 젖병 등장');
+
+  // 먹은 뒤에는 30초 + 0.5*30초 = 45초 뒤 리스폰 예약
+  game.player.row = GOLDEN_SPAWN.row;
+  game.player.col = GOLDEN_SPAWN.col;
+  game._updateGoldenBottle(game.tickMs);
+  assert.equal(game.goldenBottle.collected, true);
+  assert.equal(game.goldenBottle.respawnTimer, 45000, '2라운드 리스폰 대기 = 30초 + 0.5*30초');
 });
 

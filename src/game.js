@@ -17,7 +17,7 @@ import {
   PLAYER_LIVES, ROUND_CLEAR_MODE, ROUND_TARGET_SCORE, ROUND_SPEED_STEP, HISCORE_KEY,
   SKILL_CRY, PENALTY,
   MAX_DEVICE_PIXEL_RATIO, BABY_LIGHT_RADIUS_TILES, BABY_LIGHT_FEATHER_TILES,
-  SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN, FAKE_PACIFIER, randomPacifierTile,
+  SUGAR_RUSH, GOLDEN_BOTTLE, GOLDEN_SPAWN, goldenSpawnDelayMs, FAKE_PACIFIER, randomPacifierTile,
   GATE_OPEN_MS, GATE_CLOSED_MS, GATE_WARN_MS, GATE_MAX, GATE_POSITIONS,
   VISION_START_ROUND, VISION_START_TILES, VISION_MIN_TILES,
   DARK_HEARTBEAT_WARN_TILES,
@@ -608,11 +608,16 @@ export default class Game {
     });
   }
 
-  /** 맵 정중앙에 황금 젖병 배치 (먹은 뒤 20초 후 제자리에 다시 나타난다) */
+  /** 맵 정중앙에 황금 젖병 배치 (1R 즉시 / 2R+ 20초+랜덤30초 후 등장) */
   _initGoldenBottle() {
     this.goldenBottle = new Item(
       GOLDEN_SPAWN.row, GOLDEN_SPAWN.col, 'GOLDEN', { fixed: true },
     );
+    const delayMs = goldenSpawnDelayMs(this.round, false, this.rng);
+    if (delayMs > 0) {
+      this.goldenBottle.collected = true;
+      this.goldenBottle.respawnTimer = delayMs;
+    }
   }
 
   /**
@@ -1495,6 +1500,7 @@ export default class Game {
     if (bottle.row === this.player.row && bottle.col === this.player.col) {
       this._activateGoldenWalker();
       bottle.collect();
+      bottle.respawnTimer = goldenSpawnDelayMs(this.round, true, this.rng);
     }
   }
 
